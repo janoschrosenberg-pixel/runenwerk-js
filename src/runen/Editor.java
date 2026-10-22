@@ -123,7 +123,7 @@ final class Editor {
         }));
         tsLsp = new Lsp("TS", hoerer("TS"));
         javaLsp = new Lsp("Java", hoerer("Java"));
-        javaLsp.hinweis = ":installJdtls laedt ihn herunter (oder java.lsp.home in config.txt setzen)";
+        javaLsp.hinweis = "jdtls ist in der Jar eingebaut; diese Jar wurde ohne gebaut (oder java.lsp.home in config.txt setzen)";
         fm = new FileManager(this);
         vim = new Vim(this);
         wz = new Werkzeug(this);
@@ -323,16 +323,15 @@ final class Editor {
 
     void javaLspStarten() {
         if (javaOrdner == null) return;
-        if (wz.jdtlsFehlt()) {
-            javaLsp.status = "fehlt";
-            popupOpen("Java Language Server (jdtls) fehlt. ENTER laedt ihn herunter (ca. 50 MB, neben die Jar), ESC nicht:", "installJdtls", "");
-            return;
-        }
-        List<String> b = wz.javaLspBefehl();
-        if (b.isEmpty()) return;
         javaLspOrdner = javaOrdner;
-        javaLsp.start(javaOrdner, b, wz.javaEinstellungen(), Json.obj("settings", wz.javaEinstellungen(), "extendedClientCapabilities",
-                Json.obj("classFileContentsSupport", false)));
+        javaLsp.stop();
+        javaLsp.status = "startet";
+        Path ordner = javaOrdner;
+        wz.javaLspVorbereiten(b -> {
+            if (!ordner.equals(javaOrdner)) return;
+            javaLsp.start(ordner, b, wz.javaEinstellungen(), Json.obj("settings", wz.javaEinstellungen(), "extendedClientCapabilities",
+                    Json.obj("classFileContentsSupport", false)));
+        });
     }
 
     static String name(Path p) {

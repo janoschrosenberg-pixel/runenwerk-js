@@ -301,47 +301,149 @@ final class Werkzeug {
                 "import", Json.obj("maven", Json.obj("enabled", true), "gradle", Json.obj("enabled", true)), "autobuild", Json.obj("enabled", true)));
     }
 
-    List<String> javaLspBefehl() {
-        String b = ed.kf.get("java.lsp", "jdtls");
-        if (b.equals("off")) return List.of();
-        Path daten = ed.konfig.resolve("jdtls-daten").resolve(Editor.name(ed.javaOrdner) + "-" + Integer.toHexString(ed.javaOrdner.toString().hashCode()));
-        String home = ed.kf.get("java.lsp.home", null);
-        if (home == null) {
-            List<String> l = new ArrayList<>(List.of(b.split("\\s+")));
-            if (!l.contains("-data")) {
-                l.add("-data");
-                l.add(daten.toString());
+    /**
+     * Startbefehl fuer jdtls im Hintergrund ermitteln: eigener Ordner (java.lsp.home), sonst der
+     * eingebaute (beim ersten Mal aus der Jar entpackt), sonst jdtls im PATH. Dazu ein Java 21+.
+     */
+    void javaLspVorbereiten(Consumer<List<String>> fertig) {
+        String eigen = ed.kf.get("java.lsp.home", null);
+        String javaEinst = ed.kf.get("java.lsp.java", null);
+        hintergrund(() -> {
+            String fehler = null;
+            List<String> b = List.of();
+            try {
+                Path home = null;
+                if (eigen != null) {
+                    Path h = ed.konfig.resolve(eigen).toAbsolutePath().normalize();
+                    if (launcher(h) != null) home = h;
+                    else ed.farbig("java.lsp.home (" + h + ") ist kein vollstaendiges jdtls - nehme das eingebaute", E_WARN);
+                }
+                if (home == null) home = eingebautesJdtls();
+                String java = javaEinst;
+                if (java == null) {
+                    Path j = Laden.javaAb(21);
+                    if (j != null) java = j.toString();
+                }
+                if (home != null) {
+                    if (java == null) {
+                        fehler = "Der Java Language Server braucht Java 21 oder neuer; gefunden wurde nur Java " + Runtime.version().feature()
+                                + ". JDK 21 installieren (z. B. winget install EclipseAdoptium.Temurin.21.JDK) oder java.lsp.java in config.txt setzen.";
+                    } else {
+                        b = javaLspBefehl(home, java);
+                    }
+                } else {
+                    String c = ed.kf.get("java.lsp", "jdtls");
+                    if (!c.equals("off")) {
+                        List<String> l = new ArrayList<>(List.of(c.split("\\s+")));
+                        if (!l.contains("-data")) {
+                            l.add("-data");
+                            l.add(datenOrdner().toString());
+                        }
+                        b = l;
+                    }
+                }
+            } catch (IOException | RuntimeException e) {
+                fehler = "jdtls nicht vorbereitet: " + e;
             }
-            return l;
-        }
-        Path h = ed.konfig.resolve(home).toAbsolutePath().normalize();
-        Path launcher = null;
-        try (Stream<Path> s = Files.list(h.resolve("plugins"))) {
-            launcher = s.filter(p -> {
+            String f = fehler;
+            List<String> befehl = b;
+            SwingUtilities.invokeLater(() -> {
+                if (ed.meldung != null && ed.meldung.startsWith("Java Language Server wird entpackt")) ed.meldung = null;
+                if (f != null) {
+                    ed.javaLsp.status = "fehlt";
+                    ed.fehler(f);
+                } else if (!befehl.isEmpty()) {
+                    fertig.accept(befehl);
+                }
+                ed.neuMalen.run();
+            });
+        });
+    }
+
+    private Path datenOrdner() {
+        return ed.konfig.resolve("jdtls-daten").resolve(Editor.name(ed.javaOrdner) + "-" + Integer.toHexString(ed.javaOrdner.toString().hashCode()));
+    }
+
+    private static Path launcher(Path home) {
+        try (Stream<Path> s = Files.list(home.resolve("plugins"))) {
+            return s.filter(p -> {
                 String n = p.getFileName().toString();
                 return n.startsWith("org.eclipse.equinox.launcher_") && n.endsWith(".jar");
             }).findFirst().orElse(null);
         } catch (IOException e) {
-            // unten gemeldet
+            return null;
         }
-        if (launcher == null) {
-            ed.fehler("java.lsp.home: kein plugins/org.eclipse.equinox.launcher_*.jar in " + h);
-            return List.of();
+    }
+
+    /** jdtls aus der Jar nach jdtls-eingebaut entpacken (nur wenn die Version neu ist); null ohne */
+    private Path eingebautesJdtls() throws IOException {
+        Path quelle;
+        try {
+            quelle = Path.of(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+        } catch (Exception e) {
+            return null;
         }
+        if (Files.isDirectory(quelle)) {
+            // beim Entwickeln: out/jdtls direkt
+            Path d = quelle.resolve("jdtls");
+            return launcher(d) != null ? d : null;
+        }
+        try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(quelle.toFile())) {
+            java.util.zip.ZipEntry v = z.getEntry("jdtls/VERSION");
+            if (v == null) return null;
+            String version;
+            try (InputStream in = z.getInputStream(v)) {
+                version = new String(in.readAllBytes(), StandardCharsets.UTF_8).strip();
+            }
+            Path ziel = ed.konfig.resolve("jdtls-eingebaut");
+            Path marke = ziel.resolve("VERSION");
+            if (Files.exists(marke) && Files.readString(marke).strip().equals(version) && launcher(ziel) != null) return ziel;
+            SwingUtilities.invokeLater(() -> {
+                ed.javaLsp.status = "entpackt";
+                ed.meldung = "Java Language Server wird entpackt (einmalig) ...";
+                ed.neuMalen.run();
+            });
+            loeschen(ziel);
+            var eintraege = z.entries();
+            while (eintraege.hasMoreElements()) {
+                java.util.zip.ZipEntry e = eintraege.nextElement();
+                String n = e.getName();
+                if (!n.startsWith("jdtls/") || n.equals("jdtls/VERSION")) continue;
+                Path p = ziel.resolve(n.substring(6)).normalize();
+                if (!p.startsWith(ziel)) continue;
+                if (e.isDirectory()) {
+                    Files.createDirectories(p);
+                } else {
+                    Files.createDirectories(p.getParent());
+                    try (InputStream in = z.getInputStream(e)) {
+                        Files.copy(in, p, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            }
+            Files.writeString(marke, version);
+            return ziel;
+        }
+    }
+
+    private static void loeschen(Path p) throws IOException {
+        if (!Files.exists(p)) return;
+        try (Stream<Path> s = Files.walk(p)) {
+            for (Path x : s.sorted(java.util.Comparator.reverseOrder()).toList()) Files.delete(x);
+        }
+    }
+
+    private List<String> javaLspBefehl(Path h, String java) {
+        Path launcher = launcher(h);
         String os = System.getProperty("os.name").toLowerCase();
         String sys = os.contains("win") ? "win" : os.contains("mac") ? "mac" : "linux";
         boolean arm = System.getProperty("os.arch").contains("aarch64") || System.getProperty("os.arch").contains("arm");
         Path cfg = h.resolve("config_" + sys + (arm ? "_arm" : ""));
         if (!Files.isDirectory(cfg)) cfg = h.resolve("config_" + sys);
-        String java = ed.kf.get("java.lsp.java", Path.of(System.getProperty("java.home"), "bin", Lsp.WINDOWS ? "java.exe" : "java").toString());
-        if (ed.kf.get("java.lsp.java", null) == null && Runtime.version().feature() < 21) {
-            ed.farbig("Hinweis: jdtls braucht Java 21+, der Editor laeuft mit Java " + Runtime.version().feature() + " (java.lsp.java in config.txt setzen)", E_WARN);
-        }
         return new ArrayList<>(List.of(java, "-Declipse.application=org.eclipse.jdt.ls.core.id1", "-Dosgi.bundles.defaultStartLevel=4",
                 "-Declipse.product=org.eclipse.jdt.ls.core.product", "-Dosgi.checkConfiguration=true", "-Dosgi.sharedConfiguration.area=" + cfg,
                 "-Dosgi.sharedConfiguration.area.readOnly=true", "-Dosgi.configuration.cascaded=true", "-Xms256m", "-Xmx" + ed.kf.get("java.lsp.memory", "2G"),
                 "--add-modules=ALL-SYSTEM", "--add-opens", "java.base/java.util=ALL-UNNAMED", "--add-opens", "java.base/java.lang=ALL-UNNAMED", "-jar",
-                launcher.toString(), "-configuration", ed.konfig.resolve("jdtls-config").toString(), "-data", daten.toString()));
+                launcher.toString(), "-configuration", ed.konfig.resolve("jdtls-config").toString(), "-data", datenOrdner().toString()));
     }
 
     /** rechts in der Statuszeile */
@@ -674,14 +776,6 @@ final class Werkzeug {
 
     // ================================================================ Herunterladen (jdtls, js-debug)
     private volatile boolean laedt;
-
-    /** jdtls weder ueber java.lsp.home noch im PATH */
-    boolean jdtlsFehlt() {
-        if (ed.kf.get("java.lsp.home", null) != null || ed.kf.get("java.lsp", "jdtls").equals("off")) return false;
-        ProcessBuilder pb = new ProcessBuilder();
-        Lsp.umgebung(pb);
-        return Lsp.befehl(ed.javaOrdner, List.of(ed.kf.get("java.lsp", "jdtls").split("\\s+")[0]), pb.environment()) == null;
-    }
 
     private void installieren(String was, String ziel, Runnable fertig) {
         if (laedt) {

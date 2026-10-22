@@ -7,7 +7,7 @@ in einen eigenen Bildpuffer gemalt (eigene Glyphen-Blits); Java zeigt nur das fe
 Keine Abhängigkeiten außer einem JDK ab 17.
 
 ```bash
-sh build.sh                 # Windows: build.bat
+sh build.sh                 # Windows: build.bat (laedt beim ersten Mal jdtls nach vendor/ und packt ihn in die Jar)
 java -jar runenjs.jar       # oder run.sh / run.bat
 ```
 
@@ -33,9 +33,10 @@ tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.
 ## Language Server
 
 - **TypeScript**: `npm install -g typescript typescript-language-server` (`node_modules/.bin` geht vor).
-- **Java**: Eclipse jdtls. Fehlt er, bietet der Editor beim Start an, ihn herunterzuladen (ENTER, ca. 50 MB, landet
-  neben der Jar; jederzeit mit `:installJdtls`). jdtls braucht Java 21+; läuft der Editor mit älterem Java, sucht er
-  ein passendes JDK und trägt es als `java.lsp.java` ein. Maven- und Gradle-Projekte werden importiert.
+- **Java**: Eclipse jdtls ist **in `runenjs.jar` eingebaut** (deshalb ist sie ca. 50 MB groß) und wird beim ersten Start
+  daneben nach `jdtls-eingebaut/` entpackt – nichts zu installieren. jdtls braucht Java 21+: der Editor nimmt das Java,
+  mit dem er läuft, wenn es 21+ ist, sonst sucht er ein JDK 21+ (JAVA_HOME, übliche Ordner) oder nimmt `java.lsp.java`.
+  Maven- und Gradle-Projekte werden importiert.
 
 Definition (`gd`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
 gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder `]m` / `[m`), mit Zähler.

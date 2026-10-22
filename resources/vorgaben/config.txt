@@ -15,13 +15,11 @@ java.ignore = target /build .gradle /bin /out
 # ---------------------------------------------------------------- Language Server
 # TypeScript: npm install -g typescript typescript-language-server (node_modules/.bin geht vor)
 ts.lsp = typescript-language-server --stdio
-# Java (Eclipse jdtls, braucht Java 21+): fehlt er, bietet der Editor an, ihn herunterzuladen (:installJdtls);
-# oder selbst entpacken und hier den Ordner angeben:
-#   https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz
+# Java: Eclipse jdtls ist in runenjs.jar eingebaut und wird beim ersten Start daneben entpackt (jdtls-eingebaut).
+# Nur fuer ein eigenes jdtls: Ordner angeben (oder java.lsp = Befehl im PATH); java.lsp = off schaltet ihn ab
 java.lsp.home =
-# ... oder ein Befehl im PATH (dann ohne java.lsp.home); off schaltet ihn ab
 java.lsp = jdtls
-# Java fuer jdtls (leer: das Java, mit dem der Editor laeuft) und sein Speicher
+# Java 21+ fuer jdtls (leer: wird gesucht - das laufende Java, JAVA_HOME, uebliche JDK-Ordner) und sein Speicher
 java.lsp.java =
 java.lsp.memory = 2G
 
