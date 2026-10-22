@@ -212,8 +212,8 @@ final class Laden {
         return Files.isRegularFile(j) ? j : null;
     }
 
-    /** Hauptversion aus der Datei release eines JDK */
-    private static int version(Path home) {
+    /** Hauptversion aus der Datei release eines JDK (0, wenn unbekannt) */
+    static int version(Path home) {
         try {
             for (String z : Files.readAllLines(home.resolve("release"))) {
                 if (!z.startsWith("JAVA_VERSION=")) continue;

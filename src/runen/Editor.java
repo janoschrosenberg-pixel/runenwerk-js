@@ -320,6 +320,8 @@ final class Editor {
     }
 
     private Path javaLspOrdner;
+    /** schon einmal nach einem Abbruch neu gestartet */
+    private boolean javaLspNeu;
 
     void javaLspStarten() {
         if (javaOrdner == null) return;
@@ -327,6 +329,24 @@ final class Editor {
         javaLsp.stop();
         javaLsp.status = "startet";
         Path ordner = javaOrdner;
+        long seit = System.currentTimeMillis() - 2000;
+        javaLsp.logGruende = () -> wz.jdtlsLog(seit);
+        boolean[] nochmal = {false};
+        javaLsp.neustart = code -> {
+            // Abbruch beim Start (13): alte Konfiguration/Arbeitsdaten verwerfen und einmal neu starten
+            if (code != 13 || nochmal[0] || javaLspNeu) return false;
+            javaLspNeu = true;
+            farbig("Java Language Server brach ab (13) - neu mit dem eingebauten jdtls und frischer Konfiguration", E_WARN);
+            wz.nurEingebaut = true;
+            if (kf.get("java.lsp.home", null) != null) {
+                farbig("java.lsp.home aus config.txt entfernt (" + kf.get("java.lsp.home", "") + " war defekt)", E_WARN);
+                kf.setzen("java.lsp.home", "");
+            }
+            wz.jdtlsAufraeumen();
+            javaLspOrdner = null;
+            javaLspStarten();
+            return true;
+        };
         wz.javaLspVorbereiten(b -> {
             if (!ordner.equals(javaOrdner)) return;
             javaLsp.start(ordner, b, wz.javaEinstellungen(), Json.obj("settings", wz.javaEinstellungen(), "extendedClientCapabilities",

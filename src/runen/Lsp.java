@@ -43,6 +43,10 @@ final class Lsp {
     final String name;
     /** was zu tun ist, wenn das Programm fehlt */
     String hinweis = "npm install -g typescript typescript-language-server";
+    /** liefert nach dem Beenden weitere Gruende (z. B. aus dem Eclipse-Log), oder null */
+    java.util.function.Supplier<List<String>> logGruende = () -> null;
+    /** nach einem Abbruch mit diesem Exit-Code: true, wenn der Aufrufer selbst neu startet */
+    java.util.function.IntPredicate neustart = c -> false;
     /** Antwort auf workspace/configuration und initializationOptions */
     private Map<String, Object> einstellungen = Map.of();
     private Object initOptionen;
@@ -293,8 +297,18 @@ final class Lsp {
                     if (proc != p) return;
                     bereit = false;
                     status = "weg";
+                    if (neustart.test(code)) {
+                        Main.log(name + " Language Server beendet (" + code + "), wird neu gestartet");
+                        return;
+                    }
                     for (String z : zeilen) hoerer.meldung("  lsp: " + z, false);
-                    String grund = zeilen.isEmpty() ? "" : ": " + zeilen.get(zeilen.size() - 1);
+                    List<String> log = logGruende.get();
+                    if (log != null) for (String z : log) hoerer.meldung("  log: " + z, true);
+                    // WARNING-Zeilen (z. B. incubator modules) sind nicht der Grund
+                    String letzte = null;
+                    for (String z : zeilen) if (!z.startsWith("WARNING")) letzte = z;
+                    if (log != null && !log.isEmpty()) letzte = log.get(log.size() - 1);
+                    String grund = letzte == null ? "" : ": " + letzte;
                     String hilfe = String.join(" ", zeilen).contains("TypeScript") ? "  ->  npm install -g typescript" : "";
                     String t = name + " Language Server beendet (Exit-Code " + code + ")" + grund + hilfe;
                     Main.log(t + (zeilen.isEmpty() ? "" : System.lineSeparator() + String.join(System.lineSeparator(), zeilen)));

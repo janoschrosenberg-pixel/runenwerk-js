@@ -305,8 +305,11 @@ final class Werkzeug {
      * Startbefehl fuer jdtls im Hintergrund ermitteln: eigener Ordner (java.lsp.home), sonst der
      * eingebaute (beim ersten Mal aus der Jar entpackt), sonst jdtls im PATH. Dazu ein Java 21+.
      */
+    /** nach einem Abbruch: nur noch das eingebaute jdtls */
+    boolean nurEingebaut;
+
     void javaLspVorbereiten(Consumer<List<String>> fertig) {
-        String eigen = ed.kf.get("java.lsp.home", null);
+        String eigen = nurEingebaut ? null : ed.kf.get("java.lsp.home", null);
         String javaEinst = ed.kf.get("java.lsp.java", null);
         hintergrund(() -> {
             String fehler = null;
@@ -315,8 +318,15 @@ final class Werkzeug {
                 Path home = null;
                 if (eigen != null) {
                     Path h = ed.konfig.resolve(eigen).toAbsolutePath().normalize();
-                    if (launcher(h) != null) home = h;
-                    else ed.farbig("java.lsp.home (" + h + ") ist kein vollstaendiges jdtls - nehme das eingebaute", E_WARN);
+                    if (vollstaendig(h)) {
+                        home = h;
+                    } else {
+                        String t = "java.lsp.home (" + h + ") ist kein vollstaendiges jdtls - nehme das eingebaute";
+                        SwingUtilities.invokeLater(() -> {
+                            ed.farbig(t, E_WARN);
+                            ed.kf.setzen("java.lsp.home", "");
+                        });
+                    }
                 }
                 if (home == null) home = eingebautesJdtls();
                 String java = javaEinst;
@@ -330,6 +340,12 @@ final class Werkzeug {
                                 + ". JDK 21 installieren (z. B. winget install EclipseAdoptium.Temurin.21.JDK) oder java.lsp.java in config.txt setzen.";
                     } else {
                         b = javaLspBefehl(home, java);
+                        Path jh = Path.of(java).getParent() == null ? null : Path.of(java).getParent().getParent();
+                        int v = jh == null ? 0 : Laden.version(jh);
+                        String info = "Java Language Server: jdtls aus " + home + " mit Java " + (v == 0 ? "?" : v) + " (" + java + ")";
+                        Main.log(info);
+                        SwingUtilities.invokeLater(() -> ed.print(info));
+                        if (v > 0 && v < 21) fehler = "jdtls braucht Java 21+, " + java + " ist Java " + v + " (java.lsp.java in config.txt)";
                     }
                 } else {
                     String c = ed.kf.get("java.lsp", "jdtls");
@@ -360,8 +376,67 @@ final class Werkzeug {
         });
     }
 
+    /** Fehler aus den Eclipse-Logs nach einem Abbruch von jdtls (Exit-Code 13) */
+    List<String> jdtlsLog(long seit) {
+        List<Path> logs = new ArrayList<>();
+        if (ed.javaOrdner != null) logs.add(datenOrdner().resolve(".metadata").resolve(".log"));
+        try (Stream<Path> st = Files.list(ed.konfig.resolve("jdtls-config"))) {
+            st.filter(p -> p.getFileName().toString().endsWith(".log")).forEach(logs::add);
+        } catch (IOException e) {
+            // keiner
+        }
+        List<String> r = new ArrayList<>();
+        for (Path p : logs) {
+            try {
+                if (Files.getLastModifiedTime(p).toMillis() < seit) continue;
+                List<String> z = Files.readAllLines(p, StandardCharsets.UTF_8);
+                for (int i = Math.max(0, z.size() - 300); i < z.size(); i++) {
+                    String t = z.get(i).strip();
+                    if (t.startsWith("!MESSAGE") || t.startsWith("Caused by:") || (t.matches("^[a-z][\\w.]*(Exception|Error)\\b.*") && !t.startsWith("at "))) {
+                        String x = t.replace("!MESSAGE ", "");
+                        if (!r.contains(x)) r.add(x);
+                    }
+                }
+            } catch (IOException | RuntimeException e) {
+                // nicht lesbar
+            }
+        }
+        return r.size() > 8 ? r.subList(r.size() - 8, r.size()) : r;
+    }
+
+    /** Eclipse-Konfiguration je jdtls-Version: ein alter Zwischenspeicher kann nicht stoeren */
+    private Path konfigOrdner(Path launcher) {
+        String v = launcher.getFileName().toString().replace("org.eclipse.equinox.launcher_", "").replace(".jar", "");
+        return ed.konfig.resolve("jdtls-config").resolve(v + "-" + Integer.toHexString(launcher.toAbsolutePath().toString().hashCode()));
+    }
+
+    /** nach einem Abbruch: Eclipse-Konfiguration und Arbeitsdaten verwerfen (beim Neustart neu angelegt) */
+    void jdtlsAufraeumen() {
+        try {
+            loeschen(ed.konfig.resolve("jdtls-config"));
+            if (ed.javaOrdner != null) loeschen(datenOrdner());
+        } catch (IOException e) {
+            ed.farbig("jdtls-Ordner nicht ganz geloescht (laeuft noch ein alter jdtls?): " + e.getMessage(), E_WARN);
+        }
+    }
+
     private Path datenOrdner() {
         return ed.konfig.resolve("jdtls-daten").resolve(Editor.name(ed.javaOrdner) + "-" + Integer.toHexString(ed.javaOrdner.toString().hashCode()));
+    }
+
+    /** Launcher, Kern-Plugin und eine Konfiguration muessen da sein */
+    private static boolean vollstaendig(Path home) {
+        if (launcher(home) == null) return false;
+        try (Stream<Path> s = Files.list(home.resolve("plugins"))) {
+            if (s.noneMatch(p -> p.getFileName().toString().startsWith("org.eclipse.jdt.ls.core_"))) return false;
+        } catch (IOException e) {
+            return false;
+        }
+        try (Stream<Path> s = Files.list(home)) {
+            return s.anyMatch(p -> p.getFileName().toString().startsWith("config_") && Files.isDirectory(p));
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     private static Path launcher(Path home) {
@@ -386,7 +461,7 @@ final class Werkzeug {
         if (Files.isDirectory(quelle)) {
             // beim Entwickeln: out/jdtls direkt
             Path d = quelle.resolve("jdtls");
-            return launcher(d) != null ? d : null;
+            return vollstaendig(d) ? d : null;
         }
         try (java.util.zip.ZipFile z = new java.util.zip.ZipFile(quelle.toFile())) {
             java.util.zip.ZipEntry v = z.getEntry("jdtls/VERSION");
@@ -397,7 +472,7 @@ final class Werkzeug {
             }
             Path ziel = ed.konfig.resolve("jdtls-eingebaut");
             Path marke = ziel.resolve("VERSION");
-            if (Files.exists(marke) && Files.readString(marke).strip().equals(version) && launcher(ziel) != null) return ziel;
+            if (Files.exists(marke) && Files.readString(marke).strip().equals(version) && vollstaendig(ziel)) return ziel;
             SwingUtilities.invokeLater(() -> {
                 ed.javaLsp.status = "entpackt";
                 ed.meldung = "Java Language Server wird entpackt (einmalig) ...";
@@ -443,7 +518,7 @@ final class Werkzeug {
                 "-Declipse.product=org.eclipse.jdt.ls.core.product", "-Dosgi.checkConfiguration=true", "-Dosgi.sharedConfiguration.area=" + cfg,
                 "-Dosgi.sharedConfiguration.area.readOnly=true", "-Dosgi.configuration.cascaded=true", "-Xms256m", "-Xmx" + ed.kf.get("java.lsp.memory", "2G"),
                 "--add-modules=ALL-SYSTEM", "--add-opens", "java.base/java.util=ALL-UNNAMED", "--add-opens", "java.base/java.lang=ALL-UNNAMED", "-jar",
-                launcher.toString(), "-configuration", ed.konfig.resolve("jdtls-config").toString(), "-data", datenOrdner().toString()));
+                launcher.toString(), "-configuration", konfigOrdner(launcher).toString(), "-data", datenOrdner().toString()));
     }
 
     /** rechts in der Statuszeile */
@@ -789,7 +864,7 @@ final class Werkzeug {
         hintergrund(() -> {
             String fehler = null;
             try {
-                String url = was.equals("jdtls") ? "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz" : jsDebugUrl();
+                String url = jsDebugUrl();
                 Laden.tarGz(url, ordner, mb -> SwingUtilities.invokeLater(() -> {
                     ed.meldung = was + ": " + mb;
                     ed.neuMalen.run();
@@ -819,23 +894,6 @@ final class Werkzeug {
             if (n != null && n.startsWith("js-debug-dap") && n.endsWith(".tar.gz")) return Json.str(Json.get(a, "browser_download_url"));
         }
         throw new IOException("kein js-debug-dap-*.tar.gz im neuesten Release");
-    }
-
-    private void jdtlsInstallieren() {
-        installieren("jdtls", "jdtls", () -> {
-            ed.kf.setzen("java.lsp.home", "jdtls");
-            if (Runtime.version().feature() < 21 && ed.kf.get("java.lsp.java", null) == null) {
-                Path j = Laden.javaAb(21);
-                if (j != null) {
-                    ed.kf.setzen("java.lsp.java", j.toString());
-                    ed.print("Java 21+ fuer jdtls: " + j);
-                } else {
-                    ed.fehler("jdtls braucht Java 21+: bitte installieren und java.lsp.java in config.txt setzen");
-                    return;
-                }
-            }
-            ed.befehl("lspRestart", "");
-        });
     }
 
     // ================================================================ Spring Boot
@@ -1092,7 +1150,6 @@ final class Werkzeug {
     // ================================================================ Befehle
     void befehle(Map<String, Editor.Cmd> c) {
         dbg.befehle(c, this);
-        c.put("installJdtls", a -> jdtlsInstallieren());
         c.put("installJsDebug", a -> installieren("js-debug", "js-debug", () -> ed.meldung = "js-debug ist da: Leertaste d d startet den Debugger"));
         c.put("springRun", a -> springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), false));
         c.put("springDebug", a -> springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), true));
