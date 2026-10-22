@@ -41,6 +41,8 @@ final class Lsp {
 
     /** fuer Meldungen: TS oder Java */
     final String name;
+    /** was zu tun ist, wenn das Programm fehlt */
+    String hinweis = "npm install -g typescript typescript-language-server";
     /** Antwort auf workspace/configuration und initializationOptions */
     private Map<String, Object> einstellungen = Map.of();
     private Object initOptionen;
@@ -137,7 +139,7 @@ final class Lsp {
         List<String> b = befehl(wurzel, konfig, pb.environment());
         if (b == null) {
             status = "fehlt";
-            String t = name + ": " + konfig.get(0) + " nicht gefunden (weder in node_modules/.bin noch im PATH)  ->  npm install -g typescript typescript-language-server";
+            String t = name + ": " + konfig.get(0) + " nicht gefunden  ->  " + hinweis;
             Main.log("Language Server: " + t + "; PATH=" + pb.environment().get("PATH"));
             hoerer.meldung(t, true);
             return;
@@ -149,7 +151,7 @@ final class Lsp {
         } catch (IOException e) {
             status = "fehlt";
             hoerer.meldung(name + " Language Server nicht gestartet (" + String.join(" ", b) + "): " + e.getMessage()
-                    + "  ->  npm install -g typescript typescript-language-server", true);
+                    + "  ->  " + hinweis, true);
             return;
         }
         status = "startet";

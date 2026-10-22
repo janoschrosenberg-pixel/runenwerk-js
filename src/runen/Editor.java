@@ -123,6 +123,7 @@ final class Editor {
         }));
         tsLsp = new Lsp("TS", hoerer("TS"));
         javaLsp = new Lsp("Java", hoerer("Java"));
+        javaLsp.hinweis = ":installJdtls laedt ihn herunter (oder java.lsp.home in config.txt setzen)";
         fm = new FileManager(this);
         vim = new Vim(this);
         wz = new Werkzeug(this);
@@ -322,6 +323,11 @@ final class Editor {
 
     void javaLspStarten() {
         if (javaOrdner == null) return;
+        if (wz.jdtlsFehlt()) {
+            javaLsp.status = "fehlt";
+            popupOpen("Java Language Server (jdtls) fehlt. ENTER laedt ihn herunter (ca. 50 MB, neben die Jar), ESC nicht:", "installJdtls", "");
+            return;
+        }
         List<String> b = wz.javaLspBefehl();
         if (b.isEmpty()) return;
         javaLspOrdner = javaOrdner;
@@ -1768,7 +1774,7 @@ final class Editor {
 
     int textZeilen() {
         int h = scr.h - oben() - unten() - 8;
-        if (konsoleOffen || wz.ergebnisOffen) h = (scr.h - oben() - unten()) * 3 / 5;
+        if (konsoleOffen || wz.ergebnisOffen || wz.dbg.offen) h = (scr.h - oben() - unten()) * 3 / 5;
         return Math.max(1, h / scr.lh);
     }
 
@@ -1842,6 +1848,7 @@ final class Editor {
             if (z >= d.zeilen()) break;
             int y = oben + k * lh;
             if (z == cz) scr.rect(0, y, W, lh, E_ZEILE);
+            if (z == wz.dbg.haltZeile(d)) scr.rect(0, y, W, lh, 0x3A3200);
             int schwer = 0;
             for (Doc.Diag g : d.diags) {
                 if (g.zeile() <= z && g.endZeile() >= z && (schwer == 0 || g.schwere() < schwer)) schwer = g.schwere();
@@ -1856,6 +1863,13 @@ final class Editor {
                 scr.rect(0, y, 4, lh, E_WARN);
             }
             scr.text((rand - 1 - nr.length()) * cw, y, nr, nf);
+            var hp = d.pfad == null ? null : wz.dbg.punkte.get(d.pfad);
+            if (hp != null && hp.contains(z)) {
+                // Haltepunkt: roter Punkt im Rand
+                int r = Math.max(3, lh / 4);
+                scr.rect(cw / 2, y + lh / 2 - r, 2 * r, 2 * r, E_FEHLER);
+            }
+            if (z == wz.dbg.haltZeile(d)) scr.text(0, y, ">", E_WARN);
             int a = d.anf(z), e = d.ende(z);
             scr.clip(tx, y, W - tx, lh);
             // Auswahl (Visual)
@@ -1918,6 +1932,7 @@ final class Editor {
             }
         }
         if (konsoleOffen) konsoleMalen(oben + n * lh + 6);
+        else if (wz.dbg.offen && (modus.equals("debug") || !wz.ergebnisOffen || !modus.equals("result"))) wz.dbg.malen(oben + n * lh + 6);
         else if (wz.ergebnisOffen && wz.erg != null) wz.ergebnisMalen(oben + n * lh + 6);
         if (vorschlagOffen) vorschlaegeMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben + 1) * lh);
         if (info != null) infoMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben) * lh);
@@ -1971,6 +1986,7 @@ final class Editor {
             case "normal" -> "NORMAL";
             case "operator" -> "NORMAL " + vim.op;
             case "result" -> "ERGEBNIS";
+            case "debug" -> "DEBUG";
             case "picker" -> "AUSWAHL";
             default -> modus;
         };

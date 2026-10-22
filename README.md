@@ -33,12 +33,36 @@ tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.
 ## Language Server
 
 - **TypeScript**: `npm install -g typescript typescript-language-server` (`node_modules/.bin` geht vor).
-- **Java**: Eclipse jdtls ([Download](https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz)),
-  entpacken und `java.lsp.home` darauf zeigen lassen; jdtls braucht Java 21+ (`java.lsp.java`, falls der Editor
-  mit einem älteren Java läuft). Maven- und Gradle-Projekte werden importiert.
+- **Java**: Eclipse jdtls. Fehlt er, bietet der Editor beim Start an, ihn herunterzuladen (ENTER, ca. 50 MB, landet
+  neben der Jar; jederzeit mit `:installJdtls`). jdtls braucht Java 21+; läuft der Editor mit älterem Java, sucht er
+  ein passendes JDK und trägt es als `java.lsp.java` ein. Maven- und Gradle-Projekte werden importiert.
 
 Definition (`gd`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
 gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder `]m` / `[m`), mit Zähler.
+**Call Hierarchy**: `Leertaste c` (oder `gh`) zeigt alle Stellen, die die Methode/Funktion unter dem Cursor aufrufen,
+als Liste; tippen filtert, ENTER springt hin.
+
+## Debugger (Java und JS/TS, gleiche Bedienung)
+
+| Taste | |
+|---|---|
+| Leertaste d b | Haltepunkt an/aus (roter Punkt im Rand) |
+| Leertaste d d | starten: in Java-Dateien Spring Boot im Debug-Modus (Profil `spring.profile`) und anhängen; in JS/TS-Dateien die aktuelle Datei mit Node (`debug.ts.type = chrome` für die App im Browser) |
+| Leertaste d a | an Laufendes anhängen: Java auf `debug.java.port` (5005), Node auf 9229 |
+| F3 / F8 / F7 / Shift+F8 | weiter / Schritt drüber / hinein / heraus (auch Leertaste d c / d n / d i / d o) |
+| Leertaste d x | stoppen (Java: nur trennen, die Anwendung läuft weiter) |
+| Leertaste d p | ins Debug-Panel: links Aufrufstapel, rechts Variablen; `j`/`k`, TAB, ENTER klappt auf bzw. wählt den Frame, `y` kopiert, ESC zurück |
+
+Java nutzt JDI aus dem JDK (der Editor muss also mit einem JDK laufen, nicht nur mit einer JRE) und verbindet sich per
+JDWP mit Java 21. JS/TS nutzt js-debug von Microsoft (Node und Chrome, Source Maps); beim ersten Start bietet der
+Editor an, ihn herunterzuladen (`:installJsDebug`). TypeScript läuft mit Node 22.6+ direkt, sonst `debug.node.runtime = npx tsx`.
+
+## Spring Boot
+
+`Leertaste a a` startet die Anwendung im Java-Arbeitsbereich mit dem Profil aus `spring.profile` (Vorgabe `dev`),
+`Leertaste a p` mit einem gewählten Profil (aus `spring.profiles` und `application-*.yml`), `Leertaste a d` im Debug-Modus
+mit angehängtem Debugger, `Leertaste a x` stoppt sie. Gestartet wird über `mvnw`/`mvn spring-boot:run` oder
+`gradlew bootRun`; eigener Befehl mit `spring.run` (`{profile}`). Die Ausgabe steht im Terminal.
 
 ## Git
 
@@ -62,7 +86,8 @@ In `config.txt`: `db.driver = ojdbc11.jar` und beliebig viele Konten
 
 | Taste | |
 |---|---|
-| Strg+Enter | Statement am Cursor (oder die Auswahl im Visual-Mode) ausführen |
+| Leertaste q | neue, leere SQL-Datei für schnelle Abfragen (Konto wie zuletzt) |
+| Strg+Enter | Statement am Cursor ausführen; im Visual-Mode (`v`/`V` markieren) die Auswahl, auch mit F5 oder Leertaste s s |
 | F5 | ganze Datei ausführen |
 | F6 | Konto für diese Datei wählen (steht unten rechts: `DB dev`) |
 | Leertaste o | zur Ergebnistabelle: `hjkl`, `y` Zelle, `Y` Zeile, `Strg+A` alles kopieren, ENTER Zelle ganz zeigen, `q` schließen |

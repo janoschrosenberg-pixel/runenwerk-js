@@ -15,7 +15,8 @@ java.ignore = target /build .gradle /bin /out
 # ---------------------------------------------------------------- Language Server
 # TypeScript: npm install -g typescript typescript-language-server (node_modules/.bin geht vor)
 ts.lsp = typescript-language-server --stdio
-# Java (Eclipse jdtls, braucht Java 21+): entweder der Ordner des entpackten jdtls ...
+# Java (Eclipse jdtls, braucht Java 21+): fehlt er, bietet der Editor an, ihn herunterzuladen (:installJdtls);
+# oder selbst entpacken und hier den Ordner angeben:
 #   https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz
 java.lsp.home =
 # ... oder ein Befehl im PATH (dann ohne java.lsp.home); off schaltet ihn ab
@@ -45,6 +46,28 @@ db.autocommit = off
 # Konten: db.account.NAME = JDBC-URL | BENUTZER | PASSWORT
 # db.account.dev = jdbc:oracle:thin:@//localhost:1521/XEPDB1 | scott | tiger
 # db.account.test = jdbc:oracle:thin:@//testhost:1521/TEST | app | geheim
+
+# ---------------------------------------------------------------- Spring Boot (Leertaste a a / a p / a d / a x)
+# Profil fuer Leertaste a a und den Debugger; weitere Profile fuer die Auswahl (dazu kommen application-*.yml)
+spring.profile = dev
+spring.profiles = dev
+# eigener Startbefehl statt mvnw/gradlew ({profile}, {port}); leer = automatisch
+spring.run =
+spring.debug =
+
+# ---------------------------------------------------------------- Debugger (Leertaste d d, gleiche Tasten fuer beide)
+# Java: Spring Boot startet mit JDWP auf diesem Port, der Debugger haengt sich an (Leertaste d a: an laufende JVM)
+debug.java.host = localhost
+debug.java.port = 5005
+# JS/TS mit js-debug (wird beim ersten Mal heruntergeladen): node oder chrome
+debug.ts.type = node
+# node: Programm ({file} = aktuelle Datei), Argumente, eigenes Laufzeitprogramm (z. B. npx tsx)
+debug.node.program = {file}
+debug.node.args =
+debug.node.runtime =
+debug.node.port = 9229
+# chrome: Adresse der laufenden App (z. B. Vite)
+debug.chrome.url = http://localhost:5173
 
 # ---------------------------------------------------------------- Editor
 font.size = 15

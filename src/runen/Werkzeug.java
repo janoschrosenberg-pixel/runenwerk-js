@@ -33,9 +33,11 @@ import javax.swing.Timer;
 final class Werkzeug {
     private final Editor ed;
     final Db db = new Db();
+    final Debug dbg;
 
     Werkzeug(Editor ed) {
         this.ed = ed;
+        dbg = new Debug(ed);
         Timer t = new Timer(2000, e -> {
             if (gitLesen()) ed.neuMalen.run();
         });
@@ -358,7 +360,8 @@ final class Werkzeug {
     // ================================================================ Auswahlliste
     boolean auswahlOffen;
     private String auswahlTitel = "", auswahlVorModus = "normal";
-    private List<String> auswahlAlle = List.of(), auswahlListe = List.of();
+    private List<String> auswahlAlle = List.of();
+    List<String> auswahlListe = List.of();
     private int auswahlWahl;
     private final StringBuilder auswahlFilter = new StringBuilder();
     private Consumer<String> auswahlAktion;
@@ -669,8 +672,350 @@ final class Werkzeug {
         d.spalteMerk = -1;
     }
 
+    // ================================================================ Herunterladen (jdtls, js-debug)
+    private volatile boolean laedt;
+
+    /** jdtls weder ueber java.lsp.home noch im PATH */
+    boolean jdtlsFehlt() {
+        if (ed.kf.get("java.lsp.home", null) != null || ed.kf.get("java.lsp", "jdtls").equals("off")) return false;
+        ProcessBuilder pb = new ProcessBuilder();
+        Lsp.umgebung(pb);
+        return Lsp.befehl(ed.javaOrdner, List.of(ed.kf.get("java.lsp", "jdtls").split("\\s+")[0]), pb.environment()) == null;
+    }
+
+    private void installieren(String was, String ziel, Runnable fertig) {
+        if (laedt) {
+            ed.meldung = "es wird schon etwas geladen";
+            return;
+        }
+        laedt = true;
+        Path ordner = ed.konfig.resolve(ziel);
+        ed.print("lade " + was + " nach " + ordner + " ...");
+        ed.meldung = "lade " + was + " ...";
+        hintergrund(() -> {
+            String fehler = null;
+            try {
+                String url = was.equals("jdtls") ? "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz" : jsDebugUrl();
+                Laden.tarGz(url, ordner, mb -> SwingUtilities.invokeLater(() -> {
+                    ed.meldung = was + ": " + mb;
+                    ed.neuMalen.run();
+                }));
+            } catch (Exception e) {
+                fehler = e.getMessage();
+            }
+            String f = fehler;
+            SwingUtilities.invokeLater(() -> {
+                laedt = false;
+                if (f != null) {
+                    ed.fehler(was + " nicht geladen: " + f);
+                } else {
+                    ed.print(was + " ist da: " + ordner);
+                    fertig.run();
+                }
+                ed.neuMalen.run();
+            });
+        });
+    }
+
+    /** neueste js-debug-dap-Version von GitHub */
+    private static String jsDebugUrl() throws IOException, InterruptedException {
+        String j = Laden.text("https://api.github.com/repos/microsoft/vscode-js-debug/releases/latest");
+        for (Object a : Json.list(Json.get(Json.parse(j), "assets"))) {
+            String n = Json.str(Json.get(a, "name"));
+            if (n != null && n.startsWith("js-debug-dap") && n.endsWith(".tar.gz")) return Json.str(Json.get(a, "browser_download_url"));
+        }
+        throw new IOException("kein js-debug-dap-*.tar.gz im neuesten Release");
+    }
+
+    private void jdtlsInstallieren() {
+        installieren("jdtls", "jdtls", () -> {
+            ed.kf.setzen("java.lsp.home", "jdtls");
+            if (Runtime.version().feature() < 21 && ed.kf.get("java.lsp.java", null) == null) {
+                Path j = Laden.javaAb(21);
+                if (j != null) {
+                    ed.kf.setzen("java.lsp.java", j.toString());
+                    ed.print("Java 21+ fuer jdtls: " + j);
+                } else {
+                    ed.fehler("jdtls braucht Java 21+: bitte installieren und java.lsp.java in config.txt setzen");
+                    return;
+                }
+            }
+            ed.befehl("lspRestart", "");
+        });
+    }
+
+    // ================================================================ Spring Boot
+    private Process app;
+    private boolean appDebug;
+
+    /** Profile aus application-*.yml/.properties und spring.profiles in config.txt */
+    private List<String> profile() {
+        TreeSet<String> p = new TreeSet<>(List.of(ed.kf.get("spring.profiles", "dev").split("[\\s,]+")));
+        if (ed.javaOrdner != null) {
+            for (Indexer.Datei d : ed.index.dateien) {
+                String n = d.pfad().getFileName().toString();
+                if (!d.pfad().startsWith(ed.javaOrdner) || !n.startsWith("application-")) continue;
+                int e = n.lastIndexOf('.');
+                String art = e < 0 ? "" : n.substring(e + 1);
+                if (art.equals("yml") || art.equals("yaml") || art.equals("properties")) p.add(n.substring(12, e));
+            }
+        }
+        p.remove("");
+        return new ArrayList<>(p);
+    }
+
+    private String springBefehl(String profil, boolean debug) {
+        int port = ed.kf.zahl("debug.java.port", 5005);
+        String agent = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:" + port;
+        String eigen = ed.kf.get(debug ? "spring.debug" : "spring.run", null);
+        if (eigen != null) return eigen.replace("{profile}", profil).replace("{port}", String.valueOf(port));
+        Path j = ed.javaOrdner;
+        boolean win = Lsp.WINDOWS;
+        if (Files.exists(j.resolve("pom.xml"))) {
+            String mvn = Files.exists(j.resolve(win ? "mvnw.cmd" : "mvnw")) ? (win ? "mvnw.cmd" : "./mvnw") : "mvn";
+            return mvn + " spring-boot:run -Dspring-boot.run.profiles=" + profil + (debug ? " \"-Dspring-boot.run.jvmArguments=" + agent + "\"" : "");
+        }
+        if (Files.exists(j.resolve("build.gradle")) || Files.exists(j.resolve("build.gradle.kts"))) {
+            String g = Files.exists(j.resolve(win ? "gradlew.bat" : "gradlew")) ? (win ? "gradlew.bat" : "./gradlew") : "gradle";
+            return g + " bootRun --args=--spring.profiles.active=" + profil + (debug ? " --debug-jvm" : "");
+        }
+        return null;
+    }
+
+    private void springStarten(String profil, boolean debug) {
+        if (ed.javaOrdner == null) {
+            ed.fehler("kein java.workspace in config.txt");
+            return;
+        }
+        if (app != null && app.isAlive()) {
+            if (debug && appDebug) {
+                javaVerbinden();
+                return;
+            }
+            ed.fehler("die Anwendung laeuft schon (Leertaste a x stoppt sie)");
+            return;
+        }
+        String b = springBefehl(profil, debug);
+        if (b == null) {
+            ed.fehler("weder pom.xml noch build.gradle in " + ed.javaOrdner + " (oder spring.run in config.txt setzen)");
+            return;
+        }
+        ed.konsoleAuf();
+        ed.farbig("$ " + b + "   [Profil " + profil + (debug ? ", Debug" : "") + "]", E_HELL);
+        List<String> befehl = Lsp.WINDOWS ? List.of("cmd.exe", "/c", b) : List.of("/bin/sh", "-c", b);
+        ProcessBuilder pb = new ProcessBuilder(befehl).directory(ed.javaOrdner.toFile()).redirectErrorStream(true);
+        Lsp.umgebung(pb);
+        try {
+            Process p = pb.start();
+            app = p;
+            appDebug = debug;
+            p.getOutputStream().close();
+            hintergrund(() -> {
+                try (var r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                    String z;
+                    while ((z = r.readLine()) != null) {
+                        String t = z.replaceAll("\u001B\\[[0-9;?]*[A-Za-z]", "");
+                        SwingUtilities.invokeLater(() -> {
+                            ed.farbig(t, t.contains(" ERROR ") || t.startsWith("Caused by") ? Editor.E_FEHLER : E_TEXT);
+                            ed.neuMalen.run();
+                        });
+                    }
+                    int rc = p.waitFor();
+                    SwingUtilities.invokeLater(() -> {
+                        ed.farbig("[Anwendung beendet: " + rc + "]", rc == 0 ? E_HELL : Editor.E_FEHLER);
+                        ed.neuMalen.run();
+                    });
+                } catch (IOException | InterruptedException e) {
+                    // gestoppt
+                }
+            });
+            ed.meldung = "Spring Boot startet mit Profil " + profil;
+            if (debug) javaVerbinden();
+        } catch (IOException e) {
+            ed.fehler("nicht gestartet: " + e.getMessage());
+        }
+    }
+
+    private void springStoppen() {
+        if (app == null || !app.isAlive()) {
+            ed.meldung = "keine Anwendung laeuft";
+            return;
+        }
+        if (dbg.aktiv() && dbg.backend instanceof JavaDebug) ed.befehl("debugStop", "");
+        app.descendants().forEach(ProcessHandle::destroy);
+        app.destroy();
+        ed.meldung = "Anwendung gestoppt";
+    }
+
+    // ================================================================ Debugger starten
+    private void javaVerbinden() {
+        int port = ed.kf.zahl("debug.java.port", 5005);
+        String host = ed.kf.get("debug.java.host", "localhost");
+        JavaDebug j;
+        Debug.Ui ui = dbg.neueUi();
+        try {
+            j = new JavaDebug(ui);
+        } catch (LinkageError e) {
+            ed.fehler("Java-Debugger braucht ein JDK (jdk.jdi fehlt): " + e);
+            return;
+        }
+        dbg.starten(j, ui);
+        j.verbinden(host, port, 180);
+    }
+
+    /** Leertaste d d: je nach Datei Java (Spring Boot im Debug-Modus) oder JS/TS (js-debug) */
+    private void debugStarten(boolean anhaengen) {
+        Doc d = ed.d();
+        // Java-Datei: Java; TS/JS-Datei: JS/TS; sonst Java, wenn es nur den Java-Arbeitsbereich gibt
+        boolean java = "java".equals(d.sprache()) || (!"ts".equals(d.lspArt()) && ed.arbeitsordner == null);
+        if (java) {
+            if (anhaengen) javaVerbinden();
+            else springStarten(ed.kf.get("spring.profile", "dev"), true);
+            return;
+        }
+        Path server = ed.konfig.resolve("js-debug").resolve("js-debug").resolve("src").resolve("dapDebugServer.js");
+        if (!Files.isRegularFile(server)) {
+            ed.popupOpen("JS/TS-Debugger (js-debug von Microsoft) fehlt. ENTER laedt ihn herunter (ca. 10 MB), ESC nicht:", "installJsDebug", "");
+            return;
+        }
+        String typ = ed.kf.get("debug.ts.type", "node");
+        Map<String, Object> k;
+        if (typ.equals("chrome")) {
+            k = Json.obj("type", "pwa-chrome", "name", "Chrome", "request", anhaengen ? "attach" : "launch", "url",
+                    ed.kf.get("debug.chrome.url", "http://localhost:5173"), "webRoot", String.valueOf(ed.arbeitsordner), "port",
+                    ed.kf.zahl("debug.chrome.port", 9222));
+            if (!anhaengen) k.remove("port");
+        } else if (anhaengen) {
+            k = Json.obj("type", "pwa-node", "name", "Node", "request", "attach", "port", ed.kf.zahl("debug.node.port", 9229), "cwd",
+                    String.valueOf(ed.arbeitsordner));
+        } else {
+            if (d.pfad == null) {
+                ed.meldung = "erst speichern";
+                return;
+            }
+            String prog = ed.kf.get("debug.node.program", "{file}").replace("{file}", d.pfad.toString());
+            k = Json.obj("type", "pwa-node", "name", "Node", "request", "launch", "program", ed.konfig.resolve(prog).toString(), "cwd",
+                    String.valueOf(ed.arbeitsordner != null ? ed.arbeitsordner : d.pfad.getParent()), "console", "internalConsole",
+                    "sourceMaps", true, "skipFiles", List.of("<node_internals>/**"));
+            String args = ed.kf.get("debug.node.args", null);
+            if (args != null) k.put("args", List.of(args.split("\\s+")));
+            String rt = ed.kf.get("debug.node.runtime", null);
+            if (rt != null) {
+                String[] t = rt.split("\\s+");
+                k.put("runtimeExecutable", t[0]);
+                if (t.length > 1) k.put("runtimeArgs", List.of(t).subList(1, t.length));
+            }
+        }
+        // js-debug-Server auf einem freien Port starten
+        int port;
+        try (java.net.ServerSocket ss = new java.net.ServerSocket(0)) {
+            port = ss.getLocalPort();
+        } catch (IOException e) {
+            ed.fehler("kein freier Port: " + e.getMessage());
+            return;
+        }
+        ProcessBuilder pb = new ProcessBuilder().redirectErrorStream(true);
+        Lsp.umgebung(pb);
+        List<String> b = Lsp.befehl(ed.arbeitsordner != null ? ed.arbeitsordner : ed.konfig, List.of("node", server.toString(), String.valueOf(port), "127.0.0.1"),
+                pb.environment());
+        if (b == null) {
+            ed.fehler("node nicht gefunden (fuer den JS/TS-Debugger)");
+            return;
+        }
+        try {
+            Process p = pb.command(b).start();
+            hintergrund(() -> {
+                try (InputStream in = p.getInputStream()) {
+                    in.transferTo(OutputStream.nullOutputStream());
+                } catch (IOException e) {
+                    // egal
+                }
+            });
+            Debug.Ui ui = dbg.neueUi();
+            DapDebug dap = new DapDebug(ui, p, port);
+            dbg.starten(dap, ui);
+            dap.starten(String.valueOf(k.get("request")), k);
+            ed.meldung = "JS/TS-Debugger startet (" + k.get("type") + ", " + k.get("request") + ")";
+        } catch (IOException e) {
+            ed.fehler("js-debug nicht gestartet: " + e.getMessage());
+        }
+    }
+
+    // ================================================================ Call Hierarchy
+    private void aufrufer() {
+        Doc d = ed.d();
+        Lsp l = ed.lspFuer(d);
+        if (l == null || !l.an() || d.pfad == null) {
+            ed.meldung = l == null ? "kein TypeScript, JavaScript oder Java" : l.name + " Language Server: " + l.status;
+            return;
+        }
+        ed.lspSync();
+        int z = d.zeileVon(d.cursor);
+        Map<String, Object> pos = Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad)), "position", Json.obj("line", z, "character", d.cursor - d.anf(z)));
+        ed.meldung = "Aufrufer werden gesucht ...";
+        l.anfrage("textDocument/prepareCallHierarchy", pos, r -> {
+            List<Object> items = Json.list(r);
+            if (items.isEmpty()) {
+                ed.meldung = "keine Funktion/Methode unter dem Cursor";
+                ed.neuMalen.run();
+                return;
+            }
+            Object item = items.get(0);
+            String name = String.valueOf(Json.get(item, "name"));
+            l.anfrage("callHierarchy/incomingCalls", Json.obj("item", item), a -> {
+                List<String> namen = new ArrayList<>();
+                List<Object[]> ziele = new ArrayList<>();
+                for (Object call : Json.list(a)) {
+                    Object von = Json.get(call, "from");
+                    Path p = Editor.ausUri(Json.str(Json.get(von, "uri")));
+                    if (p == null) continue;
+                    List<Object> stellen = Json.list(Json.get(call, "fromRanges"));
+                    if (stellen.isEmpty()) stellen = List.of(Json.get(von, "selectionRange"));
+                    for (Object st : stellen) {
+                        int zl = Json.num(Json.get(st, "start", "line"), 0), sp = Json.num(Json.get(st, "start", "character"), 0);
+                        String text = ed.zeileAus(p, zl).strip();
+                        if (text.length() > 80) text = text.substring(0, 80) + "~";
+                        namen.add(ed.relativ(p) + ":" + (zl + 1) + "  " + Json.get(von, "name") + "  |  " + text);
+                        ziele.add(new Object[] {p, zl, sp});
+                    }
+                }
+                ed.meldung = null;
+                if (namen.isEmpty()) {
+                    ed.meldung = "keine Aufrufer von " + name;
+                } else {
+                    auswahl("Aufrufer von " + name + " (" + namen.size() + ")", namen, null, w -> {
+                        Object[] zi = ziele.get(namen.indexOf(w));
+                        ed.springMerken();
+                        Doc t = ed.oeffnen((Path) zi[0]);
+                        if (t != null) t.cursor = t.stelle((int) zi[1], (int) zi[2]);
+                    });
+                }
+                ed.neuMalen.run();
+            });
+        });
+    }
+
     // ================================================================ Befehle
     void befehle(Map<String, Editor.Cmd> c) {
+        dbg.befehle(c, this);
+        c.put("installJdtls", a -> jdtlsInstallieren());
+        c.put("installJsDebug", a -> installieren("js-debug", "js-debug", () -> ed.meldung = "js-debug ist da: Leertaste d d startet den Debugger"));
+        c.put("springRun", a -> springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), false));
+        c.put("springDebug", a -> springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), true));
+        c.put("springProfile", a -> auswahl("Spring Boot starten mit Profil", profile(), ed.kf.get("spring.profile", "dev"), p -> springStarten(p, false)));
+        c.put("springStop", a -> springStoppen());
+        c.put("debugStart", a -> debugStarten(false));
+        c.put("debugAttach", a -> debugStarten(true));
+        c.put("callHierarchy", a -> aufrufer());
+        c.put("sqlScratch", a -> {
+            String zeit = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+            Path p = ed.konfig.resolve("sql").resolve("abfrage-" + zeit + ".sql");
+            Doc d = ed.oeffnen(p);
+            if (d == null) return;
+            if (letztesKonto != null) d.dbKonto = letztesKonto;
+            ed.befehl("switchState", "insert");
+            ed.meldung = "neue SQL-Datei (Konto " + konto(d) + "): Strg+Enter fuehrt aus, :w speichert in " + p.getParent();
+        });
         c.put("gitBranch", this::branchWaehlen);
         c.put("gitRefresh", a -> gitLesen());
         c.put("javaWorkdir", a -> {
