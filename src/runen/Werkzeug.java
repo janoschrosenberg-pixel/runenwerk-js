@@ -380,7 +380,8 @@ final class Werkzeug {
     List<String> jdtlsLog(long seit) {
         List<Path> logs = new ArrayList<>();
         if (ed.javaOrdner != null) logs.add(datenOrdner().resolve(".metadata").resolve(".log"));
-        try (Stream<Path> st = Files.list(ed.konfig.resolve("jdtls-config"))) {
+        // Eclipse schreibt den Fehler in den Konfigurationsordner (je Version ein Unterordner)
+        try (Stream<Path> st = Files.walk(ed.konfig.resolve("jdtls-config"), 2)) {
             st.filter(p -> p.getFileName().toString().endsWith(".log")).forEach(logs::add);
         } catch (IOException e) {
             // keiner
@@ -406,7 +407,14 @@ final class Werkzeug {
 
     /** Eclipse-Konfiguration je jdtls-Version: ein alter Zwischenspeicher kann nicht stoeren */
     private Path konfigOrdner(Path launcher) {
-        String v = launcher.getFileName().toString().replace("org.eclipse.equinox.launcher_", "").replace(".jar", "");
+        // nach der jdtls-Version (Kern-Plugin), der Launcher bleibt ueber Versionen oft gleich
+        String v = "jdtls";
+        try (Stream<Path> st = Files.list(launcher.getParent())) {
+            v = st.map(p -> p.getFileName().toString()).filter(n -> n.startsWith("org.eclipse.jdt.ls.core_")).findFirst().orElse("jdtls")
+                    .replace("org.eclipse.jdt.ls.core_", "").replace(".jar", "");
+        } catch (IOException e) {
+            // Name reicht
+        }
         return ed.konfig.resolve("jdtls-config").resolve(v + "-" + Integer.toHexString(launcher.toAbsolutePath().toString().hashCode()));
     }
 

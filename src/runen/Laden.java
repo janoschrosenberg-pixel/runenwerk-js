@@ -179,6 +179,7 @@ final class Laden {
             }
         } else {
             ordner.add(Path.of("/Library/Java/JavaVirtualMachines"));
+            ordner.add(Path.of(System.getProperty("user.home"), "Library", "Java", "JavaVirtualMachines"));
             ordner.add(Path.of("/usr/lib/jvm"));
             ordner.add(Path.of("/opt/homebrew/opt"));
         }
