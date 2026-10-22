@@ -218,7 +218,7 @@ final class FileManager {
             Path w = ed.arbeitsordner != null ? ed.arbeitsordner : Path.of(System.getProperty("user.home"));
             Path p = ed.d().pfad;
             ordner[0].ordner = p != null && p.getParent() != null ? p.getParent() : w;
-            ordner[1].ordner = w;
+            ordner[1].ordner = ed.javaOrdner != null ? ed.javaOrdner : w;
         }
         offen = true;
         if (!fmModus(ed.modus)) vorModus = ed.modus;

@@ -69,8 +69,20 @@ final class Doc {
         if (n.endsWith(".ts") || n.endsWith(".mts") || n.endsWith(".cts")) return "typescript";
         if (n.endsWith(".jsx")) return "javascriptreact";
         if (n.endsWith(".js") || n.endsWith(".mjs") || n.endsWith(".cjs")) return "javascript";
+        if (n.endsWith(".java")) return "java";
+        if (n.endsWith(".sql") || n.endsWith(".pks") || n.endsWith(".pkb") || n.endsWith(".pls") || n.endsWith(".prc") || n.endsWith(".fnc") || n.endsWith(".trg")) return "sql";
         return null;
     }
+
+    /** Sprache mit Language Server: typescript (auch JS) oder java */
+    String lspArt() {
+        String s = sprache();
+        if (s == null || s.equals("sql")) return null;
+        return s.equals("java") ? "java" : "ts";
+    }
+
+    /** aktives Datenbankkonto (SQL-Dateien) */
+    String dbKonto;
 
     boolean jsx() {
         String s = sprache();

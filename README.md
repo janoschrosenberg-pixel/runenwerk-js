@@ -1,6 +1,6 @@
 # RUNENWERK JS
 
-Editor für JavaScript, TypeScript und React in Java – nach dem Vorbild des RUNENWERK-Editors:
+Editor für TypeScript, React, Java und SQL in Java – nach dem Vorbild des RUNENWERK-Editors:
 gleiche Keymap (`mode … extends …`, Tastenfolgen, `ANY`, Layouts), gleiche Befehlsnamen,
 Mapping-Funktionen, Terminal, Dateimanager im Norton-Commander-Stil. Alles wird auf der CPU
 in einen eigenen Bildpuffer gemalt (eigene Glyphen-Blits); Java zeigt nur das fertige Bild.
@@ -8,20 +8,68 @@ Keine Abhängigkeiten außer einem JDK ab 17.
 
 ```bash
 sh build.sh                 # Windows: build.bat
-sh run.sh ~/projekte/app    # Windows: run.bat C:\projekte\app
+java -jar runenjs.jar       # oder run.sh / run.bat
 ```
 
-Ohne Ordner fragt der Editor beim Start nach dem **Arbeitsordner** (TAB ergänzt Pfade). Dort wird
-indiziert und dort startet der Language Server (`workdir PFAD` wechselt ihn später).
+## Konfiguration: `config.txt` neben der Jar
 
-Language Server: `npm install -g typescript typescript-language-server`
-(ein `node_modules/.bin/typescript-language-server` im Projekt hat Vorrang).
+Beim ersten Start legt der Editor neben `runenjs.jar` an (ist der Ordner nicht beschreibbar: `~/.runenjs`):
 
-## Konfiguration (`~/.runenjs`, beim ersten Start angelegt)
+- `config.txt` – **alles**: Arbeitsbereiche, Ausnahmen für den Index, Language Server, Formatierer,
+  Datenbank-Treiber und -Konten, Schrift, F9/F10. Jede Einstellung ist dort kommentiert; `:reload` liest sie neu.
+- `keymap.config` – Tastenbelegung. Die Vorgabe steckt in der Jar, diese Datei ergänzt und überschreibt sie
+  (neue Tasten aus einer neuen Jar kommen so automatisch dazu).
+- `mapping/*.map` – eigene Befehle als Folge von Editor-Befehlen.
+- `start.log`, `jdtls-daten/`, `jdtls-config/` – Log und Arbeitsdaten des Java Language Servers.
 
-- `editor.config` – Schrift, Einzug, Language Server, F9/F10-Befehle, ignorierte Ordner
-- `keymap.config` – Tastenbelegung (Modes: base, normal, insert, complete, console, popup, commander, fmsearch)
-- `mapping/*.map` – eigene Befehle als Folge von Editor-Befehlen (`keymap` im Terminal lädt alles neu)
+## Zwei Arbeitsbereiche
+
+`ts.workspace` (TypeScript/React) und `java.workspace` (Java) in `config.txt`. Beide werden indiziert,
+Strg+P sucht Dateinamen und Inhalt in beiden (`frontend/…`, `backend/…`). Ausnahmen: `ts.ignore` und
+`java.ignore` – `node_modules` gilt für jeden Ordner dieses Namens, `/build` nur direkt im Arbeitsbereich.
+Fehlt `ts.workspace`, fragt der Editor beim Start; `:workdir PFAD` und `:javaWorkdir PFAD` setzen sie und
+tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.ts/.tsx/.js/.jsx`, `.java`, `.sql`).
+
+## Language Server
+
+- **TypeScript**: `npm install -g typescript typescript-language-server` (`node_modules/.bin` geht vor).
+- **Java**: Eclipse jdtls ([Download](https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz)),
+  entpacken und `java.lsp.home` darauf zeigen lassen; jdtls braucht Java 21+ (`java.lsp.java`, falls der Editor
+  mit einem älteren Java läuft). Maven- und Gradle-Projekte werden importiert.
+
+Definition (`gd`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
+gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder `]m` / `[m`), mit Zähler.
+
+## Git
+
+Oben rechts stehen Repo und Branch beider Arbeitsbereiche (`TS frontend:main   Java backend:develop`).
+`Leertaste b` wechselt den Branch des Repos der aktuellen Datei, `Leertaste g t` / `Leertaste g j` den des
+TS- bzw. Java-Repos: Liste mit allen lokalen und entfernten Branches, tippen filtert, ENTER wechselt
+(`git switch`). Offene, ungeänderte Dateien werden danach neu gelesen.
+
+## Formatieren: `Leertaste f`
+
+- TypeScript/JavaScript mit **prettier** (`ts.format`, Vorgabe `prettier --stdin-filepath {file}`; installieren mit
+  `npm install -D prettier` im Projekt).
+- Java mit einem **Eclipse-Formatter-Profil** (`java.format.eclipse = formatter.xml`, optional `java.format.profile`) über
+  jdtls – IntelliJ kann seinen Code-Style als „Eclipse XML“ exportieren – oder mit einem **IntelliJ-Code-Style**
+  (`java.format.intellij` + `java.format.intellij.cmd` = `format.bat`/`format.sh` von IntelliJ; IntelliJ muss dafür geschlossen sein).
+
+## Datenbank (Oracle oder jeder JDBC-Treiber)
+
+In `config.txt`: `db.driver = ojdbc11.jar` und beliebig viele Konten
+`db.account.NAME = jdbc:oracle:thin:@//host:1521/SERVICE | BENUTZER | PASSWORT`. In einer `.sql`-Datei:
+
+| Taste | |
+|---|---|
+| Strg+Enter | Statement am Cursor (oder die Auswahl im Visual-Mode) ausführen |
+| F5 | ganze Datei ausführen |
+| F6 | Konto für diese Datei wählen (steht unten rechts: `DB dev`) |
+| Leertaste o | zur Ergebnistabelle: `hjkl`, `y` Zelle, `Y` Zeile, `Strg+A` alles kopieren, ENTER Zelle ganz zeigen, `q` schließen |
+| Leertaste s c / s r / s x | Commit / Rollback / Abbrechen (`db.autocommit = off` ist die Vorgabe) |
+
+Statements enden mit `;`, einer Zeile mit nur `/` oder einer Leerzeile; PL/SQL-Blöcke (`BEGIN`, `DECLARE`,
+`CREATE PROCEDURE` …) enden mit `/`. `DBMS_OUTPUT` erscheint im Terminal. Passwörter stehen im Klartext in `config.txt`.
 
 ## Vim
 
@@ -49,6 +97,9 @@ Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (um
 | `:` | Terminal (`open`, `w`, `q`, `workdir`, `run npm test`, `help`, Zeilennummer …) |
 | gd / F12, Strg+O | Definition, zurück |
 | K, gr, F2, Leertaste f | Hover, Referenzen, Umbenennen, Formatieren |
+| Strg+J / Strg+K | nächste / vorige Methode |
+| Leertaste b | Branch wechseln |
+| Strg+Enter, F5, F6 | SQL: Statement, Datei, Konto |
 | ]d / [d | nächster / vorheriger Fehler |
 | Strg+Leertaste | Vorschläge (nach `.` automatisch), mit Auto-Import |
 | F9 / F10 | `npm run build` / `npx tsc --noEmit`, Ausgabe im Terminal |
@@ -60,10 +111,10 @@ r umbenennen, F7 Ordner, F8 löschen, Strg+W macht den Ordner zum Arbeitsordner.
 
 ## Wenn kein Fenster kommt
 
-Der Editor schreibt beim Start `~/.runenjs/start.log` (unter Windows `%USERPROFILE%\.runenjs\start.log`):
+Der Editor schreibt beim Start `start.log` neben die Jar:
 Java-Version, Betriebssystem, Schrift, Arbeitsordner und ob das Fenster sichtbar ist. Fehler beim Start
 erscheinen zusätzlich als Fenster und in der Konsole. Nötig ist Java 17 oder neuer (`java -version`).
 
 Steht unten „Language Server beendet“ oder „nicht gefunden“: Im Terminal (`:`) und in `start.log` stehen die
 letzten Ausgaben des Servers. Meist fehlt `npm install -g typescript typescript-language-server`, oder der
-npm-Ordner (Windows: `%APPDATA%\npm`) ist nicht im `Path`. `:lspRestart` startet ihn danach neu.
+npm-Ordner (Windows: `%APPDATA%\npm`) ist nicht im `Path`. `:lspRestart` startet beide Language Server neu.

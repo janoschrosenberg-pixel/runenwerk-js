@@ -1,0 +1,66 @@
+# config.txt - Einstellungen von RUNENWERK JS (liegt neben runenjs.jar)
+#
+# Zeilen "schluessel = wert", # ist ein Kommentar. Relative Pfade gelten ab diesem Ordner.
+# Nach Aenderungen: Editor neu starten oder im Terminal (:) "reload" eingeben.
+
+# ---------------------------------------------------------------- Arbeitsbereiche
+# TypeScript/React-Projekt und Java-Projekt; beide werden indiziert (Strg+P sucht in beiden).
+# Ohne ts.workspace fragt der Editor beim Start danach (und traegt ihn hier ein).
+ts.workspace =
+java.workspace =
+# nicht indizieren: Name = jeder Ordner mit diesem Namen, /Name = nur direkt im Arbeitsbereich
+ts.ignore = node_modules /build
+java.ignore = target /build .gradle /bin /out
+
+# ---------------------------------------------------------------- Language Server
+# TypeScript: npm install -g typescript typescript-language-server (node_modules/.bin geht vor)
+ts.lsp = typescript-language-server --stdio
+# Java (Eclipse jdtls, braucht Java 21+): entweder der Ordner des entpackten jdtls ...
+#   https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz
+java.lsp.home =
+# ... oder ein Befehl im PATH (dann ohne java.lsp.home); off schaltet ihn ab
+java.lsp = jdtls
+# Java fuer jdtls (leer: das Java, mit dem der Editor laeuft) und sein Speicher
+java.lsp.java =
+java.lsp.memory = 2G
+
+# ---------------------------------------------------------------- Formatieren (Leertaste f)
+# TypeScript/JavaScript mit prettier ({file} = Pfad der Datei, node_modules/.bin geht vor);
+# "lsp" formatiert stattdessen mit dem Language Server
+ts.format = prettier --stdin-filepath {file}
+# Java mit einem Eclipse-Formatter-Profil (XML-Export aus Eclipse oder IntelliJ "Eclipse XML") ...
+java.format.eclipse =
+java.format.profile =
+# ... oder mit einem IntelliJ-Code-Style (XML) ueber den IntelliJ-Formatter (IntelliJ muss dafuer zu sein)
+java.format.intellij =
+java.format.intellij.cmd =
+
+# ---------------------------------------------------------------- Datenbank (SQL-Dateien)
+# JDBC-Treiber, z. B. ojdbc11.jar von https://www.oracle.com/database/technologies/appdev/jdbc-downloads.html
+db.driver =
+db.driverClass = oracle.jdbc.OracleDriver
+db.maxRows = 500
+# Aenderungen sofort festschreiben (sonst :sqlCommit / Leertaste s c)
+db.autocommit = off
+# Konten: db.account.NAME = JDBC-URL | BENUTZER | PASSWORT
+# db.account.dev = jdbc:oracle:thin:@//localhost:1521/XEPDB1 | scott | tiger
+# db.account.test = jdbc:oracle:thin:@//testhost:1521/TEST | app | geheim
+
+# ---------------------------------------------------------------- Editor
+font.size = 15
+font = JetBrains Mono, Cascadia Mono, Consolas, SF Mono, Menlo, DejaVu Sans Mono, Liberation Mono, Monospaced
+indent = 2
+tabWidth = 4
+# Vorschlaege von selbst nach einem Punkt
+autoComplete = on
+# groesste Datei fuer die Inhaltssuche (KiB)
+maxFileSize = 1024
+# Tastenbelegung und Mapping-Funktionen (die Vorgabe ist in der Jar, keymap.config ergaenzt sie)
+keymap = keymap.config
+mapping = mapping
+# F9 und F10 (im TS-Arbeitsbereich); java.compile gilt fuer F9 in Java-Dateien
+compile = npm run build
+compileFast = npx tsc --noEmit
+java.compile = mvn -q compile
+# Dateien beim Start oeffnen (mehrere open-Zeilen erlaubt)
+# open = src/App.tsx

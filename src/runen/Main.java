@@ -29,7 +29,7 @@ import javax.swing.SwingUtilities;
 
 /** Startet den Editor im Vollbild; Java zeigt nur das fertige Bild, gemalt wird in {@link Screen}. */
 public final class Main {
-    private static final String[] VORGABEN = {"editor.config", "keymap.config", "mapping/beispiel.map"};
+    private static final String[] VORGABEN = {"config.txt", "keymap.config", "mapping/beispiel.map"};
 
     private Editor ed;
     private JFrame fenster;
@@ -63,7 +63,7 @@ public final class Main {
         });
     }
 
-    /** Startschritte nach ~/.runenjs/start.log (zum Nachsehen, wenn kein Fenster kommt) */
+    /** Startschritte nach start.log im Konfigurationsordner (zum Nachsehen, wenn kein Fenster kommt) */
     static void log(String s) {
         if (logPfad == null) return;
         try {
@@ -84,10 +84,14 @@ public final class Main {
                 was + ":\n" + e + "\n\nDetails: " + (logPfad == null ? "Konsole" : logPfad), "RUNENWERK JS", javax.swing.JOptionPane.ERROR_MESSAGE));
     }
 
-    /** ~/.runenjs mit den mitgelieferten Dateien (nur fehlende werden angelegt) */
+    /**
+     * Ordner der Jar (config.txt, keymap.config, mapping/ liegen neben runenjs.jar); ist er nicht
+     * beschreibbar, ~/.runenjs. Fehlende Vorgaben werden angelegt.
+     */
     static Path konfigOrdner() {
         String eigen = System.getenv("RUNENJS_CONFIG");
-        Path k = eigen != null ? Paths.get(eigen) : Paths.get(System.getProperty("user.home"), ".runenjs");
+        Path k = eigen != null ? Paths.get(eigen) : jarOrdner();
+        if (k == null || !Files.isWritable(k)) k = Paths.get(System.getProperty("user.home"), ".runenjs");
         for (String v : VORGABEN) {
             Path z = k.resolve(v);
             if (Files.exists(z)) continue;
@@ -100,6 +104,15 @@ public final class Main {
             }
         }
         return k;
+    }
+
+    private static Path jarOrdner() {
+        try {
+            Path p = Paths.get(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+            return Files.isRegularFile(p) ? p.toAbsolutePath().getParent() : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void start(Path konfig, String[] args) {
@@ -244,6 +257,7 @@ public final class Main {
             default -> null;
         };
         if (c >= KeyEvent.VK_F1 && c <= KeyEvent.VK_F12) n = "F" + (c - KeyEvent.VK_F1 + 1);
+        if ("ENTER".equals(n) && strg(e)) n = "Ctrl-ENTER";
         if (n == null && strg(e)) {
             if (c >= KeyEvent.VK_A && c <= KeyEvent.VK_Z) n = "Ctrl-" + (char) ((e.isShiftDown() ? 'A' : 'a') + c - KeyEvent.VK_A);
             else if (c >= KeyEvent.VK_0 && c <= KeyEvent.VK_9) n = "Ctrl-" + (char) ('0' + c - KeyEvent.VK_0);

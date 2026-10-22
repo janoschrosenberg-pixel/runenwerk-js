@@ -46,23 +46,26 @@ final class Editor {
     final Keymap km = new Keymap();
     final Mapping mp = new Mapping();
     final Indexer index;
-    final Lsp lsp;
+    final Lsp tsLsp, javaLsp;
     final FileManager fm;
     final Vim vim;
+    final Werkzeug wz;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
 
-    // Einstellungen (editor.config)
+    // Einstellungen (config.txt neben der Jar)
     final Path konfig;
+    final Konfig kf;
     Path keymapPfad, mappingPfad;
     int schriftGroesse = 15, einzug = 2, tabBreite = 4;
     String schrift = "JetBrains Mono, Cascadia Mono, Consolas, SF Mono, Menlo, DejaVu Sans Mono, Liberation Mono, Monospaced";
     boolean autoVervollst = true;
     double skala = 1;
     List<String> lspBefehl = List.of("typescript-language-server", "--stdio");
-    String compileBefehl = "npm run build", compileFastBefehl = "npx tsc --noEmit";
+    String compileBefehl = "npm run build", compileFastBefehl = "npx tsc --noEmit", javaCompileBefehl = "";
     final List<String> startDateien = new ArrayList<>();
 
-    Path arbeitsordner;
+    /** TypeScript-Arbeitsbereich (Hauptordner) und Java-Arbeitsbereich */
+    Path arbeitsordner, javaOrdner;
     final List<Doc> tabs = new ArrayList<>();
     int aktiv;
     String modus = "normal";
@@ -111,32 +114,18 @@ final class Editor {
 
     Editor(Path konfig) {
         this.konfig = konfig;
+        kf = new Konfig(konfig.resolve("config.txt"));
         keymapPfad = konfig.resolve("keymap.config");
         mappingPfad = konfig.resolve("mapping");
         index = new Indexer(() -> SwingUtilities.invokeLater(() -> {
             Editor.this.fm.indexFertig();
             neuMalen.run();
         }));
-        lsp = new Lsp(new Lsp.Hoerer() {
-            public void diagnosen(String uri, List<Object> l) {
-                diagnosenSetzen(uri, l);
-                neuMalen.run();
-            }
-
-            public void meldung(String text, boolean fehler) {
-                if (fehler) fehler(text);
-                else print(text);
-                neuMalen.run();
-            }
-
-            public void bereit() {
-                print("Language Server bereit: " + String.join(" ", lspBefehl));
-                lspSync();
-                neuMalen.run();
-            }
-        });
+        tsLsp = new Lsp("TS", hoerer("TS"));
+        javaLsp = new Lsp("Java", hoerer("Java"));
         fm = new FileManager(this);
         vim = new Vim(this);
+        wz = new Werkzeug(this);
         folgeUhr = new Timer(1000, e -> {
             // angefangene Folge nach 1 s allein ausfuehren
             String alt = folgeBefehl;
@@ -152,7 +141,36 @@ final class Editor {
         befehle();
         fm.befehle(cmds);
         vim.befehle(cmds);
+        wz.befehle(cmds);
         tabs.add(new Doc());
+    }
+
+    private Lsp.Hoerer hoerer(String name) {
+        return new Lsp.Hoerer() {
+            public void diagnosen(String uri, List<Object> l) {
+                diagnosenSetzen(uri, l);
+                neuMalen.run();
+            }
+
+            public void meldung(String text, boolean fehler) {
+                if (fehler) fehler(text);
+                else print(text);
+                neuMalen.run();
+            }
+
+            public void bereit() {
+                print(name + " Language Server bereit");
+                lspSync();
+                neuMalen.run();
+            }
+        };
+    }
+
+    /** Language Server fuer einen Text (TS/JS oder Java), sonst null */
+    Lsp lspFuer(Doc d) {
+        String a = d.lspArt();
+        if (a == null) return null;
+        return a.equals("java") ? javaLsp : tsLsp;
     }
 
     Doc d() {
@@ -171,64 +189,65 @@ final class Editor {
             else startDateien.add(p.toString());
         }
         if (ziel == null && !startDateien.isEmpty()) ziel = Paths.get(startDateien.get(0)).getParent();
-        if (ziel != null) {
-            arbeitsordnerSetzen(ziel);
-        } else {
-            String zuletzt = "";
-            try {
-                zuletzt = Files.readString(konfig.resolve("zuletzt.txt")).trim();
-            } catch (IOException e) {
-                zuletzt = System.getProperty("user.home");
-            }
-            popupOpen("Arbeitsordner waehlen (dort wird indiziert und der Language Server sucht):", "workdir", zuletzt);
+        String ts = kf.get("ts.workspace", null), java = kf.get("java.workspace", null);
+        if (ziel == null && ts != null) ziel = aufloesenVon(konfig, ts);
+        if (java != null) {
+            Path j = aufloesenVon(konfig, java);
+            if (Files.isDirectory(j)) javaOrdner = j;
+            else fehler("java.workspace gibt es nicht: " + j);
         }
-        print("RUNENWERK JS - Editor fuer JavaScript, TypeScript und React. help zeigt die Befehle.");
+        if (ziel != null && Files.isDirectory(ziel)) {
+            arbeitsordnerSetzen(ziel);
+        } else if (javaOrdner != null) {
+            arbeitsbereicheAn();
+        } else {
+            popupOpen("TypeScript-Arbeitsbereich waehlen (wird in config.txt gespeichert):", "workdir", ts != null ? ts : System.getProperty("user.home"));
+        }
+        print("RUNENWERK JS - Editor fuer TypeScript, React, Java und SQL. help zeigt die Befehle. Konfiguration: " + kf.pfad);
+    }
+
+    private static Path aufloesenVon(Path basis, String s) {
+        s = s.trim();
+        if (s.startsWith("~")) s = System.getProperty("user.home") + s.substring(1);
+        return basis.resolve(s).toAbsolutePath().normalize();
     }
 
     void konfigLesen() {
-        List<String> zeilen;
-        try {
-            zeilen = Files.readAllLines(konfig.resolve("editor.config"), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            fehler("editor.config nicht gefunden in " + konfig);
-            return;
-        }
+        kf.lesen();
+        for (String f : kf.fehler) farbig(f, E_WARN);
+        schriftGroesse = Math.max(6, Math.min(72, kf.zahl("font.size", 15)));
+        schrift = kf.get("font", schrift);
+        einzug = Math.max(1, kf.zahl("indent", 2));
+        tabBreite = Math.max(1, kf.zahl("tabWidth", 4));
+        autoVervollst = kf.an("autoComplete", true);
+        index.maxGroesse = kf.zahl("maxFileSize", 1024) * 1024L;
+        String l = kf.get("ts.lsp", "typescript-language-server --stdio");
+        lspBefehl = l.isBlank() || l.equals("off") ? List.of() : List.of(l.split("\\s+"));
+        keymapPfad = konfig.resolve(kf.get("keymap", "keymap.config"));
+        mappingPfad = konfig.resolve(kf.get("mapping", "mapping"));
+        compileBefehl = kf.get("compile", "npm run build");
+        compileFastBefehl = kf.get("compileFast", "npx tsc --noEmit");
+        javaCompileBefehl = kf.get("java.compile", "");
         startDateien.clear();
-        int nr = 0;
-        for (String roh : zeilen) {
-            nr++;
-            String z = roh.trim();
-            if (z.isEmpty() || z.startsWith("#")) continue;
-            int sp = z.indexOf(' ');
-            String w = sp < 0 ? z : z.substring(0, sp);
-            String rest = sp < 0 ? "" : z.substring(sp + 1).trim();
-            switch (w) {
-                case "set" -> einstellung(rest);
-                case "lsp" -> lspBefehl = rest.isEmpty() ? List.of() : List.of(rest.split("\\s+"));
-                case "ignore" -> index.ignorieren.addAll(Arrays.asList(rest.split("\\s+")));
-                case "keymap" -> keymapPfad = konfig.resolve(rest);
-                case "mapping" -> mappingPfad = konfig.resolve(rest);
-                case "open" -> startDateien.add(rest);
-                case "compile" -> compileBefehl = rest;
-                case "compileFast" -> compileFastBefehl = rest;
-                default -> fehler("editor.config:" + nr + ": unbekannt: " + w);
-            }
-        }
+        startDateien.addAll(kf.alle("open"));
+        wz.db.konfigurieren(kf, konfig);
+        for (String f : wz.db.fehler) farbig(f, E_WARN);
     }
 
+    /** set NAME WERT im Terminal: wie in config.txt, nur fuer diese Sitzung */
     void einstellung(String rest) {
         String[] t = rest.split("\\s+", 2);
         String wert = t.length > 1 ? t[1] : "";
         try {
             switch (t[0]) {
-                case "fontSize" -> schriftGroesse = Math.max(6, Math.min(72, Integer.parseInt(wert)));
+                case "fontSize", "font.size" -> schriftGroesse = Math.max(6, Math.min(72, Integer.parseInt(wert)));
                 case "font" -> schrift = wert;
                 case "indent" -> einzug = Math.max(1, Integer.parseInt(wert));
                 case "tabWidth" -> tabBreite = Math.max(1, Integer.parseInt(wert));
                 case "autoComplete" -> autoVervollst = wert.equals("on") || wert.equals("true");
                 case "maxFileSize" -> index.maxGroesse = Long.parseLong(wert) * 1024;
                 default -> {
-                    fehler("unbekannte Einstellung " + t[0] + " (fontSize, font, indent, tabWidth, autoComplete, maxFileSize)");
+                    fehler("unbekannte Einstellung " + t[0] + " (font.size, font, indent, tabWidth, autoComplete, maxFileSize)");
                     return;
                 }
             }
@@ -244,13 +263,15 @@ final class Editor {
     }
 
     void keymapLaden() {
-        km.lesen(keymapPfad);
+        // die Vorgabe aus der Jar zuerst, keymap.config ergaenzt und ueberschreibt sie
+        km.lesen(keymapPfad, Main.class.getResourceAsStream("/vorgaben/keymap.config"));
         for (String f : km.fehler) farbig(f, E_WARN);
         mp.laden(mappingPfad);
         for (String f : mp.fehler) farbig(f, E_WARN);
         print("keymap: Layout " + km.layout + ", Modes " + km.modes.size() + ", Mapping-Funktionen " + mp.funs.size());
     }
 
+    /** TypeScript-Arbeitsbereich setzen (Index und Language Server neu) */
     void arbeitsordnerSetzen(Path p) {
         p = p.toAbsolutePath().normalize();
         if (!Files.isDirectory(p)) {
@@ -258,36 +279,82 @@ final class Editor {
             return;
         }
         arbeitsordner = p;
-        try {
-            Files.writeString(konfig.resolve("zuletzt.txt"), p.toString());
-        } catch (IOException e) {
-            // egal
+        arbeitsbereicheAn();
+        if (!lspBefehl.isEmpty()) tsLsp.start(p, lspBefehl);
+        for (String s : startDateien) oeffnen(aufloesen(s));
+        startDateien.clear();
+    }
+
+    /** Java-Arbeitsbereich setzen */
+    void javaOrdnerSetzen(Path p) {
+        p = p.toAbsolutePath().normalize();
+        if (!Files.isDirectory(p)) {
+            fehler("kein Ordner: " + p);
+            return;
         }
+        javaOrdner = p;
+        arbeitsbereicheAn();
+    }
+
+    /** Index ueber beide Arbeitsbereiche, Java Language Server */
+    void arbeitsbereicheAn() {
         diagnosen.clear();
         for (Doc t : tabs) {
             t.lspOffen = false;
             t.diags = new ArrayList<>();
         }
-        index.setWurzel(p);
+        List<Indexer.Wurzel> w = new ArrayList<>();
+        if (arbeitsordner != null) {
+            w.add(new Indexer.Wurzel(arbeitsordner, name(arbeitsordner), List.of(kf.get("ts.ignore", "node_modules /build").split("\\s+"))));
+            print("TypeScript-Arbeitsbereich: " + arbeitsordner);
+        }
+        if (javaOrdner != null) {
+            w.add(new Indexer.Wurzel(javaOrdner, name(javaOrdner), List.of(kf.get("java.ignore", "target /build .gradle /bin /out").split("\\s+"))));
+            print("Java-Arbeitsbereich: " + javaOrdner);
+        }
+        index.setWurzeln(w);
         fm.zuruecksetzen();
-        print("Arbeitsordner: " + p);
-        if (!lspBefehl.isEmpty()) lsp.start(p, lspBefehl);
-        for (String s : startDateien) oeffnen(aufloesen(s));
-        startDateien.clear();
+        wz.gitLesen();
+        if (javaOrdner != null && !javaOrdner.equals(javaLspOrdner)) javaLspStarten();
+    }
+
+    private Path javaLspOrdner;
+
+    void javaLspStarten() {
+        if (javaOrdner == null) return;
+        List<String> b = wz.javaLspBefehl();
+        if (b.isEmpty()) return;
+        javaLspOrdner = javaOrdner;
+        javaLsp.start(javaOrdner, b, wz.javaEinstellungen(), Json.obj("settings", wz.javaEinstellungen(), "extendedClientCapabilities",
+                Json.obj("classFileContentsSupport", false)));
+    }
+
+    static String name(Path p) {
+        return p.getFileName() == null ? p.toString() : p.getFileName().toString();
     }
 
     Path aufloesen(String s) {
         s = s.trim();
         if (s.startsWith("~")) s = System.getProperty("user.home") + s.substring(1);
         Path p = Paths.get(s);
-        if (!p.isAbsolute()) p = (arbeitsordner != null ? arbeitsordner : Paths.get("")).resolve(p);
+        if (!p.isAbsolute()) p = (arbeitsordner != null ? arbeitsordner : javaOrdner != null ? javaOrdner : Paths.get("")).resolve(p);
         return p.toAbsolutePath().normalize();
+    }
+
+    /** Arbeitsbereich, in dem p liegt (Java zuerst, falls verschachtelt), oder null */
+    Path bereichVon(Path p) {
+        if (p == null) return null;
+        if (javaOrdner != null && p.startsWith(javaOrdner)) return javaOrdner;
+        if (arbeitsordner != null && p.startsWith(arbeitsordner)) return arbeitsordner;
+        return null;
     }
 
     String relativ(Path p) {
         if (p == null) return "[neu]";
-        if (arbeitsordner != null && p.startsWith(arbeitsordner)) return arbeitsordner.relativize(p).toString().replace('\\', '/');
-        return p.toString();
+        Path b = bereichVon(p);
+        if (b == null) return p.toString();
+        String r = b.relativize(p).toString().replace('\\', '/');
+        return arbeitsordner != null && javaOrdner != null ? name(b) + "/" + r : r;
     }
 
     // ================================================================ Tasten (wie taste_verarbeiten im Kernel)
@@ -705,21 +772,30 @@ final class Editor {
         reg("set", this::einstellung);
         reg("keymap", a -> keymapLaden());
         reg("reload", a -> {
+            Path altTs = arbeitsordner, altJava = javaOrdner;
             konfigLesen();
             schriftAn();
             keymapLaden();
+            String ts = kf.get("ts.workspace", null), java = kf.get("java.workspace", null);
+            Path neuTs = ts == null ? altTs : aufloesenVon(konfig, ts);
+            Path neuJava = java == null ? null : aufloesenVon(konfig, java);
+            if (neuJava != null && !neuJava.equals(altJava)) javaOrdner = Files.isDirectory(neuJava) ? neuJava : altJava;
+            if (neuTs != null && !neuTs.equals(altTs)) arbeitsordnerSetzen(neuTs);
+            else arbeitsbereicheAn();
+            meldung = "config.txt neu gelesen";
         });
         reg("workdir", a -> {
             if (a.isEmpty()) {
-                popupOpen("Arbeitsordner:", "workdir", arbeitsordner == null ? "" : arbeitsordner.toString());
+                popupOpen("TypeScript-Arbeitsbereich (wird in config.txt gespeichert):", "workdir", arbeitsordner == null ? "" : arbeitsordner.toString());
                 return;
             }
             Path p = aufloesen(a);
             if (!Files.isDirectory(p)) {
                 fehler("kein Ordner: " + p);
-                if (arbeitsordner == null) popupOpen("Arbeitsordner waehlen (den gibt es nicht):", "workdir", a);
+                if (arbeitsordner == null) popupOpen("TypeScript-Arbeitsbereich waehlen (den gibt es nicht):", "workdir", a);
                 return;
             }
+            kf.setzen("ts.workspace", p.toString());
             arbeitsordnerSetzen(p);
         });
         reg("cd", cmds.get("workdir"));
@@ -739,7 +815,8 @@ final class Editor {
         // ------------------------------------------------ Ausfuehren (F9, F10)
         reg("compile", a -> {
             alleSpeichern();
-            starten(compileBefehl);
+            if ("java".equals(d().lspArt()) && !javaCompileBefehl.isBlank()) starten(javaCompileBefehl, javaOrdner);
+            else starten(compileBefehl);
         });
         reg("compileFast", a -> {
             alleSpeichern();
@@ -794,7 +871,7 @@ final class Editor {
         reg("gotoErrorPrev", a -> gotoError(false));
         reg("hover", a -> hover());
         reg("callUnderCursor", a -> hover());
-        reg("format", a -> format());
+        reg("format", a -> wz.formatieren());
         reg("references", a -> references());
         reg("rename", a -> {
             String w = wortHier();
@@ -803,9 +880,10 @@ final class Editor {
         });
         reg("renameTo", this::renameTo);
         reg("lspRestart", a -> {
-            if (arbeitsordner == null) return;
             for (Doc t : tabs) t.lspOffen = false;
-            lsp.start(arbeitsordner, lspBefehl);
+            if (arbeitsordner != null && !lspBefehl.isEmpty()) tsLsp.start(arbeitsordner, lspBefehl);
+            javaLspOrdner = null;
+            javaLspStarten();
         });
         reg("complete", a -> vervollstaendigen());
         reg("completeUp", a -> vorschlagWahl = Math.max(0, vorschlagWahl - 1));
@@ -938,7 +1016,7 @@ final class Editor {
         }
         d.einfuegen(d.cursor, a);
         d.spalteMerk = -1;
-        if (c == '.' && autoVervollst && d.sprache() != null && lsp.an()) vervollstaendigen();
+        if (c == '.' && autoVervollst && lspFuer(d) != null && lspFuer(d).an()) vervollstaendigen();
     }
 
     private void newline() {
@@ -1073,7 +1151,7 @@ final class Editor {
             d.speichern();
             meldung = "gespeichert: " + relativ(d.pfad) + " (" + d.zeilen() + " Zeilen)";
             lspSync();
-            if (d.lspOffen) lsp.meldung("textDocument/didSave", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad))));
+            if (d.lspOffen) lspFuer(d).meldung("textDocument/didSave", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad))));
             if (neu) index.neuEinlesen();
         } catch (IOException e) {
             fehler("nicht gespeichert: " + e.getMessage());
@@ -1121,7 +1199,9 @@ final class Editor {
                 }
             }
         }
-        lsp.stop();
+        tsLsp.stop();
+        javaLsp.stop();
+        wz.db.trennen();
         beenden.run();
     }
 
@@ -1174,7 +1254,11 @@ final class Editor {
 
     /** Befehl im Arbeitsordner starten, Ausgabe ins Terminal */
     private void starten(String befehl) {
-        if (befehl == null || befehl.isBlank() || arbeitsordner == null) return;
+        starten(befehl, arbeitsordner != null ? arbeitsordner : javaOrdner);
+    }
+
+    private void starten(String befehl, Path ordner) {
+        if (befehl == null || befehl.isBlank() || ordner == null) return;
         if (laufend != null && laufend.isAlive()) {
             fehler("laeuft noch (stop bricht ab)");
             return;
@@ -1182,7 +1266,7 @@ final class Editor {
         konsoleAuf();
         farbig("$ " + befehl, E_HELL);
         List<String> b = Lsp.WINDOWS ? List.of("cmd.exe", "/c", befehl) : List.of("/bin/sh", "-c", befehl);
-        ProcessBuilder pb = new ProcessBuilder(b).directory(arbeitsordner.toFile()).redirectErrorStream(true);
+        ProcessBuilder pb = new ProcessBuilder(b).directory(ordner.toFile()).redirectErrorStream(true);
         Lsp.umgebung(pb);
         pb.environment().put("FORCE_COLOR", "0");
         pb.environment().put("NO_COLOR", "1");
@@ -1304,9 +1388,9 @@ final class Editor {
 
     /** offene Texte an den Server melden (didOpen/didChange mit ganzem Text) */
     void lspSync() {
-        if (!lsp.an()) return;
         for (Doc t : tabs) {
-            if (t.pfad == null || t.sprache() == null) continue;
+            Lsp lsp = lspFuer(t);
+            if (t.pfad == null || lsp == null || !lsp.an()) continue;
             if (!t.lspOffen) {
                 lsp.meldung("textDocument/didOpen", Json.obj("textDocument", Json.obj("uri", Lsp.uri(t.pfad), "languageId", t.sprache(), "version", t.version,
                         "text", t.t.toString())));
@@ -1321,7 +1405,7 @@ final class Editor {
     }
 
     private void lspSchliessen(Doc d) {
-        if (d.lspOffen && d.pfad != null) lsp.meldung("textDocument/didClose", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad))));
+        if (d.lspOffen && d.pfad != null && lspFuer(d) != null) lspFuer(d).meldung("textDocument/didClose", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad))));
         d.lspOffen = false;
     }
 
@@ -1332,12 +1416,13 @@ final class Editor {
 
     private boolean lspBereit() {
         Doc d = d();
-        if (d.pfad == null || d.sprache() == null) {
-            meldung = "kein JavaScript/TypeScript";
+        Lsp lsp = lspFuer(d);
+        if (d.pfad == null || lsp == null) {
+            meldung = "kein TypeScript, JavaScript oder Java";
             return false;
         }
         if (!lsp.an()) {
-            meldung = "Language Server: " + lsp.status;
+            meldung = lsp.name + " Language Server: " + lsp.status;
             return false;
         }
         lspSync();
@@ -1352,7 +1437,7 @@ final class Editor {
         if (!lspBereit()) return;
         Doc d = d();
         int v = d.version;
-        lsp.anfrage("textDocument/definition", position(d), r -> {
+        lspFuer(d()).anfrage("textDocument/definition", position(d), r -> {
             List<Object> l = r instanceof List<?> ? Json.list(r) : r == null ? List.of() : List.of(r);
             if (l.isEmpty()) {
                 meldung = "keine Definition gefunden";
@@ -1412,7 +1497,7 @@ final class Editor {
     private void hover() {
         if (!lspBereit()) return;
         Doc d = d();
-        lsp.anfrage("textDocument/hover", position(d), r -> {
+        lspFuer(d()).anfrage("textDocument/hover", position(d), r -> {
             String t = hoverText(Json.get(r, "contents"));
             if (t.isBlank()) {
                 meldung = "keine Information";
@@ -1445,11 +1530,12 @@ final class Editor {
         return v == null ? "" : v.toString();
     }
 
-    private void format() {
+    /** Formatieren ueber den Language Server (Java mit java.format.eclipse) */
+    void lspFormat() {
         if (!lspBereit()) return;
         Doc d = d();
         int v = d.version;
-        lsp.anfrage("textDocument/formatting", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad)),
+        lspFuer(d()).anfrage("textDocument/formatting", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad)),
                 "options", Json.obj("tabSize", einzug, "insertSpaces", true)), r -> {
                     if (d.version != v) return;
                     List<Object> l = Json.list(r);
@@ -1482,7 +1568,7 @@ final class Editor {
         Map<String, Object> p = position(d);
         p.put("context", Json.obj("includeDeclaration", true));
         String w = wortHier();
-        lsp.anfrage("textDocument/references", p, r -> {
+        lspFuer(d()).anfrage("textDocument/references", p, r -> {
             List<FileManager.Eintrag> l = new ArrayList<>();
             for (Object o : Json.list(r)) {
                 Path pf = ausUri(Json.str(Json.get(o, "uri")));
@@ -1513,7 +1599,7 @@ final class Editor {
         Doc d = d();
         Map<String, Object> p = position(d);
         p.put("newName", neu.trim());
-        lsp.anfrage("textDocument/rename", p, r -> {
+        lspFuer(d()).anfrage("textDocument/rename", p, r -> {
             if (r == null) {
                 meldung = "nicht umbenannt";
                 neuMalen.run();
@@ -1552,7 +1638,7 @@ final class Editor {
         while (a > 0 && Highlight.ident(d.at(a - 1))) a--;
         int anf = a;
         int v = d.version;
-        lsp.anfrage("textDocument/completion", position(d), r -> {
+        lspFuer(d()).anfrage("textDocument/completion", position(d), r -> {
             if (d() != d || d.cursor < anf) return;
             List<Object> items = r instanceof List<?> ? Json.list(r) : Json.list(Json.get(r, "items"));
             List<Map<String, Object>> l = new ArrayList<>();
@@ -1682,7 +1768,7 @@ final class Editor {
 
     int textZeilen() {
         int h = scr.h - oben() - unten() - 8;
-        if (konsoleOffen) h = (scr.h - oben() - unten()) * 3 / 5;
+        if (konsoleOffen || wz.ergebnisOffen) h = (scr.h - oben() - unten()) * 3 / 5;
         return Math.max(1, h / scr.lh);
     }
 
@@ -1701,7 +1787,7 @@ final class Editor {
         scr.noClip();
         scr.clear(E_GRUND);
         if (d.sprache() != null && d.farbenVersion != d.version && d.t.length() < 4_000_000) {
-            d.farben = Highlight.faerben(d.t, d.jsx());
+            d.farben = Highlight.faerben(d.t, d.sprache());
             d.farbenVersion = d.version;
         }
         // ------------------------------------------------ Tab-Leiste
@@ -1709,7 +1795,7 @@ final class Editor {
         scr.rect(0, 0, W, bh, E_LEISTE);
         scr.rect(0, bh, W, 2, E_TEXT);
         int ty = 4;
-        String rechts = arbeitsordner == null ? "kein Arbeitsordner" : arbeitsordner.toString();
+        String rechts = wz.bereiche();
         int maxR = Math.max(10, W / cw / 3);
         if (rechts.length() > maxR) rechts = "~" + rechts.substring(rechts.length() - maxR + 1);
         rechts += "  ";
@@ -1832,10 +1918,12 @@ final class Editor {
             }
         }
         if (konsoleOffen) konsoleMalen(oben + n * lh + 6);
+        else if (wz.ergebnisOffen && wz.erg != null) wz.ergebnisMalen(oben + n * lh + 6);
         if (vorschlagOffen) vorschlaegeMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben + 1) * lh);
         if (info != null) infoMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben) * lh);
         if (fm.offen) fm.malen(scr, bh + 2, H - unten());
         if (popupOffen) popupMalen();
+        if (wz.auswahlOffen) wz.auswahlMalen();
         // ------------------------------------------------ Statuszeile
         int sy = H - unten();
         scr.rect(0, sy - 2, W, 2, E_MATT);
@@ -1854,7 +1942,7 @@ final class Editor {
             else if (g.schwere() == 2) warn++;
         }
         String r = (vim.makroReg != 0 ? "rec @" + vim.makroReg + "   " : "") + (vim.regWahl != 0 ? "\"" + vim.regWahl + " " : "")
-                + (vim.zaehler > 0 ? vim.zaehler + " " : "") + (vim.opOffen ? vim.op + " " : "") + (folge.isEmpty() ? "" : folge + "   ") + (fehler + warn > 0 ? "x" + fehler + " !" + warn + "   " : "") + "TS " + lsp.status + "   "
+                + (vim.zaehler > 0 ? vim.zaehler + " " : "") + (vim.opOffen ? vim.op + " " : "") + (folge.isEmpty() ? "" : folge + "   ") + (fehler + warn > 0 ? "x" + fehler + " !" + warn + "   " : "") + wz.status() + "   "
                 + (index.laeuft ? "Index..." : "Index " + index.dateien.size()) + "   " + (cz + 1) + ":" + (cs + 1) + " ";
         int rw = scr.textWidth(r);
         scr.text(W - rw - cw, my, r, E_TEXT);
@@ -1882,6 +1970,8 @@ final class Editor {
             case "replace" -> "REPLACE";
             case "normal" -> "NORMAL";
             case "operator" -> "NORMAL " + vim.op;
+            case "result" -> "ERGEBNIS";
+            case "picker" -> "AUSWAHL";
             default -> modus;
         };
     }

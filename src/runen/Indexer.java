@@ -33,11 +33,15 @@ final class Indexer {
 
     private record Inhalt(long zeit, long groesse, String text) {}
 
-    volatile Path wurzel;
+    /**
+     * Ein Arbeitsbereich: ausnahmen ohne / gelten fuer jeden Ordner dieses Namens, mit / nur
+     * relativ zur Wurzel (/build).
+     */
+    record Wurzel(Path pfad, String name, List<String> ausnahmen) {}
+
+    volatile List<Wurzel> wurzeln = List.of();
     volatile List<Datei> dateien = List.of();
     volatile boolean laeuft;
-    final Set<String> ignorieren = new HashSet<>(Set.of("node_modules", ".git", "dist", "build", ".next", "coverage", "out", ".turbo", ".cache",
-            ".parcel-cache", ".svelte-kit", ".vercel", ".idea", ".vscode", "target", ".expo", ".yarn"));
     long maxGroesse = 1 << 20;
     private static final Set<String> BINAER = Set.of("png", "jpg", "jpeg", "gif", "webp", "ico", "bmp", "pdf", "zip", "gz", "tgz", "woff", "woff2",
             "ttf", "otf", "eot", "mp3", "mp4", "webm", "wav", "ogg", "mov", "exe", "dll", "so", "dylib", "jar", "class", "lock", "map", "wasm", "avif");
@@ -58,49 +62,66 @@ final class Indexer {
         return t;
     }
 
-    void setWurzel(Path p) {
-        wurzel = p;
+    void setWurzeln(List<Wurzel> w) {
+        wurzeln = List.copyOf(w);
         inhalte.clear();
         dateien = List.of();
         neuEinlesen();
     }
 
     void neuEinlesen() {
-        Path w = wurzel;
-        if (w == null) return;
+        List<Wurzel> ws = wurzeln;
+        if (ws.isEmpty()) return;
         laeuft = true;
         scanner.submit(() -> {
             List<Datei> neu = new ArrayList<>();
-            try {
-                Files.walkFileTree(w, new SimpleFileVisitor<>() {
-                    @Override
-                    public FileVisitResult preVisitDirectory(Path d, BasicFileAttributes a) {
-                        if (!d.equals(w) && ignorieren.contains(d.getFileName().toString())) return FileVisitResult.SKIP_SUBTREE;
-                        return FileVisitResult.CONTINUE;
-                    }
-
-                    @Override
-                    public FileVisitResult visitFile(Path f, BasicFileAttributes a) {
-                        if (a.isRegularFile()) {
-                            String rel = w.relativize(f).toString().replace('\\', '/');
-                            neu.add(new Datei(f, rel, rel.toLowerCase(), a.size()));
-                        }
-                        return FileVisitResult.CONTINUE;
-                    }
-
-                    @Override
-                    public FileVisitResult visitFileFailed(Path f, IOException e) {
-                        return FileVisitResult.CONTINUE;
-                    }
-                });
-            } catch (IOException e) {
-                // halb gelesen ist besser als nichts
-            }
+            for (Wurzel w : ws) einlesen(w, ws.size() > 1, neu);
             neu.sort((a, b) -> a.rel().compareToIgnoreCase(b.rel()));
-            if (w.equals(wurzel)) dateien = Collections.unmodifiableList(neu);
+            if (ws == wurzeln) dateien = Collections.unmodifiableList(neu);
             laeuft = false;
             fertig.run();
         });
+    }
+
+    private static void einlesen(Wurzel w, boolean mitName, List<Datei> neu) {
+        Path wp = w.pfad();
+        Set<String> namen = new HashSet<>(Set.of(".git"));
+        Set<String> pfade = new HashSet<>();
+        for (String a : w.ausnahmen()) {
+            String x = a.replace('\\', '/');
+            while (x.endsWith("/")) x = x.substring(0, x.length() - 1);
+            if (x.isEmpty()) continue;
+            if (x.startsWith("/")) pfade.add(x.substring(1).toLowerCase());
+            else namen.add(x);
+        }
+        try {
+            Files.walkFileTree(wp, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path d, BasicFileAttributes a) {
+                    if (d.equals(wp)) return FileVisitResult.CONTINUE;
+                    if (namen.contains(d.getFileName().toString())) return FileVisitResult.SKIP_SUBTREE;
+                    if (pfade.contains(wp.relativize(d).toString().replace('\\', '/').toLowerCase())) return FileVisitResult.SKIP_SUBTREE;
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path f, BasicFileAttributes a) {
+                    if (a.isRegularFile()) {
+                        String rel = wp.relativize(f).toString().replace('\\', '/');
+                        if (mitName) rel = w.name() + "/" + rel;
+                        neu.add(new Datei(f, rel, rel.toLowerCase(), a.size()));
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path f, IOException e) {
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            // halb gelesen ist besser als nichts
+        }
     }
 
     // ---------------------------------------------------------------- Namenssuche

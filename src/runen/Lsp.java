@@ -39,7 +39,14 @@ final class Lsp {
     volatile boolean bereit;
     volatile String status = "aus";
 
-    Lsp(Hoerer h) {
+    /** fuer Meldungen: TS oder Java */
+    final String name;
+    /** Antwort auf workspace/configuration und initializationOptions */
+    private Map<String, Object> einstellungen = Map.of();
+    private Object initOptionen;
+
+    Lsp(String name, Hoerer h) {
+        this.name = name;
         this.hoerer = h;
     }
 
@@ -116,6 +123,12 @@ final class Lsp {
         env.put("PATH", p.toString());
     }
 
+    void start(Path wurzel, List<String> konfig, Map<String, Object> einstellungen, Object initOptionen) {
+        this.einstellungen = einstellungen == null ? Map.of() : einstellungen;
+        this.initOptionen = initOptionen;
+        start(wurzel, konfig);
+    }
+
     void start(Path wurzel, List<String> konfig) {
         stop();
         if (konfig.isEmpty()) return;
@@ -124,18 +137,18 @@ final class Lsp {
         List<String> b = befehl(wurzel, konfig, pb.environment());
         if (b == null) {
             status = "fehlt";
-            String t = konfig.get(0) + " nicht gefunden (weder in node_modules/.bin noch im PATH)  ->  npm install -g typescript typescript-language-server";
+            String t = name + ": " + konfig.get(0) + " nicht gefunden (weder in node_modules/.bin noch im PATH)  ->  npm install -g typescript typescript-language-server";
             Main.log("Language Server: " + t + "; PATH=" + pb.environment().get("PATH"));
             hoerer.meldung(t, true);
             return;
         }
-        Main.log("Language Server: " + String.join(" ", b));
+        Main.log(name + " Language Server: " + String.join(" ", b));
         fehlerZeilen.clear();
         try {
             proc = pb.command(b).start();
         } catch (IOException e) {
             status = "fehlt";
-            hoerer.meldung("Language Server nicht gestartet (" + String.join(" ", b) + "): " + e.getMessage()
+            hoerer.meldung(name + " Language Server nicht gestartet (" + String.join(" ", b) + "): " + e.getMessage()
                     + "  ->  npm install -g typescript typescript-language-server", true);
             return;
         }
@@ -182,13 +195,13 @@ final class Lsp {
                 "rootPath", wurzel.toString(),
                 "workspaceFolders", List.of(Json.obj("uri", ru, "name", wurzel.getFileName() == null ? "root" : wurzel.getFileName().toString())),
                 "capabilities", caps,
-                "initializationOptions", Json.obj("preferences", Json.obj("includeCompletionsForModuleExports", true,
+                "initializationOptions", initOptionen != null ? initOptionen : Json.obj("preferences", Json.obj("includeCompletionsForModuleExports", true,
                         "includeCompletionsWithInsertText", true)));
         senden(Json.obj("jsonrpc", "2.0", "id", naechste, "method", "initialize", "params", init), true);
         offen.put(naechste++, r -> {
             senden(Json.obj("jsonrpc", "2.0", "method", "initialized", "params", Json.obj()), true);
             bereit = true;
-            status = "an";
+            if (!"laedt".equals(status)) status = "an";
             hoerer.bereit();
         });
     }
@@ -281,7 +294,7 @@ final class Lsp {
                     for (String z : zeilen) hoerer.meldung("  lsp: " + z, false);
                     String grund = zeilen.isEmpty() ? "" : ": " + zeilen.get(zeilen.size() - 1);
                     String hilfe = String.join(" ", zeilen).contains("TypeScript") ? "  ->  npm install -g typescript" : "";
-                    String t = "Language Server beendet (Exit-Code " + code + ")" + grund + hilfe;
+                    String t = name + " Language Server beendet (Exit-Code " + code + ")" + grund + hilfe;
                     Main.log(t + (zeilen.isEmpty() ? "" : System.lineSeparator() + String.join(System.lineSeparator(), zeilen)));
                     hoerer.meldung(t, true);
                 });
@@ -297,7 +310,7 @@ final class Lsp {
             if (c == null) return;
             if (Json.get(m, "error") != null) {
                 String t = Json.str(Json.get(m, "error", "message"));
-                if (t != null && !t.contains("No content")) hoerer.meldung("LSP: " + t, true);
+                if (t != null && !t.contains("No content")) hoerer.meldung(name + ": " + t, true);
                 c.accept(null);
                 return;
             }
@@ -310,7 +323,10 @@ final class Lsp {
             Object ergebnis = null;
             if (methode.equals("workspace/configuration")) {
                 List<Object> l = new ArrayList<>();
-                for (Object ignored : Json.list(Json.get(m, "params", "items"))) l.add(null);
+                for (Object item : Json.list(Json.get(m, "params", "items"))) {
+                    String sektion = Json.str(Json.get(item, "section"));
+                    l.add(sektion == null ? einstellungen : Json.get(einstellungen, sektion.split("\\.")));
+                }
                 ergebnis = l;
             }
             senden(Json.obj("jsonrpc", "2.0", "id", id, "result", ergebnis), false);
@@ -318,6 +334,13 @@ final class Lsp {
         }
         switch (methode) {
             case "textDocument/publishDiagnostics" -> hoerer.diagnosen(Json.str(Json.get(m, "params", "uri")), Json.list(Json.get(m, "params", "diagnostics")));
+            case "language/status" -> {
+                // jdtls: Starting, ProjectStatus, ServiceReady ...
+                String art = Json.str(Json.get(m, "params", "type"));
+                if ("ServiceReady".equals(art)) status = "an";
+                else if ("Starting".equals(art)) status = "laedt";
+                else if ("Error".equals(art)) hoerer.meldung(name + ": " + Json.str(Json.get(m, "params", "message")), true);
+            }
             case "window/showMessage" -> {
                 int art = Json.num(Json.get(m, "params", "type"), 3);
                 hoerer.meldung(Json.str(Json.get(m, "params", "message")), art == 1);

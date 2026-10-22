@@ -79,19 +79,41 @@ final class Keymap {
         return n < t.length ? t[n] : "";
     }
 
-    boolean lesen(Path pfad) {
+    /** Vorgabe (aus der Jar) und dann die Datei, die sie ergaenzt und ueberschreibt */
+    boolean lesen(Path pfad, java.io.InputStream vorgabe) {
         modes.clear();
         layouts.clear();
         fehler.clear();
         layout = "de_DE";
         start = "normal";
-        List<String> zeilen;
-        try {
-            zeilen = Files.readAllLines(pfad, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            fehler.add(pfad + ": nicht gefunden");
-            return false;
+        if (vorgabe != null) {
+            try (vorgabe) {
+                zeilenLesen(new String(vorgabe.readAllBytes(), StandardCharsets.UTF_8).lines().toList(), "Vorgabe");
+            } catch (IOException e) {
+                fehler.add("Vorgabe-Keymap: " + e.getMessage());
+            }
         }
+        boolean da = Files.exists(pfad);
+        if (da) {
+            try {
+                zeilenLesen(Files.readAllLines(pfad, StandardCharsets.UTF_8), pfad.getFileName().toString());
+            } catch (IOException e) {
+                fehler.add(pfad + ": " + e.getMessage());
+            }
+        }
+        for (Map.Entry<String, Mode> e : modes.entrySet()) {
+            String el = e.getValue().eltern;
+            if (!el.isEmpty() && !modes.containsKey(el)) fehler.add("keymap: mode " + e.getKey() + " extends " + el + ": gibt es nicht");
+        }
+        layoutAn();
+        return da || vorgabe != null;
+    }
+
+    boolean lesen(Path pfad) {
+        return lesen(pfad, null);
+    }
+
+    private void zeilenLesen(List<String> zeilen, String datei) {
         String modus = null, lay = null;
         int nr = 0;
         for (String roh : zeilen) {
@@ -100,7 +122,7 @@ final class Keymap {
             // "# = ..." belegt die Taste #, sonst ist # ein Kommentar
             if (z.isEmpty() || (z.startsWith("#") && !z.startsWith("# = ")) || z.startsWith("//")) continue;
             if (z.equals("}")) {
-                if (modus == null && lay == null) fehler.add("keymap.config:" + nr + ": } ohne Block");
+                if (modus == null && lay == null) fehler.add(datei + ":" + nr + ": } ohne Block");
                 modus = null;
                 lay = null;
                 continue;
@@ -111,7 +133,7 @@ final class Keymap {
                     switch (wort(z, 1)) {
                         case "layout" -> layout = wort(z, 2);
                         case "start" -> start = wort(z, 2);
-                        default -> fehler.add("keymap.config:" + nr + ": unbekannte Einstellung " + wort(z, 1));
+                        default -> fehler.add(datei + ":" + nr + ": unbekannte Einstellung " + wort(z, 1));
                     }
                     continue;
                 }
@@ -131,12 +153,12 @@ final class Keymap {
                     }
                     continue;
                 }
-                fehler.add("keymap.config:" + nr + ": erwartet: mode NAME { oder layout NAME { oder set, nicht " + w0);
+                fehler.add(datei + ":" + nr + ": erwartet: mode NAME { oder layout NAME { oder set, nicht " + w0);
                 continue;
             }
             int q = z.indexOf(" = ");
             if (q < 0) {
-                fehler.add("keymap.config:" + nr + ": erwartet: TASTE = BEFEHL");
+                fehler.add(datei + ":" + nr + ": erwartet: TASTE = BEFEHL");
                 continue;
             }
             String links = z.substring(0, q).trim();
@@ -152,13 +174,7 @@ final class Keymap {
             }
             md.bind.put(f, rechts);
         }
-        if (modus != null || lay != null) fehler.add("keymap.config:" + nr + ": } fehlt am Ende");
-        for (Map.Entry<String, Mode> e : modes.entrySet()) {
-            String el = e.getValue().eltern;
-            if (!el.isEmpty() && !modes.containsKey(el)) fehler.add("keymap.config: mode " + e.getKey() + " extends " + el + ": gibt es nicht");
-        }
-        layoutAn();
-        return true;
+        if (modus != null || lay != null) fehler.add(datei + ":" + nr + ": } fehlt am Ende");
     }
 
     /** Belegung einer Folge im Mode (mit seinen Eltern) oder null */

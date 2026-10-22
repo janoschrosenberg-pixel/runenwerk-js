@@ -16,6 +16,24 @@ final class Highlight {
     private static final Set<String> VOR_AUSDRUCK = Set.of("return", "typeof", "case", "do", "else", "in", "of", "new", "delete", "void", "throw",
             "yield", "await", "instanceof", "default", "export");
 
+    private static final Set<String> JAVA = Set.of("abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class", "const",
+            "continue", "default", "do", "double", "else", "enum", "extends", "final", "finally", "float", "for", "goto", "if", "implements", "import",
+            "instanceof", "int", "interface", "long", "native", "new", "package", "private", "protected", "public", "return", "short", "static",
+            "strictfp", "super", "switch", "synchronized", "throw", "throws", "transient", "try", "void", "volatile", "while", "var", "record",
+            "sealed", "permits", "non-sealed", "yield", "module", "requires", "exports", "opens", "uses", "provides", "with", "to", "transitive");
+    private static final Set<String> JAVA_CONSTS = Set.of("true", "false", "null", "this");
+    private static final Set<String> SQL = Set.of("select", "from", "where", "and", "or", "not", "in", "is", "null", "like", "between", "exists",
+            "insert", "into", "values", "update", "set", "delete", "merge", "using", "matched", "when", "then", "else", "end", "case", "create",
+            "replace", "alter", "drop", "truncate", "table", "view", "index", "unique", "primary", "foreign", "key", "references", "constraint",
+            "default", "check", "sequence", "synonym", "grant", "revoke", "on", "to", "join", "inner", "left", "right", "full", "outer", "cross",
+            "natural", "group", "by", "order", "having", "asc", "desc", "nulls", "first", "last", "union", "all", "intersect", "minus", "except",
+            "distinct", "as", "with", "connect", "start", "prior", "level", "rownum", "rowid", "fetch", "next", "rows", "only", "offset", "commit",
+            "rollback", "savepoint", "begin", "declare", "exception", "raise", "return", "returns", "function", "procedure", "package", "body",
+            "trigger", "before", "after", "for", "each", "row", "loop", "while", "exit", "if", "elsif", "cursor", "open", "close", "type", 
+            "of", "number", "varchar2", "varchar", "char", "nvarchar2", "date", "timestamp", "clob", "blob", "integer", "boolean", "pls_integer",
+            "execute", "immediate", "pragma", "autonomous_transaction", "bulk", "collect", "forall", "out", "nocopy", "sysdate", "systimestamp",
+            "dual", "partition", "over", "within", "pivot", "unpivot", "comment", "column", "add", "modify", "rename", "cascade", "purge");
+
     private static final int CODE = 0, TEMPLATE = 1, JSX_TAG = 2, JSX_KIND = 3;
 
     static boolean identAnf(char c) {
@@ -26,7 +44,20 @@ final class Highlight {
         return Character.isLetterOrDigit(c) || c == '_' || c == '$';
     }
 
+    /** nach Sprache aus {@link Doc#sprache()} */
+    static byte[] faerben(CharSequence s, String sprache) {
+        if (sprache.equals("sql")) return sql(s);
+        if (sprache.equals("java")) return faerben(s, false, true);
+        return faerben(s, sprache.endsWith("react") || sprache.equals("javascript"), false);
+    }
+
     static byte[] faerben(CharSequence s, boolean jsx) {
+        return faerben(s, jsx, false);
+    }
+
+    static byte[] faerben(CharSequence s, boolean jsx, boolean java) {
+        Set<String> schluessel = java ? JAVA : KEYWORDS;
+        Set<String> konst = java ? JAVA_CONSTS : CONSTS;
         int n = s.length();
         byte[] f = new byte[n];
         int[] art = new int[256];
@@ -128,12 +159,24 @@ final class Highlight {
                 while (i < e) f[i++] = COMMENT;
                 continue;
             }
+            if (java && c == '"' && d == '"' && i + 2 < n && s.charAt(i + 2) == '"') {
+                // Text-Block """ ... """
+                int e = indexOf3(s, i + 3);
+                e = e < 0 ? n : e + 3;
+                while (i < e) f[i++] = STRING;
+                continue;
+            }
+            if (java && c == '@' && identAnf(d)) {
+                f[i++] = ATTR;
+                while (i < n && (ident(s.charAt(i)) || s.charAt(i) == '.')) f[i++] = ATTR;
+                continue;
+            }
             if (c == '"' || c == '\'') {
                 i = text(s, f, i, c, false);
                 ausdruck = false;
                 continue;
             }
-            if (c == '`' && sp < 255) {
+            if (c == '`' && !java && sp < 255) {
                 f[i++] = STRING;
                 art[++sp] = TEMPLATE;
                 continue;
@@ -148,9 +191,9 @@ final class Highlight {
                 while (i < n && ident(s.charAt(i))) i++;
                 String w = s.subSequence(a, i).toString();
                 byte k;
-                if (KEYWORDS.contains(w)) {
+                if (schluessel.contains(w)) {
                     k = KEYWORD;
-                } else if (CONSTS.contains(w)) {
+                } else if (konst.contains(w)) {
                     k = CONST;
                 } else {
                     int j = i;
@@ -160,7 +203,7 @@ final class Highlight {
                     else k = TEXT;
                 }
                 for (int q = a; q < i; q++) f[q] = k;
-                ausdruck = VOR_AUSDRUCK.contains(w);
+                ausdruck = !java && VOR_AUSDRUCK.contains(w);
                 continue;
             }
             if (c == '<' && jsx && ausdruck && (identAnf(d) || d == '>') && sp < 255) {
@@ -169,7 +212,7 @@ final class Highlight {
                 art[++sp] = JSX_TAG;
                 continue;
             }
-            if (c == '/' && ausdruck) {
+            if (c == '/' && ausdruck && !java) {
                 int j = i + 1;
                 boolean klasse = false;
                 while (j < n && s.charAt(j) != '\n') {
@@ -201,6 +244,62 @@ final class Highlight {
             }
             f[i++] = PUNCT;
             ausdruck = c != ')' && c != ']';
+        }
+        return f;
+    }
+
+    private static int indexOf3(CharSequence s, int ab) {
+        for (int k = ab; k + 2 < s.length(); k++) {
+            if (s.charAt(k) == '\\') k++;
+            else if (s.charAt(k) == '"' && s.charAt(k + 1) == '"' && s.charAt(k + 2) == '"') return k;
+        }
+        return -1;
+    }
+
+    /** SQL und PL/SQL: Schluesselwoerter ohne Gross/Klein, '...', "...", -- und Block-Kommentare */
+    static byte[] sql(CharSequence s) {
+        int n = s.length();
+        byte[] f = new byte[n];
+        int i = 0;
+        while (i < n) {
+            char c = s.charAt(i);
+            char d = i + 1 < n ? s.charAt(i + 1) : 0;
+            if (c == '-' && d == '-') {
+                while (i < n && s.charAt(i) != '\n') f[i++] = COMMENT;
+            } else if (c == '/' && d == '*') {
+                int e = indexOf(s, "*/", i + 2);
+                e = e < 0 ? n : e + 2;
+                while (i < e) f[i++] = COMMENT;
+            } else if (c == '\'') {
+                f[i++] = STRING;
+                while (i < n) {
+                    char x = s.charAt(i);
+                    f[i++] = STRING;
+                    if (x == '\'') {
+                        if (i < n && s.charAt(i) == '\'') f[i++] = STRING;
+                        else break;
+                    }
+                }
+            } else if (c == '"') {
+                f[i++] = TYPE;
+                while (i < n && s.charAt(i) != '"' && s.charAt(i) != '\n') f[i++] = TYPE;
+                if (i < n && s.charAt(i) == '"') f[i++] = TYPE;
+            } else if (Character.isDigit(c)) {
+                while (i < n && (Character.isLetterOrDigit(s.charAt(i)) || s.charAt(i) == '.')) f[i++] = NUMBER;
+            } else if (Character.isLetter(c) || c == '_') {
+                int a = i;
+                while (i < n && (Character.isLetterOrDigit(s.charAt(i)) || s.charAt(i) == '_' || s.charAt(i) == '$' || s.charAt(i) == '#')) i++;
+                String w = s.subSequence(a, i).toString().toLowerCase();
+                int j = i;
+                while (j < n && s.charAt(j) == ' ') j++;
+                byte k = SQL.contains(w) ? KEYWORD : (j < n && s.charAt(j) == '(') ? FUNC : TEXT;
+                for (int q = a; q < i; q++) f[q] = k;
+            } else if (c == ':' && i + 1 < n && Character.isLetter(d)) {
+                f[i++] = ATTR;
+                while (i < n && (Character.isLetterOrDigit(s.charAt(i)) || s.charAt(i) == '_')) f[i++] = ATTR;
+            } else {
+                f[i++] = c <= ' ' ? TEXT : PUNCT;
+            }
         }
         return f;
     }
