@@ -388,7 +388,10 @@ final class FileManager {
             ed.springMerken();
             d.cursor = d.stelle(e.zeile, e.spalte);
             d.spalteMerk = -1;
-            if (e.laenge > 0 && listenTitel == null && !suche.isEmpty()) ed.suche = suche.toString().trim();
+            if (e.laenge > 0 && listenTitel == null && !suche.isEmpty()) {
+                ed.suche = suche.toString().trim();
+                ed.sucheZeigen = true;
+            }
         }
     }
 

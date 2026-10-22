@@ -202,6 +202,7 @@ public final class Main {
             else if (c == KeyEvent.VK_SUBTRACT) n = "Ctrl--";
             else if (c == KeyEvent.VK_PERIOD) n = "Ctrl-.";
             else if (c == KeyEvent.VK_COMMA) n = "Ctrl-,";
+            else if (c == KeyEvent.VK_OPEN_BRACKET) n = "ESC";
         }
         if (n == null) return;
         e.consume();

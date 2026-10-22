@@ -48,6 +48,7 @@ final class Editor {
     final Indexer index;
     final Lsp lsp;
     final FileManager fm;
+    final Vim vim;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
 
     // Einstellungen (editor.config)
@@ -99,13 +100,14 @@ final class Editor {
     private String vorschlagVorModus = "insert";
 
     final Deque<Sprung> spruenge = new ArrayDeque<>();
-    String register = "";
-    boolean registerZeile;
     String suche = "";
+    boolean sucheZeigen;
     final Map<String, List<Doc.Diag>> diagnosen = new HashMap<>();
 
     private String vorGruppe, jetztGruppe;
     private int tiefe;
+    /** beim Wiederholen mit Zaehler nur ein Undo-Stand */
+    private boolean merkSperre;
 
     Editor(Path konfig) {
         this.konfig = konfig;
@@ -134,6 +136,7 @@ final class Editor {
             }
         });
         fm = new FileManager(this);
+        vim = new Vim(this);
         folgeUhr = new Timer(1000, e -> {
             // angefangene Folge nach 1 s allein ausfuehren
             String alt = folgeBefehl;
@@ -148,6 +151,7 @@ final class Editor {
         lspUhr.setRepeats(false);
         befehle();
         fm.befehle(cmds);
+        vim.befehle(cmds);
         tabs.add(new Doc());
     }
 
@@ -303,9 +307,21 @@ final class Editor {
                 return;
             }
         }
+        vim.vorTaste(name, code);
         verarbeiten(name, code);
         nachBefehl();
+        vim.nachTaste();
         neuMalen.run();
+    }
+
+    /** Taste aus einem Makro oder der Punkt-Wiederholung */
+    void tasteIntern(String name, int code) {
+        verarbeiten(name, code);
+        nachBefehl();
+    }
+
+    boolean folgeLeer() {
+        return folge.isEmpty();
     }
 
     private void verarbeiten(String name, int code) {
@@ -324,7 +340,7 @@ final class Editor {
         if (b != null) {
             folge = "";
             folgeUhr.stop();
-            ausfuehren(b, 0);
+            ausfuehrenMitZaehler(b);
             return;
         }
         if (!folge.isEmpty()) {
@@ -333,7 +349,7 @@ final class Editor {
             folge = "";
             folgeBefehl = null;
             folgeUhr.stop();
-            if (alt != null) ausfuehren(alt, 0);
+            if (alt != null) ausfuehrenMitZaehler(alt);
             verarbeiten(name, code);
             return;
         }
@@ -343,10 +359,29 @@ final class Editor {
         }
     }
 
+    /**
+     * Belegung ausfuehren; hat der Befehl den Zaehler (3x, 5p) nicht selbst genommen,
+     * wird er so oft wiederholt.
+     */
+    private void ausfuehrenMitZaehler(String b) {
+        String name = b.strip().split("\\s+", 2)[0];
+        ausfuehren(b, 0);
+        if (vim.zaehler <= 0 || name.equals("count") || name.equals("countZero")) return;
+        int n = vim.zaehler;
+        vim.zaehler = 0;
+        merkSperre = true;
+        try {
+            for (int i = 1; i < n; i++) ausfuehren(b, 0);
+        } finally {
+            merkSperre = false;
+        }
+    }
+
     /** Befehlszeile wie im Terminal: NAME ARGUMENTE; code (ANY) kommt als Zeichen dazu */
     void ausfuehren(String zeile, int code) {
         zeile = zeile.strip();
         if (zeile.isEmpty()) return;
+        if (code == 0 && vim.ersetzenBefehl(zeile)) return;
         int sp = zeile.indexOf(' ');
         String name = sp < 0 ? zeile : zeile.substring(0, sp);
         String rest = sp < 0 ? "" : zeile.substring(sp + 1).strip();
@@ -372,6 +407,8 @@ final class Editor {
                 mp.ausfuehren(f, arg, this::befehl);
             } else if (name.matches("\\d+")) {
                 gotoLine(Integer.parseInt(name));
+            } else if (name.equals("$")) {
+                gotoLine(d().zeilen());
             } else {
                 fehler("unbekannter Befehl: " + name);
             }
@@ -388,13 +425,19 @@ final class Editor {
         jetztGruppe = null;
         Doc d = d();
         d.cursor = Math.max(0, Math.min(d.cursor, d.t.length()));
+        if (vim.visArt != 0 && !modus.equals("visual") && !modus.equals("char")) vim.visualEnde();
+        if (modus.equals("normal")) {
+            // im Normal-Mode steht der Cursor auf einem Zeichen, nicht hinter der Zeile
+            int z = d.zeileVon(d.cursor);
+            if (d.cursor == d.ende(z) && d.cursor > d.anf(z)) d.cursor--;
+        }
         if (d.lspVersion != d.version) lspUhr.restart();
     }
 
     /** Undo-Stand merken; gleiche Gruppe hintereinander (tippen) gibt nur einen Stand */
-    private void merken(String gruppe) {
+    void merken(String gruppe) {
         jetztGruppe = gruppe;
-        if (gruppe != null && gruppe.equals(vorGruppe)) return;
+        if (merkSperre || (gruppe != null && gruppe.equals(vorGruppe))) return;
         d().merken();
     }
 
@@ -404,7 +447,14 @@ final class Editor {
     }
 
     private void befehle() {
-        reg("switchState", this::switchState);
+        reg("switchState", a -> {
+            if (a.trim().equals("insert") && !modus.equals("insert")) {
+                switchState(a);
+                vim.insertMitZaehler();
+            } else {
+                switchState(a);
+            }
+        });
         // ------------------------------------------------ Bewegen
         reg("cursorLeft", a -> {
             Doc d = d();
@@ -476,59 +526,6 @@ final class Editor {
             merken(ins ? "tippen" : null);
             d.loeschen(d.cursor, Character.isHighSurrogate(d.at(d.cursor)) ? 2 : 1);
         });
-        reg("yankLine", a -> {
-            Doc d = d();
-            register = d.zeile(d.zeileVon(d.cursor)) + "\n";
-            registerZeile = true;
-            zwischenablage(register);
-            meldung = "Zeile kopiert";
-        });
-        reg("deleteLine", a -> {
-            Doc d = d();
-            merken(null);
-            int z = d.zeileVon(d.cursor);
-            register = d.zeile(z) + "\n";
-            registerZeile = true;
-            zwischenablage(register);
-            int an = d.anf(z), en = d.ende(z);
-            if (en < d.t.length()) d.loeschen(an, en - an + 1);
-            else d.loeschen(Math.max(0, an - 1), en - Math.max(0, an - 1));
-            d.cursor = d.anf(Math.min(z, d.zeilen() - 1));
-            firstNonBlank();
-        });
-        reg("deleteWord", a -> {
-            Doc d = d();
-            merken(null);
-            int e = wortVor(d, d.cursor);
-            int ze = d.ende(d.zeileVon(d.cursor));
-            if (e > ze && ze > d.cursor) e = ze;
-            register = d.t.substring(d.cursor, e);
-            registerZeile = false;
-            d.loeschen(d.cursor, e - d.cursor);
-        });
-        reg("changeWord", a -> {
-            Doc d = d();
-            merken(null);
-            int e = d.cursor;
-            if (Highlight.ident(d.at(e))) while (Highlight.ident(d.at(e))) e++;
-            else if (d.at(e) != '\n') e++;
-            d.loeschen(d.cursor, e - d.cursor);
-            state("insert");
-        });
-        reg("deleteToLineEnd", a -> {
-            Doc d = d();
-            merken(null);
-            int e = d.ende(d.zeileVon(d.cursor));
-            register = d.t.substring(d.cursor, e);
-            registerZeile = false;
-            d.loeschen(d.cursor, e - d.cursor);
-        });
-        reg("changeToLineEnd", a -> {
-            cmds.get("deleteToLineEnd").run("");
-            state("insert");
-        });
-        reg("paste", a -> paste(false));
-        reg("pasteBefore", a -> paste(true));
         reg("pasteClipboard", a -> {
             String s = ausZwischenablage();
             if (s == null || s.isEmpty()) return;
@@ -564,35 +561,56 @@ final class Editor {
             Doc d = d();
             if (d.cursor < d.ende(d.zeileVon(d.cursor))) d.cursor++;
             state("insert");
+            vim.insertMitZaehler();
         });
         reg("appendLineEnd", a -> {
             Doc d = d();
             d.cursor = d.ende(d.zeileVon(d.cursor));
             state("insert");
+            vim.insertMitZaehler();
         });
         reg("insertLineStart", a -> {
             firstNonBlank();
             state("insert");
+            vim.insertMitZaehler();
         });
         reg("undo", a -> {
+            vim.nichtMerken = true;
             if (!d().undo()) meldung = "nichts mehr rueckgaengig zu machen";
+            else d().cursor = Math.min(d().cursor, d().t.length());
         });
         reg("redo", a -> {
+            vim.nichtMerken = true;
             if (!d().redo()) meldung = "nichts zu wiederholen";
         });
         // ------------------------------------------------ Suchen im Text
-        reg("find", a -> popupOpen("Suchen im Text:", "findText", suche));
+        reg("find", a -> popupOpen("Suchen im Text (/):", "findText", ""));
+        reg("findBack", a -> popupOpen("Rueckwaerts suchen (?):", "findTextBack", ""));
         reg("findText", a -> {
-            suche = a;
+            if (!a.isEmpty()) suche = a;
+            vim.sucheRueck = false;
+            findNext(true);
+        });
+        reg("findTextBack", a -> {
+            if (!a.isEmpty()) suche = a;
+            vim.sucheRueck = true;
             findNext(true);
         });
         reg("findNext", a -> findNext(true));
         reg("findPrev", a -> findNext(false));
-        reg("clearSearch", a -> suche = "");
+        reg("clearSearch", a -> sucheZeigen = false);
         reg("findWord", a -> {
             String w = wortHier();
             if (w.isEmpty()) return;
             suche = w;
+            vim.sucheRueck = false;
+            findNext(true);
+        });
+        reg("findWordBack", a -> {
+            String w = wortHier();
+            if (w.isEmpty()) return;
+            suche = w;
+            vim.sucheRueck = true;
             findNext(true);
         });
         // ------------------------------------------------ Dateien und Tabs
@@ -772,7 +790,8 @@ final class Editor {
             if (s.pfad() != null) oeffnen(s.pfad());
             d().cursor = Math.min(s.pos(), d().t.length());
         });
-        reg("gotoError", a -> gotoError());
+        reg("gotoError", a -> gotoError(true));
+        reg("gotoErrorPrev", a -> gotoError(false));
         reg("hover", a -> hover());
         reg("callUnderCursor", a -> hover());
         reg("format", a -> format());
@@ -815,7 +834,9 @@ final class Editor {
     void switchState(String m) {
         m = m.trim();
         if (m.isEmpty()) return;
-        if (modus.equals("insert") && !m.equals("insert")) {
+        if ((modus.equals("insert") || modus.equals("replace")) && !m.equals("insert") && !m.equals("complete")) vim.insertEnde();
+        if (vim.visArt != 0 && !m.equals("visual")) vim.visualEnde();
+        if ((modus.equals("insert") || modus.equals("replace")) && !m.equals("insert")) {
             Doc d = d();
             if (d.cursor > d.anf(d.zeileVon(d.cursor))) d.cursor--;
         }
@@ -966,50 +987,12 @@ final class Editor {
         d.spalteMerk = -1;
     }
 
-    private void paste(boolean davor) {
-        Doc d = d();
-        if (register.isEmpty()) return;
-        merken(null);
-        int z = d.zeileVon(d.cursor);
-        if (registerZeile) {
-            if (davor) {
-                int an = d.anf(z);
-                d.einfuegen(an, register);
-                d.cursor = an;
-            } else {
-                int en = d.ende(z);
-                if (en >= d.t.length()) {
-                    d.einfuegen(en, "\n" + register.substring(0, register.length() - 1));
-                } else {
-                    d.einfuegen(en + 1, register);
-                }
-                d.cursor = d.anf(z + 1);
-            }
-            firstNonBlank();
-        } else {
-            int p = d.cursor;
-            if (!davor && p < d.ende(z)) p++;
-            d.einfuegen(p, register);
-            d.cursor = p + register.length() - 1;
-        }
-    }
-
     private void findNext(boolean vor) {
-        if (suche.isEmpty()) return;
         Doc d = d();
-        boolean genau = !suche.equals(suche.toLowerCase());
-        String t = genau ? d.t.toString() : d.t.toString().toLowerCase();
-        String q = genau ? suche : suche.toLowerCase();
-        int p = vor ? t.indexOf(q, d.cursor + 1) : t.lastIndexOf(q, d.cursor - 1);
-        if (p < 0) {
-            p = vor ? t.indexOf(q) : t.lastIndexOf(q);
-            if (p >= 0) meldung = vor ? "Suche oben weiter" : "Suche unten weiter";
-        }
-        if (p < 0) {
-            meldung = "nicht gefunden: " + suche;
-            return;
-        }
+        int p = vim.suchen(d.cursor, vor != vim.sucheRueck);
+        if (p < 0) return;
         springMerken();
+        sucheZeigen = true;
         d.cursor = p;
         d.spalteMerk = -1;
     }
@@ -1396,18 +1379,28 @@ final class Editor {
         z.spalteMerk = -1;
     }
 
-    private void gotoError() {
+    private void gotoError(boolean vor) {
         Doc d = d();
         if (d.diags.isEmpty()) {
             meldung = "keine Fehler";
             return;
         }
         int z = d.zeileVon(d.cursor), sp = d.cursor - d.anf(z);
-        Doc.Diag ziel = d.diags.get(0);
-        for (Doc.Diag g : d.diags) {
-            if (g.zeile() > z || (g.zeile() == z && g.spalte() > sp)) {
-                ziel = g;
-                break;
+        Doc.Diag ziel = vor ? d.diags.get(0) : d.diags.get(d.diags.size() - 1);
+        if (vor) {
+            for (Doc.Diag g : d.diags) {
+                if (g.zeile() > z || (g.zeile() == z && g.spalte() > sp)) {
+                    ziel = g;
+                    break;
+                }
+            }
+        } else {
+            for (int i = d.diags.size() - 1; i >= 0; i--) {
+                Doc.Diag g = d.diags.get(i);
+                if (g.zeile() < z || (g.zeile() == z && g.spalte() < sp)) {
+                    ziel = g;
+                    break;
+                }
             }
         }
         springMerken();
@@ -1753,7 +1746,11 @@ final class Editor {
         grund(oben - 4, n * lh + 4);
         int tx = rand * cw;
         boolean genau = !suche.equals(suche.toLowerCase());
-        String sucheK = genau ? suche : suche.toLowerCase();
+        String sucheK = !sucheZeigen ? "" : genau ? suche : suche.toLowerCase();
+        boolean visuell = modus.equals("visual") || (modus.equals("char") && vim.visArt != 0);
+        int selLo = Math.min(vim.anker, d.cursor), selHi = Math.max(vim.anker, d.cursor);
+        int selZ1 = d.zeileVon(selLo), selZ2 = d.zeileVon(selHi);
+        int selV1 = Math.min(vspalte(d, vim.anker), cs), selV2 = Math.max(vspalte(d, vim.anker), cs);
         for (int k = 0; k < n; k++) {
             int z = d.oben + k;
             if (z >= d.zeilen()) break;
@@ -1775,6 +1772,21 @@ final class Editor {
             scr.text((rand - 1 - nr.length()) * cw, y, nr, nf);
             int a = d.anf(z), e = d.ende(z);
             scr.clip(tx, y, W - tx, lh);
+            // Auswahl (Visual)
+            if (visuell && z >= selZ1 && z <= selZ2) {
+                int va, ve;
+                if (vim.visArt == 2) {
+                    va = 0;
+                    ve = vspalte(d, e) + 1;
+                } else if (vim.visArt == 3) {
+                    va = selV1;
+                    ve = d.spalteMerk >= Vim.BIS_ENDE ? Math.max(va + 1, vspalte(d, e) + 1) : selV2 + 1;
+                } else {
+                    va = z == selZ1 ? vspalte(d, selLo) : 0;
+                    ve = z == selZ2 ? vspalte(d, selHi) + 1 : vspalte(d, e) + 1;
+                }
+                scr.rect(tx + (va - d.links) * cw, y, (ve - va) * cw, lh, 0x1E5A2E);
+            }
             // Suchtreffer
             if (sucheK.length() > 0) {
                 String zl = genau ? d.t.substring(a, e) : d.t.substring(a, e).toLowerCase();
@@ -1811,6 +1823,8 @@ final class Editor {
             int cy = oben + (cz - d.oben) * lh;
             if (modus.equals("insert") || modus.equals("complete")) {
                 scr.rect(cx, cy + 1, Math.max(2, cw / 5), lh - 2, E_HELL);
+            } else if (modus.equals("replace") || modus.equals("operator")) {
+                scr.rect(cx, cy + lh - Math.max(3, lh / 6), cw, Math.max(3, lh / 6), E_HELL);
             } else if (!fm.offen && !popupOffen) {
                 scr.rect(cx, cy + 1, cw, lh - 2, E_TEXT);
                 char ch = d.at(d.cursor);
@@ -1826,9 +1840,9 @@ final class Editor {
         int sy = H - unten();
         scr.rect(0, sy - 2, W, 2, E_MATT);
         scr.rect(0, sy, W, unten(), E_LEISTE);
-        String m = " " + modus + " ";
+        String m = " " + modusAnzeige() + " ";
         int mw = scr.textWidth(m);
-        int mf = modus.equals("insert") ? E_WARN : modus.equals("console") ? E_HELL : E_TEXT;
+        int mf = modus.equals("insert") || modus.equals("replace") ? E_WARN : modus.equals("console") ? E_HELL : visuell ? E_INFO : E_TEXT;
         int my = sy + (unten() - lh) / 2;
         scr.rect(0, sy, mw, unten(), mf);
         scr.text(0, my, m, E_GRUND);
@@ -1839,7 +1853,8 @@ final class Editor {
             if (g.schwere() == 1) fehler++;
             else if (g.schwere() == 2) warn++;
         }
-        String r = (folge.isEmpty() ? "" : folge + "   ") + (fehler + warn > 0 ? "x" + fehler + " !" + warn + "   " : "") + "TS " + lsp.status + "   "
+        String r = (vim.makroReg != 0 ? "rec @" + vim.makroReg + "   " : "") + (vim.regWahl != 0 ? "\"" + vim.regWahl + " " : "")
+                + (vim.zaehler > 0 ? vim.zaehler + " " : "") + (vim.opOffen ? vim.op + " " : "") + (folge.isEmpty() ? "" : folge + "   ") + (fehler + warn > 0 ? "x" + fehler + " !" + warn + "   " : "") + "TS " + lsp.status + "   "
                 + (index.laeuft ? "Index..." : "Index " + index.dateien.size()) + "   " + (cz + 1) + ":" + (cs + 1) + " ";
         int rw = scr.textWidth(r);
         scr.text(W - rw - cw, my, r, E_TEXT);
@@ -1856,6 +1871,19 @@ final class Editor {
         }
         scr.noClip();
         meldungFarbe = meldung == null ? E_WARN : meldungFarbe;
+    }
+
+    private String modusAnzeige() {
+        if (modus.equals("visual") || (modus.equals("char") && vim.visArt != 0)) {
+            return vim.visArt == 2 ? "V-LINE" : vim.visArt == 3 ? "V-BLOCK" : "VISUAL";
+        }
+        return switch (modus) {
+            case "insert" -> "INSERT";
+            case "replace" -> "REPLACE";
+            case "normal" -> "NORMAL";
+            case "operator" -> "NORMAL " + vim.op;
+            default -> modus;
+        };
     }
 
     private void konsoleMalen(int y0) {

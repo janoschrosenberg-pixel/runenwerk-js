@@ -97,7 +97,8 @@ final class Keymap {
         for (String roh : zeilen) {
             nr++;
             String z = roh.trim();
-            if (z.isEmpty() || z.startsWith("#") || z.startsWith("//")) continue;
+            // "# = ..." belegt die Taste #, sonst ist # ein Kommentar
+            if (z.isEmpty() || (z.startsWith("#") && !z.startsWith("# = ")) || z.startsWith("//")) continue;
             if (z.equals("}")) {
                 if (modus == null && lay == null) fehler.add("keymap.config:" + nr + ": } ohne Block");
                 modus = null;

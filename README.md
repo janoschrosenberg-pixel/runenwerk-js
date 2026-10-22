@@ -23,16 +23,34 @@ Language Server: `npm install -g typescript typescript-language-server`
 - `keymap.config` – Tastenbelegung (Modes: base, normal, insert, complete, console, popup, commander, fmsearch)
 - `mapping/*.map` – eigene Befehle als Folge von Editor-Befehlen (`keymap` im Terminal lädt alles neu)
 
-## Wichtigste Tasten (Vorgabe)
+## Vim
+
+Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (umbelegbar in `keymap.config`):
+
+- **Zähler** vor allem: `3j`, `5x`, `2dw`, `d3w`, `3p`, `3ifoo<ESC>`, `10G`, `50%`
+- **Bewegungen**: `h j k l w W b B e E ge gE 0 ^ $ _ + - gg G H M L f t F T ; , % { } n N` sowie `'a` und `` `a ``
+- **Operatoren** (Mode `operator`): `d c y > < gu gU g~`, doppelt für ganze Zeilen (`dd cc yy >> guu`)
+- **Textobjekte**: `iw aw iW aW i" a" i' a' i` a` i( a( ib i{ a{ iB i[ a[ i< a< it at ip ap`
+- **Kurzformen**: `x X s S C D Y p P r R ~ J gJ Strg+A Strg+X`
+- **Visual**: `v`, `V`, `Strg+V` (Block mit `I`, `A`, `$A`, `c`, `d`, `y`, `r`, `~`), `o`, `gv`, `p` ersetzt die Auswahl, `:` gibt `'<,'>`
+- **Register** `"a`–`"z` (`"A` hängt an), `"0`, `"1`–`"9`, `"-`, `"_`, `"+`; `:reg`
+- **Marken** `ma`, `'a`, `` `a ``, `''`, `'<` `'>`; `:marks`
+- **Makros** `qa … q`, `@a`, `@@`, `3@a`; **Wiederholen** mit `.`
+- **Suche** `/ ? n N * #`; `:noh`, ESC blendet die Markierung aus
+- **Rollen** `Strg+D/U/F/B/E/Y`, `zz zt zb`
+- **Ex** `:w :q :q! :wq :x :e DATEI :N :$`, `:s/a/b/g`, `:%s/…/…/gi`, `:'<,'>s/…`, `:5,10s/…` (Vim-Muster mit `\( \) \| \< \>`, Ersatz mit `& \1 \r`)
+- **Insert-Mode**: `Strg+W` (Wort löschen), `Strg+U`, `Strg+T`/`Strg+D` (Einrückung), `Strg+H`, `Strg+C`/`Strg+[` wie ESC
+
+## Weitere Tasten
 
 | Taste | Befehl |
 |---|---|
 | Strg+P | Dateimanager mit Suchfeld: links Dateinamen (Teilfolge), rechts Treffer im Inhalt |
 | `:` | Terminal (`open`, `w`, `q`, `workdir`, `run npm test`, `help`, Zeilennummer …) |
 | gd / F12, Strg+O | Definition, zurück |
-| K, gr, F2, Strg+F | Hover, Referenzen, Umbenennen, Formatieren |
+| K, gr, F2, Leertaste f | Hover, Referenzen, Umbenennen, Formatieren |
+| ]d / [d | nächster / vorheriger Fehler |
 | Strg+Leertaste | Vorschläge (nach `.` automatisch), mit Auto-Import |
-| ge | nächster Fehler |
 | F9 / F10 | `npm run build` / `npx tsc --noEmit`, Ausgabe im Terminal |
 | F11 | Vollbild an/aus |
 
