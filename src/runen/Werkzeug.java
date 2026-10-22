@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import javax.swing.SwingUtilities;
@@ -619,9 +620,92 @@ final class Werkzeug {
 
     // ================================================================ Datenbank
     private String letztesKonto;
-    Db.Ergebnis erg;
-    boolean ergebnisOffen;
-    private int ez, es, eOben, eLinks;
+
+    /** Ergebnistabelle einer SQL-Datei: Zeilen, Filter, Sortierung und Position */
+    static final class Tabelle {
+        final Db.Ergebnis erg;
+        boolean offen = true;
+        /** gewaehlte Zeile (-1 = Kopfzeile) und Spalte, Bildlauf */
+        int ez, es, oben, links;
+        /** je Spalte die Filter: {art, wert} */
+        final Map<Integer, List<String[]>> filter = new java.util.TreeMap<>();
+        int sortSpalte = -1;
+        boolean sortAuf = true;
+        private List<String[]> sicht;
+
+        Tabelle(Db.Ergebnis erg) {
+            this.erg = erg;
+        }
+
+        /** sichtbare Zeilen nach Filter und Sortierung */
+        List<String[]> zeilen() {
+            if (sicht != null) return sicht;
+            List<String[]> l = new ArrayList<>();
+            for (String[] z : erg.zeilen()) {
+                boolean ok = true;
+                for (var f : filter.entrySet()) for (String[] x : f.getValue()) ok &= passt(z[f.getKey()], x[0], x[1]);
+                if (ok) l.add(z);
+            }
+            if (sortSpalte >= 0) {
+                int c = sortSpalte;
+                java.util.Comparator<String[]> v = (p, q) -> vergleichen(p[c], q[c]);
+                l.sort(sortAuf ? v : v.reversed());
+            }
+            sicht = l;
+            return l;
+        }
+
+        void geaendert() {
+            sicht = null;
+            ez = Math.min(ez, Math.max(0, zeilen().size() - 1));
+            oben = 0;
+        }
+
+        static int vergleichen(String a, String b) {
+            if (a == null || b == null) return a == null ? (b == null ? 0 : -1) : 1;
+            try {
+                return Double.compare(Double.parseDouble(a.replace(',', '.')), Double.parseDouble(b.replace(',', '.')));
+            } catch (NumberFormatException e) {
+                return a.compareToIgnoreCase(b);
+            }
+        }
+
+        static boolean passt(String v, String art, String w) {
+            String a = v == null ? "" : v.toLowerCase(), b = w == null ? "" : w.toLowerCase();
+            return switch (art) {
+                case "enthaelt" -> a.contains(b);
+                case "enthaeltNicht" -> !a.contains(b);
+                case "gleich" -> v != null && vergleichen(v, w) == 0 && (a.equals(b) || istZahl(v));
+                case "ungleich" -> v == null || !(vergleichen(v, w) == 0 && (a.equals(b) || istZahl(v)));
+                case "beginnt" -> a.startsWith(b);
+                case "endet" -> a.endsWith(b);
+                case "groesser" -> v != null && vergleichen(v, w) > 0;
+                case "kleiner" -> v != null && vergleichen(v, w) < 0;
+                case "leer" -> v == null || v.isEmpty();
+                case "nichtLeer" -> v != null && !v.isEmpty();
+                default -> true;
+            };
+        }
+
+        private static boolean istZahl(String v) {
+            try {
+                Double.parseDouble(v.replace(',', '.'));
+                return true;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+    }
+
+    /** Tabelle der aktuellen Datei (oder null) */
+    Tabelle tabelle() {
+        return ed.d().tabelle;
+    }
+
+    boolean tabelleOffen() {
+        Tabelle t = tabelle();
+        return t != null && t.offen;
+    }
 
     String konto(Doc d) {
         if (d.dbKonto != null && db.konten.containsKey(d.dbKonto)) return d.dbKonto;
@@ -668,12 +752,13 @@ final class Werkzeug {
         ed.meldung = "[" + k + "] " + sqls.size() + (sqls.size() == 1 ? " Statement" : " Statements") + " laufen ...";
         ed.meldungFarbe = E_WARN;
         db.ausfuehren(k, sqls, e -> SwingUtilities.invokeLater(() -> {
-            zeigen(e);
+            zeigen(d, e);
             ed.neuMalen.run();
         }));
     }
 
-    private void zeigen(Db.Ergebnis e) {
+    /** Ergebnis gehoert zu der Datei, in der es ausgefuehrt wurde */
+    private void zeigen(Doc d, Db.Ergebnis e) {
         String erste = e.sql().strip().split("\\R", 2)[0];
         if (erste.length() > 100) erste = erste.substring(0, 100) + " ...";
         ed.farbig("SQL [" + e.konto() + "] " + erste, E_HELL);
@@ -686,23 +771,27 @@ final class Werkzeug {
         ed.meldung = "[" + e.konto() + "] " + e.meldung() + (e.ausgabe().isEmpty() ? "" : "  (DBMS_OUTPUT im Terminal)");
         ed.meldungFarbe = E_WARN;
         if (e.spalten() != null) {
-            erg = e;
-            ergebnisOffen = true;
-            ed.konsoleOffen = false;
-            ez = es = eOben = eLinks = 0;
-            if (ed.modus.equals("normal") || ed.modus.equals("console")) ed.modus = "result";
+            d.tabelle = new Tabelle(e);
+            if (d == ed.d()) {
+                ed.konsoleOffen = false;
+                if (ed.modus.equals("normal") || ed.modus.equals("console") || ed.modus.equals("result")) ed.modus = "result";
+            }
         }
     }
 
     private void ergBewegen(int dz, int ds) {
-        if (erg == null) return;
-        ez = Math.max(0, Math.min(erg.zeilen().size() - 1, ez + dz));
-        es = Math.max(0, Math.min(erg.spalten().size() - 1, es + ds));
+        Tabelle t = tabelle();
+        if (t == null) return;
+        int n = t.zeilen().size();
+        // ueber der ersten Zeile liegt die Kopfzeile (-1)
+        t.ez = Math.max(-1, Math.min(n - 1, t.ez + dz));
+        t.es = Math.max(0, Math.min(t.erg.spalten().size() - 1, t.es + ds));
     }
 
     private String zelle() {
-        if (erg == null || erg.zeilen().isEmpty()) return null;
-        String v = erg.zeilen().get(ez)[es];
+        Tabelle t = tabelle();
+        if (t == null || t.ez < 0 || t.ez >= t.zeilen().size()) return null;
+        String v = t.zeilen().get(t.ez)[t.es];
         return v == null ? "" : v;
     }
 
@@ -715,6 +804,8 @@ final class Werkzeug {
     }
 
     void ergebnisMalen(int y0) {
+        Tabelle t = tabelle();
+        Db.Ergebnis erg = t.erg;
         Screen s = ed.scr;
         int W = s.w, lh = s.lh, cw = s.cw;
         int h = s.h - ed.unten() - 6 - y0;
@@ -722,58 +813,71 @@ final class Werkzeug {
         s.rect(0, y0, W, h, E_KONSOLE);
         s.frame(4, y0, W - 8, h, fokus ? E_HELL : E_TEXT);
         s.frame(5, y0 + 1, W - 10, h - 2, E_MATT);
-        String titel = " ERGEBNIS [" + erg.konto() + "] " + erg.meldung() + (fokus ? "  (hjkl, y Zelle, Y Zeile, ENTER zeigen, ESC zurueck, q zu) " : " ");
+        List<String[]> zl = t.zeilen();
+        boolean gefiltert = !t.filter.isEmpty();
+        String anzahl = gefiltert ? zl.size() + " von " + erg.zeilen().size() + " Zeilen (gefiltert)" : erg.meldung();
+        String titel = " ERGEBNIS [" + erg.konto() + "] " + anzahl
+                + (fokus ? "  (hjkl, K Kopfzeile, ENTER Filter/Wert, y Zelle, Y Zeile, ESC zurueck, q zu) " : "  (F4: hinein, Leertaste O: zu) ");
         s.rect(3 * cw, y0 - lh / 2, s.textWidth(titel), lh, E_KONSOLE);
         s.text(3 * cw, y0 - lh / 2, titel, E_HELL);
         List<String> sp = erg.spalten();
-        List<String[]> zl = erg.zeilen();
         int[] breite = new int[sp.size()];
         for (int c = 0; c < sp.size(); c++) {
-            int b = Math.max(4, sp.get(c).length());
+            int b = Math.max(4, kopf(t, c).length());
             for (int r = 0; r < Math.min(zl.size(), 2000); r++) {
                 String v = zl.get(r)[c];
                 b = Math.max(b, v == null ? 6 : Math.min(50, laenge(v)));
             }
             breite[c] = Math.min(50, b);
         }
-        int nrBreite = String.valueOf(zl.size()).length() + 1;
+        int nrBreite = String.valueOf(Math.max(1, zl.size())).length() + 1;
         int x0 = 2 * cw, platz = (W - 4 * cw) / cw - nrBreite;
-        // sichtbare Spalten: die gewaehlte muss drin sein
-        if (es < eLinks) eLinks = es;
+        if (t.es < t.links) t.links = t.es;
         while (true) {
             int summe = 0;
-            for (int c = eLinks; c <= es; c++) summe += breite[c] + 3;
-            if (summe <= platz || eLinks >= es) break;
-            eLinks++;
+            for (int c = t.links; c <= t.es; c++) summe += breite[c] + 3;
+            if (summe <= platz || t.links >= t.es) break;
+            t.links++;
         }
         int n = ergZeilen();
-        if (ez < eOben) eOben = ez;
-        if (ez >= eOben + n) eOben = ez - n + 1;
+        if (t.ez >= 0 && t.ez < t.oben) t.oben = t.ez;
+        if (t.ez >= t.oben + n) t.oben = t.ez - n + 1;
         int y = y0 + lh / 2 + 4;
         s.clip(8, y0 + 2, W - 16, h - 4);
         int x = x0 + nrBreite * cw;
-        for (int c = eLinks; c < sp.size() && x < W - 2 * cw; c++) {
-            s.text(x, y, zuschneiden(sp.get(c), breite[c]), E_WARN);
+        for (int c = t.links; c < sp.size() && x < W - 2 * cw; c++) {
+            boolean kopfJa = fokus && t.ez < 0 && c == t.es;
+            if (kopfJa) s.rect(x - cw / 2, y, (breite[c] + 1) * cw, lh, E_WARN);
+            boolean mitFilter = t.filter.containsKey(c) || t.sortSpalte == c;
+            s.text(x, y, zuschneiden(kopf(t, c), breite[c]), kopfJa ? E_GRUND : mitFilter ? E_HELL : E_WARN);
             x += (breite[c] + 3) * cw;
         }
         s.rect(x0, y + lh + 1, W - 2 * x0, 1, E_MATT);
-        for (int k = 0; k < n && eOben + k < zl.size(); k++) {
-            int r = eOben + k;
+        for (int k = 0; k < n && t.oben + k < zl.size(); k++) {
+            int r = t.oben + k;
             int zy = y + lh + 4 + k * lh;
-            if (r == ez) s.rect(x0, zy, W - 2 * x0, lh, E_ZEILE);
+            if (r == t.ez) s.rect(x0, zy, W - 2 * x0, lh, E_ZEILE);
             s.text(x0, zy, String.valueOf(r + 1), E_MATT);
             x = x0 + nrBreite * cw;
-            for (int c = eLinks; c < sp.size() && x < W - 2 * cw; c++) {
+            for (int c = t.links; c < sp.size() && x < W - 2 * cw; c++) {
                 String v = zl.get(r)[c];
-                boolean zelleJa = fokus && r == ez && c == es;
+                boolean zelleJa = fokus && r == t.ez && c == t.es;
                 if (zelleJa) s.rect(x - cw / 2, zy, (breite[c] + 1) * cw, lh, E_TEXT);
                 int f = zelleJa ? E_GRUND : v == null ? E_MATT : E_TEXT;
                 s.text(x, zy, zuschneiden(v == null ? "(null)" : v.replace('\n', ' ').replace('\t', ' '), breite[c]), f);
                 x += (breite[c] + 3) * cw;
             }
         }
-        if (zl.isEmpty()) s.text(x0, y + lh + 4, "(keine Zeilen)", E_MATT);
+        if (zl.isEmpty()) s.text(x0, y + lh + 4, gefiltert ? "(kein Treffer fuer den Filter)" : "(keine Zeilen)", E_MATT);
         s.noClip();
+    }
+
+    /** Spaltenkopf mit Zeichen fuer Filter (*) und Sortierung (^ v) */
+    private static String kopf(Tabelle t, int c) {
+        String k = t.erg.spalten().get(c);
+        if (t.filter.containsKey(c)) k += "*";
+        if (t.sortSpalte == c) k += t.sortAuf ? " ^" : " v";
+        return k;
     }
 
     private static int laenge(String s) {
@@ -783,6 +887,151 @@ final class Werkzeug {
 
     private static String zuschneiden(String s, int b) {
         return s.length() <= b ? s : s.substring(0, Math.max(0, b - 1)) + "~";
+    }
+
+    // ---------------------------------------------------------------- SQL-Vervollstaendigung
+    /** Metadaten je Konto: Tabelle -> Spalten */
+    private final Map<String, Map<String, List<String>>> meta = new java.util.HashMap<>();
+    private final java.util.Set<String> metaLaedt = new java.util.HashSet<>();
+    /** "tabelle alias" an jeder Wortgrenze (ueberlappend: "from kunde k" liefert auch "kunde k") */
+    private static final Pattern ALIAS = Pattern.compile("(?<![\\w$#\"])(?=([\\w$#\"]+)\\s+(?:as\\s+)?([\\w$#]+))", Pattern.CASE_INSENSITIVE);
+
+    private static boolean sqlZeichen(char c) {
+        return Character.isLetterOrDigit(c) || c == '_' || c == '$' || c == '#';
+    }
+
+    private void metaLaden(String k, Runnable danach) {
+        if (!metaLaedt.add(k)) return;
+        ed.meldung = "[" + k + "] Metadaten werden geladen ...";
+        db.metadaten(k, m -> SwingUtilities.invokeLater(() -> {
+            metaLaedt.remove(k);
+            meta.put(k, m);
+            int spalten = 0;
+            for (List<String> l : m.values()) spalten += l.size();
+            ed.meldung = "[" + k + "] " + m.size() + " Tabellen/Views, " + spalten + " Spalten geladen";
+            if (danach != null) danach.run();
+            ed.neuMalen.run();
+        }), f -> SwingUtilities.invokeLater(() -> {
+            metaLaedt.remove(k);
+            ed.fehler("[" + k + "] Metadaten: " + f);
+            ed.neuMalen.run();
+        }));
+    }
+
+    void sqlVervollstaendigen() {
+        Doc d = ed.d();
+        String k = konto(d);
+        if (k == null) {
+            ed.meldung = "kein Datenbankkonto (db.account.NAME in config.txt)";
+            return;
+        }
+        Map<String, List<String>> m = meta.get(k);
+        if (m == null) {
+            int cur = d.cursor, ver = d.version;
+            metaLaden(k, () -> {
+                if (ed.d() == d && d.cursor == cur && d.version == ver) sqlVervollstaendigen();
+            });
+            return;
+        }
+        int anf = d.cursor;
+        while (anf > 0 && sqlZeichen(d.at(anf - 1))) anf--;
+        String wort = d.t.substring(anf, d.cursor);
+        boolean klein = !wort.isEmpty() && wort.equals(wort.toLowerCase());
+        // Statement um den Cursor: Tabellen und Aliase daraus
+        Db.Bereich b = Db.amCursor(d.t, Math.max(0, anf - 1));
+        String stmt = b == null ? d.t.toString() : d.t.substring(b.anf(), Math.min(d.t.length(), Math.max(b.ende(), d.cursor)));
+        Map<String, String> aliase = new java.util.HashMap<>();
+        java.util.Set<String> benutzt = new java.util.LinkedHashSet<>();
+        Matcher mm = ALIAS.matcher(stmt);
+        while (mm.find()) {
+            String tab = mm.group(1).replace("\"", ""), al = mm.group(2);
+            if (tab.contains(".")) tab = tab.substring(tab.lastIndexOf('.') + 1);
+            if (m.containsKey(tab)) {
+                benutzt.add(tab);
+                if (!Highlight.SQL.contains(al.toLowerCase())) aliase.put(al.toLowerCase(), tab);
+            }
+        }
+        for (String w : stmt.split("[^\\w$#]+")) if (m.containsKey(w)) benutzt.add(w);
+        List<Map<String, Object>> l = new ArrayList<>();
+        if (anf > 0 && d.at(anf - 1) == '.') {
+            // nach alias. oder tabelle.: die Spalten dieser Tabelle
+            int q = anf - 1;
+            while (q > 0 && sqlZeichen(d.at(q - 1))) q--;
+            String vor = d.t.substring(q, anf - 1);
+            String tab = m.containsKey(vor) ? vor : aliase.get(vor.toLowerCase());
+            if (tab == null) {
+                ed.meldung = "unbekannte Tabelle oder Alias: " + vor;
+                return;
+            }
+            for (String sp : m.get(tab)) l.add(vorschlag(sp, 5, "Spalte von " + tab, klein));
+        } else {
+            for (String tab : benutzt) for (String sp : m.get(tab)) l.add(vorschlag(sp, 5, "Spalte von " + tab, klein));
+            for (String tab : m.keySet()) l.add(vorschlag(tab, 7, "Tabelle (" + m.get(tab).size() + " Spalten)", klein));
+            for (String w : new java.util.TreeSet<>(Highlight.SQL)) l.add(vorschlag(w.toUpperCase(), 14, "", klein));
+        }
+        ed.vorschlaegeZeigen(l, anf);
+    }
+
+    private static Map<String, Object> vorschlag(String name, int art, String detail, boolean klein) {
+        return Json.obj("item", Json.obj("label", name, "kind", art, "detail", detail, "insertText", klein ? name.toLowerCase() : name, "filterText", name,
+                "sortText", (art == 5 ? "1" : art == 7 ? "2" : "3") + name));
+    }
+
+    // ---------------------------------------------------------------- Filtermenue der Kopfzeile
+    private static final String[][] FILTER = {
+            {"enthaelt ...", "enthaelt"}, {"enthaelt nicht ...", "enthaeltNicht"}, {"ist gleich ...", "gleich"}, {"ist ungleich ...", "ungleich"},
+            {"beginnt mit ...", "beginnt"}, {"endet mit ...", "endet"}, {"groesser als ...", "groesser"}, {"kleiner als ...", "kleiner"},
+            {"ist leer (NULL)", "leer"}, {"ist nicht leer", "nichtLeer"}, {"aufsteigend sortieren", "auf"}, {"absteigend sortieren", "ab"},
+            {"Filter dieser Spalte entfernen", "weg"}, {"alle Filter und Sortierung entfernen", "alleWeg"}, {"Spalte kopieren (sichtbare Werte)", "kopieren"}};
+    private String filterArt;
+
+    private void filterMenue() {
+        Tabelle t = tabelle();
+        if (t == null) return;
+        String spalte = t.erg.spalten().get(t.es);
+        List<String> l = new ArrayList<>();
+        for (String[] f : FILTER) l.add(f[0]);
+        auswahl("Spalte " + spalte + ": filtern / sortieren", l, null, w -> {
+            String art = null;
+            for (String[] f : FILTER) if (f[0].equals(w)) art = f[1];
+            if (art == null) return;
+            switch (art) {
+                case "auf", "ab" -> {
+                    t.sortSpalte = t.es;
+                    t.sortAuf = art.equals("auf");
+                    t.geaendert();
+                }
+                case "weg" -> {
+                    t.filter.remove(t.es);
+                    if (t.sortSpalte == t.es) t.sortSpalte = -1;
+                    t.geaendert();
+                }
+                case "alleWeg" -> {
+                    t.filter.clear();
+                    t.sortSpalte = -1;
+                    t.geaendert();
+                }
+                case "leer", "nichtLeer" -> filterSetzen(t, art, "");
+                case "kopieren" -> {
+                    StringBuilder b = new StringBuilder();
+                    for (String[] z : t.zeilen()) b.append(z[t.es] == null ? "" : z[t.es]).append('\n');
+                    Editor.zwischenablage(b.toString());
+                    ed.meldung = t.zeilen().size() + " Werte von " + spalte + " kopiert";
+                }
+                default -> {
+                    filterArt = art;
+                    String vorgabe = t.ez >= 0 && t.ez < t.zeilen().size() && t.zeilen().get(t.ez)[t.es] != null ? t.zeilen().get(t.ez)[t.es] : "";
+                    ed.popupOpen(spalte + " " + w.replace(" ...", "") + ":", "resultFilterValue", art.equals("enthaelt") ? "" : vorgabe);
+                }
+            }
+        });
+    }
+
+    private void filterSetzen(Tabelle t, String art, String wert) {
+        t.filter.computeIfAbsent(t.es, k -> new ArrayList<>()).add(new String[] {art, wert});
+        t.geaendert();
+        ed.meldung = t.zeilen().size() + " von " + t.erg.zeilen().size() + " Zeilen" + (t.erg.mehr() ? " (gefiltert wird ueber die geladenen Zeilen, db.maxRows)" : "");
+        if (ed.modus.equals("normal")) ed.modus = "result";
     }
 
     // ================================================================ Von Methode zu Methode
@@ -1242,17 +1491,19 @@ final class Werkzeug {
         });
         // Ergebnistabelle
         c.put("resultFocus", a -> {
-            if (erg == null) {
-                ed.meldung = "noch kein Ergebnis";
+            Tabelle t = tabelle();
+            if (t == null) {
+                ed.meldung = "keine Ergebnistabelle zu dieser Datei";
                 return;
             }
-            ergebnisOffen = true;
+            t.offen = true;
             ed.konsoleOffen = false;
             ed.modus = "result";
         });
         c.put("resultBack", a -> ed.modus = "normal");
         c.put("resultClose", a -> {
-            ergebnisOffen = false;
+            Tabelle t = tabelle();
+            if (t != null) t.offen = false;
             if (ed.modus.equals("result")) ed.modus = "normal";
         });
         c.put("resultDown", a -> ergBewegen(ed.vim.nehmen(), 0));
@@ -1261,9 +1512,16 @@ final class Werkzeug {
         c.put("resultRight", a -> ergBewegen(0, ed.vim.nehmen()));
         c.put("resultPageDown", a -> ergBewegen(ergZeilen(), 0));
         c.put("resultPageUp", a -> ergBewegen(-ergZeilen(), 0));
-        c.put("resultTop", a -> ergBewegen(-ez, 0));
+        c.put("resultHeader", a -> {
+            Tabelle t = tabelle();
+            if (t != null) t.ez = -1;
+        });
+        c.put("resultTop", a -> {
+            Tabelle t = tabelle();
+            if (t != null) t.ez = 0;
+        });
         c.put("resultBottom", a -> ergBewegen(Integer.MAX_VALUE / 2, 0));
-        c.put("resultHome", a -> ergBewegen(0, -es));
+        c.put("resultHome", a -> ergBewegen(0, -Integer.MAX_VALUE / 2));
         c.put("resultEnd", a -> ergBewegen(0, Integer.MAX_VALUE / 2));
         c.put("resultYank", a -> {
             String v = zelle();
@@ -1272,24 +1530,54 @@ final class Werkzeug {
             ed.meldung = "Zelle kopiert";
         });
         c.put("resultYankRow", a -> {
-            if (erg == null || erg.zeilen().isEmpty()) return;
-            Editor.zwischenablage(String.join("\t", nullLeer(erg.zeilen().get(ez))));
+            Tabelle t = tabelle();
+            if (t == null || t.ez < 0 || t.ez >= t.zeilen().size()) return;
+            Editor.zwischenablage(String.join("\t", nullLeer(t.zeilen().get(t.ez))));
             ed.meldung = "Zeile kopiert (Tab-getrennt)";
         });
         c.put("resultYankAll", a -> {
-            if (erg == null) return;
-            StringBuilder b = new StringBuilder(String.join("\t", erg.spalten())).append('\n');
-            for (String[] z : erg.zeilen()) b.append(String.join("\t", nullLeer(z))).append('\n');
+            Tabelle t = tabelle();
+            if (t == null) return;
+            StringBuilder b = new StringBuilder(String.join("\t", t.erg.spalten())).append('\n');
+            for (String[] z : t.zeilen()) b.append(String.join("\t", nullLeer(z))).append('\n');
             Editor.zwischenablage(b.toString());
-            ed.meldung = erg.zeilen().size() + " Zeilen kopiert (Tab-getrennt, mit Kopf)";
+            ed.meldung = t.zeilen().size() + " Zeilen kopiert (Tab-getrennt, mit Kopf)";
         });
-        c.put("resultShow", a -> {
+        // ENTER: auf der Kopfzeile das Filtermenue, sonst den ganzen Wert
+        c.put("resultEnter", a -> {
+            Tabelle t = tabelle();
+            if (t == null) return;
+            if (t.ez < 0) {
+                filterMenue();
+                return;
+            }
             String v = zelle();
             if (v == null) return;
             List<String> z = new ArrayList<>();
-            z.add(erg.spalten().get(es) + " (Zeile " + (ez + 1) + ")");
+            z.add(t.erg.spalten().get(t.es) + " (Zeile " + (t.ez + 1) + ")");
             z.addAll(List.of(v.split("\\R")));
             ed.info = z;
+        });
+        c.put("resultShow", c.get("resultEnter"));
+        c.put("resultFilter", a -> filterMenue());
+        c.put("resultFilterValue", a -> {
+            Tabelle t = tabelle();
+            if (t == null || filterArt == null) return;
+            filterSetzen(t, filterArt, a);
+            filterArt = null;
+        });
+        c.put("sqlMetaRefresh", a -> {
+            String k = konto(ed.d());
+            if (k == null) return;
+            meta.remove(k);
+            metaLaden(k, null);
+        });
+        c.put("resultUnfilter", a -> {
+            Tabelle t = tabelle();
+            if (t == null) return;
+            t.filter.clear();
+            t.sortSpalte = -1;
+            t.geaendert();
         });
     }
 

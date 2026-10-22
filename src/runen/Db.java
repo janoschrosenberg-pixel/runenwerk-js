@@ -207,6 +207,41 @@ final class Db {
         return l;
     }
 
+    /** Tabellen und Views des aktuellen Schemas mit ihren Spalten (fuer die Vervollstaendigung) */
+    void metadaten(String konto, Consumer<Map<String, List<String>>> fertig, Consumer<String> fehler) {
+        Konto k = konten.get(konto);
+        if (k == null) {
+            fehler.accept("Konto " + konto + " gibt es nicht");
+            return;
+        }
+        faden.submit(() -> {
+            try {
+                Connection c = verbindung(k);
+                java.sql.DatabaseMetaData md = c.getMetaData();
+                String schema = null;
+                try {
+                    schema = c.getSchema();
+                } catch (SQLException | AbstractMethodError e) {
+                    // aeltere Treiber
+                }
+                if (schema == null && oracle(c)) schema = k.benutzer().toUpperCase(Locale.ROOT);
+                Map<String, List<String>> m = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                try (ResultSet rs = md.getTables(null, schema, "%", new String[] {"TABLE", "VIEW", "SYNONYM", "MATERIALIZED VIEW"})) {
+                    while (rs.next()) m.put(rs.getString("TABLE_NAME"), new ArrayList<>());
+                }
+                try (ResultSet rs = md.getColumns(null, schema, "%", "%")) {
+                    while (rs.next()) {
+                        List<String> l = m.get(rs.getString("TABLE_NAME"));
+                        if (l != null) l.add(rs.getString("COLUMN_NAME"));
+                    }
+                }
+                fertig.accept(m);
+            } catch (Exception e) {
+                fehler.accept(e instanceof SQLException ? e.getMessage().strip() : e.toString());
+            }
+        });
+    }
+
     void abbrechen() {
         Statement s = laufend;
         if (s == null) return;

@@ -83,6 +83,8 @@ final class Doc {
 
     /** aktives Datenbankkonto (SQL-Dateien) */
     String dbKonto;
+    /** Ergebnistabelle der letzten Abfrage in dieser Datei */
+    Werkzeug.Tabelle tabelle;
 
     boolean jsx() {
         String s = sprache();

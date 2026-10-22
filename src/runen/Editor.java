@@ -518,6 +518,8 @@ final class Editor {
         Doc d = d();
         d.cursor = Math.max(0, Math.min(d.cursor, d.t.length()));
         if (vim.visArt != 0 && !modus.equals("visual") && !modus.equals("char")) vim.visualEnde();
+        // Tabelle gehoert zur Datei: nach einem Wechsel ohne Tabelle zurueck in den Normal-Mode
+        if (modus.equals("result") && !wz.tabelleOffen()) modus = "normal";
         if (modus.equals("normal")) {
             // im Normal-Mode steht der Cursor auf einem Zeichen, nicht hinter der Zeile
             int z = d.zeileVon(d.cursor);
@@ -1041,7 +1043,9 @@ final class Editor {
         }
         d.einfuegen(d.cursor, a);
         d.spalteMerk = -1;
-        if (c == '.' && autoVervollst && lspFuer(d) != null && lspFuer(d).an()) vervollstaendigen();
+        if (c == '.' && autoVervollst && ((lspFuer(d) != null && lspFuer(d).an()) || ("sql".equals(d.sprache()) && !wz.db.konten.isEmpty()))) {
+            vervollstaendigen();
+        }
     }
 
     private void newline() {
@@ -1657,6 +1661,10 @@ final class Editor {
 
     // ---------------------------------------------------------------- Vervollstaendigung
     private void vervollstaendigen() {
+        if ("sql".equals(d().sprache())) {
+            wz.sqlVervollstaendigen();
+            return;
+        }
         if (!lspBereit()) return;
         Doc d = d();
         int a = d.cursor;
@@ -1681,6 +1689,20 @@ final class Editor {
             filtern();
             neuMalen.run();
         });
+    }
+
+    /** fertige Vorschlaege zeigen (SQL); anf = Anfang des Wortes */
+    void vorschlaegeZeigen(List<Map<String, Object>> l, int anf) {
+        if (l.isEmpty()) {
+            meldung = "keine Vorschlaege";
+            return;
+        }
+        vorschlaege = l;
+        vorschlagAnf = anf;
+        if (!vorschlagOffen) vorschlagVorModus = modus.equals("complete") ? "insert" : modus;
+        vorschlagOffen = true;
+        modus = "complete";
+        filtern();
     }
 
     private static String feld(Map<String, Object> v, String k) {
@@ -1793,7 +1815,7 @@ final class Editor {
 
     int textZeilen() {
         int h = scr.h - oben() - unten() - 8;
-        if (konsoleOffen || wz.ergebnisOffen || wz.dbg.offen) h = (scr.h - oben() - unten()) * 3 / 5;
+        if (konsoleOffen || wz.tabelleOffen() || wz.dbg.offen) h = (scr.h - oben() - unten()) * 3 / 5;
         return Math.max(1, h / scr.lh);
     }
 
@@ -1951,8 +1973,8 @@ final class Editor {
             }
         }
         if (konsoleOffen) konsoleMalen(oben + n * lh + 6);
-        else if (wz.dbg.offen && (modus.equals("debug") || !wz.ergebnisOffen || !modus.equals("result"))) wz.dbg.malen(oben + n * lh + 6);
-        else if (wz.ergebnisOffen && wz.erg != null) wz.ergebnisMalen(oben + n * lh + 6);
+        else if (wz.dbg.offen && (modus.equals("debug") || !wz.tabelleOffen() || !modus.equals("result"))) wz.dbg.malen(oben + n * lh + 6);
+        else if (wz.tabelleOffen()) wz.ergebnisMalen(oben + n * lh + 6);
         if (vorschlagOffen) vorschlaegeMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben + 1) * lh);
         if (info != null) infoMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben) * lh);
         if (fm.offen) fm.malen(scr, bh + 2, H - unten());

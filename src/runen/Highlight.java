@@ -22,7 +22,7 @@ final class Highlight {
             "strictfp", "super", "switch", "synchronized", "throw", "throws", "transient", "try", "void", "volatile", "while", "var", "record",
             "sealed", "permits", "non-sealed", "yield", "module", "requires", "exports", "opens", "uses", "provides", "with", "to", "transitive");
     private static final Set<String> JAVA_CONSTS = Set.of("true", "false", "null", "this");
-    private static final Set<String> SQL = Set.of("select", "from", "where", "and", "or", "not", "in", "is", "null", "like", "between", "exists",
+    static final Set<String> SQL = Set.of("select", "from", "where", "and", "or", "not", "in", "is", "null", "like", "between", "exists",
             "insert", "into", "values", "update", "set", "delete", "merge", "using", "matched", "when", "then", "else", "end", "case", "create",
             "replace", "alter", "drop", "truncate", "table", "view", "index", "unique", "primary", "foreign", "key", "references", "constraint",
             "default", "check", "sequence", "synonym", "grant", "revoke", "on", "to", "join", "inner", "left", "right", "full", "outer", "cross",

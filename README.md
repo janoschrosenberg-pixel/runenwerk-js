@@ -91,7 +91,9 @@ In `config.txt`: `db.driver = ojdbc11.jar` und beliebig viele Konten
 | Strg+Enter | Statement am Cursor ausführen; im Visual-Mode (`v`/`V` markieren) die Auswahl, auch mit F5 oder Leertaste s s |
 | F5 | ganze Datei ausführen |
 | F6 | Konto für diese Datei wählen (steht unten rechts: `DB dev`) |
-| Leertaste o | zur Ergebnistabelle: `hjkl`, `y` Zelle, `Y` Zeile, `Strg+A` alles kopieren, ENTER Zelle ganz zeigen, `q` schließen |
+| F4 / Leertaste o | in die Ergebnistabelle dieser Datei (jede SQL-Datei hat ihre eigene): `hjkl`, `y` Zelle, `Y` Zeile, `Strg+A` alles kopieren, ENTER Zelle ganz zeigen; ESC zurück in den Text (die Tabelle bleibt), `q` oder Leertaste O schließt sie |
+| K (oder k über der ersten Zeile) | Kopfzeile; ENTER öffnet das Menü der Spalte: enthält, ist gleich, größer/kleiner, beginnt mit, leer/nicht leer, sortieren, Filter entfernen (`f` direkt, `F` alle Filter weg) |
+| Strg+Leertaste, `.` | SQL-Vervollständigung aus den Metadaten des Kontos (Tabellen, Views, Spalten, nach `alias.` die Spalten der Tabelle); Leertaste s m lädt sie neu |
 | Leertaste s c / s r / s x | Commit / Rollback / Abbrechen (`db.autocommit = off` ist die Vorgabe) |
 
 Statements enden mit `;`, einer Zeile mit nur `/` oder einer Leerzeile; PL/SQL-Blöcke (`BEGIN`, `DECLARE`,
