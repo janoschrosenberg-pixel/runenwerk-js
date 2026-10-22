@@ -57,3 +57,9 @@ Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (um
 Im Dateimanager: `/` oder Strg+F ins Suchfeld, ESC zu den Ergebnissen, TAB wechselt den Bereich,
 ENTER öffnet (bei Inhaltstreffern an der Zeile), F2 neue Datei, F5 kopieren, F6 verschieben,
 r umbenennen, F7 Ordner, F8 löschen, Strg+W macht den Ordner zum Arbeitsordner.
+
+## Wenn kein Fenster kommt
+
+Der Editor schreibt beim Start `~/.runenjs/start.log` (unter Windows `%USERPROFILE%\.runenjs\start.log`):
+Java-Version, Betriebssystem, Schrift, Arbeitsordner und ob das Fenster sichtbar ist. Fehler beim Start
+erscheinen zusätzlich als Fenster und in der Konsole. Nötig ist Java 17 oder neuer (`java -version`).

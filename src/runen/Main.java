@@ -37,11 +37,51 @@ public final class Main {
     private boolean vollbild = true;
     private boolean geschluckt;
 
+    private static Path logPfad;
+    private static boolean fehlerGezeigt;
+
     public static void main(String[] args) {
         System.setProperty("sun.java2d.uiScale.enabled", "true");
         System.setProperty("apple.awt.application.name", "RUNENWERK JS");
         Path konfig = konfigOrdner();
-        SwingUtilities.invokeLater(() -> new Main().start(konfig, args));
+        logPfad = konfig.resolve("start.log");
+        try {
+            Files.writeString(logPfad, "");
+        } catch (IOException e) {
+            logPfad = null;
+        }
+        System.out.println("RUNENWERK JS startet (Log: " + (logPfad == null ? "-" : logPfad) + ")");
+        log("Java " + System.getProperty("java.version") + " (" + System.getProperty("java.vendor") + "), " + System.getProperty("os.name") + " "
+                + System.getProperty("os.version") + ", Argumente: " + String.join(" ", args));
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> fehler("Fehler in " + t.getName(), e));
+        SwingUtilities.invokeLater(() -> {
+            try {
+                new Main().start(konfig, args);
+            } catch (Throwable e) {
+                fehler("Start fehlgeschlagen", e);
+            }
+        });
+    }
+
+    /** Startschritte nach ~/.runenjs/start.log (zum Nachsehen, wenn kein Fenster kommt) */
+    static void log(String s) {
+        if (logPfad == null) return;
+        try {
+            Files.writeString(logPfad, s + System.lineSeparator(), java.nio.file.StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            // ohne Log
+        }
+    }
+
+    private static void fehler(String was, Throwable e) {
+        java.io.StringWriter w = new java.io.StringWriter();
+        e.printStackTrace(new java.io.PrintWriter(w));
+        System.err.println(was + ": " + w);
+        log(was + ": " + w);
+        if (fehlerGezeigt || java.awt.GraphicsEnvironment.isHeadless()) return;
+        fehlerGezeigt = true;
+        SwingUtilities.invokeLater(() -> javax.swing.JOptionPane.showMessageDialog(null,
+                was + ":\n" + e + "\n\nDetails: " + (logPfad == null ? "Konsole" : logPfad), "RUNENWERK JS", javax.swing.JOptionPane.ERROR_MESSAGE));
     }
 
     /** ~/.runenjs mit den mitgelieferten Dateien (nur fehlende werden angelegt) */
@@ -103,9 +143,11 @@ public final class Main {
             });
         }
         skalaSetzen();
+        log("Konfiguration: " + konfig + ", Skalierung " + ed.skala + ", Schrift " + ed.scr.fontName() + " " + ed.scr.cw + "x" + ed.scr.lh);
         ed.start(args);
+        log("Editor gestartet, Arbeitsordner: " + ed.arbeitsordner);
         vollbildAn(true);
-        flaeche.requestFocusInWindow();
+        log("Fenster sichtbar: " + fenster.isShowing() + ", " + fenster.getBounds());
     }
 
     private void skalaSetzen() {
@@ -116,20 +158,29 @@ public final class Main {
         }
     }
 
+    /**
+     * Vollbild: auf dem Mac der Exklusiv-Modus (blendet Menue und Dock aus), sonst ein randloses
+     * Fenster in Bildschirmgroesse. Unter Windows wird ein Exklusiv-Fenster minimiert, sobald es den
+     * Fokus verliert (z. B. an die Konsole, aus der es gestartet wurde).
+     */
     private void vollbildAn(boolean an) {
         vollbild = an;
         GraphicsDevice gd = fenster.getGraphicsConfiguration().getDevice();
         if (gd.getFullScreenWindow() == fenster) gd.setFullScreenWindow(null);
         fenster.dispose();
         fenster.setUndecorated(an);
-        if (an && gd.isFullScreenSupported()) {
+        boolean mac = System.getProperty("os.name").toLowerCase().contains("mac");
+        if (an && mac && gd.isFullScreenSupported()) {
             gd.setFullScreenWindow(fenster);
         } else {
             Rectangle r = gd.getDefaultConfiguration().getBounds();
             if (an) fenster.setBounds(r);
             else fenster.setBounds(r.x + r.width / 10, r.y + r.height / 10, r.width * 4 / 5, r.height * 4 / 5);
         }
+        fenster.setExtendedState(JFrame.NORMAL);
         fenster.setVisible(true);
+        fenster.toFront();
+        fenster.requestFocus();
         flaeche.requestFocusInWindow();
     }
 
