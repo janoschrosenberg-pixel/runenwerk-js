@@ -35,6 +35,7 @@ final class Lsp {
     private int naechste = 1;
     private final Map<Integer, Consumer<Object>> offen = new ConcurrentHashMap<>();
     private final Hoerer hoerer;
+    private final List<String> fehlerZeilen = new ArrayList<>();
     volatile boolean bereit;
     volatile String status = "aus";
 
@@ -46,14 +47,38 @@ final class Lsp {
         return p.toAbsolutePath().normalize().toUri().toString();
     }
 
-    /** Befehl suchen: zuerst node_modules/.bin im Projekt, dann der aus editor.config */
-    static List<String> befehl(Path wurzel, List<String> konfig) {
+    /**
+     * Programm suchen: zuerst node_modules/.bin im Projekt, dann im PATH (unter Windows mit
+     * .cmd/.exe/.bat). null, wenn es nicht da ist. npm-Huellen (.cmd) laufen ueber cmd.exe.
+     */
+    static List<String> befehl(Path wurzel, List<String> konfig, Map<String, String> env) {
+        if (konfig.isEmpty()) return List.of();
         List<String> b = new ArrayList<>(konfig);
-        if (b.isEmpty()) return b;
-        Path lokal = wurzel.resolve("node_modules").resolve(".bin").resolve(b.get(0) + (WINDOWS ? ".cmd" : ""));
-        if (Files.isRegularFile(lokal)) b.set(0, lokal.toString());
-        if (WINDOWS) {
-            // .cmd-Huellen (npm) laufen nur ueber cmd.exe
+        String name = b.get(0);
+        List<String> endungen = WINDOWS ? List.of(".cmd", ".exe", ".bat", "") : List.of("");
+        Path gefunden = null;
+        if (name.contains("/") || name.contains("\\")) {
+            gefunden = Path.of(name);
+        } else {
+            List<Path> orte = new ArrayList<>();
+            orte.add(wurzel.resolve("node_modules").resolve(".bin"));
+            String pfad = env.getOrDefault("PATH", "");
+            for (String d : pfad.split(java.io.File.pathSeparator)) if (!d.isBlank()) orte.add(Path.of(d.replace("\"", "")));
+            suche:
+            for (Path o : orte) {
+                for (String e : endungen) {
+                    Path x = o.resolve(name + e);
+                    if (Files.isRegularFile(x) && (WINDOWS || Files.isExecutable(x))) {
+                        gefunden = x;
+                        break suche;
+                    }
+                }
+            }
+        }
+        if (gefunden == null || !Files.isRegularFile(gefunden)) return null;
+        b.set(0, gefunden.toString());
+        String klein = gefunden.toString().toLowerCase();
+        if (WINDOWS && (klein.endsWith(".cmd") || klein.endsWith(".bat"))) {
             b.add(0, "/c");
             b.add(0, "cmd.exe");
         }
@@ -65,42 +90,52 @@ final class Lsp {
      * uebliche Orte anhaengen.
      */
     static void umgebung(ProcessBuilder pb) {
-        if (WINDOWS) return;
         String home = System.getProperty("user.home");
         Map<String, String> env = pb.environment();
-        StringBuilder p = new StringBuilder(env.getOrDefault("PATH", "/usr/bin:/bin"));
-        List<String> dazu = new ArrayList<>(List.of("/opt/homebrew/bin", "/usr/local/bin", home + "/.volta/bin", home + "/.local/bin", home + "/.bun/bin"));
-        Path nvm = Path.of(home, ".nvm", "versions", "node");
-        try (var s = Files.list(nvm)) {
-            s.sorted(java.util.Comparator.reverseOrder()).findFirst().ifPresent(v -> dazu.add(v.resolve("bin").toString()));
-        } catch (IOException e) {
-            // kein nvm
+        String trenner = java.io.File.pathSeparator;
+        StringBuilder p = new StringBuilder(env.getOrDefault("PATH", WINDOWS ? "" : "/usr/bin:/bin"));
+        List<String> dazu = new ArrayList<>();
+        if (WINDOWS) {
+            String appdata = System.getenv("APPDATA");
+            if (appdata != null) dazu.add(appdata + "\\npm");
+            String pf = System.getenv("ProgramFiles");
+            if (pf != null) dazu.add(pf + "\\nodejs");
+        } else {
+            dazu.addAll(List.of("/opt/homebrew/bin", "/usr/local/bin", home + "/.volta/bin", home + "/.local/bin", home + "/.bun/bin"));
+            Path nvm = Path.of(home, ".nvm", "versions", "node");
+            try (var s = Files.list(nvm)) {
+                s.sorted(java.util.Comparator.reverseOrder()).findFirst().ifPresent(v -> dazu.add(v.resolve("bin").toString()));
+            } catch (IOException e) {
+                // kein nvm
+            }
         }
-        for (String d : dazu) if (!(":" + p + ":").contains(":" + d + ":")) p.append(':').append(d);
+        for (String d : dazu) {
+            boolean da = (trenner + p + trenner).toLowerCase().contains((trenner + d + trenner).toLowerCase());
+            if (!da && Files.isDirectory(Path.of(d))) p.append(trenner).append(d);
+        }
         env.put("PATH", p.toString());
     }
 
     void start(Path wurzel, List<String> konfig) {
         stop();
-        List<String> b = befehl(wurzel, konfig);
-        if (b.isEmpty()) return;
+        if (konfig.isEmpty()) return;
+        ProcessBuilder pb = new ProcessBuilder().directory(wurzel.toFile());
+        umgebung(pb);
+        List<String> b = befehl(wurzel, konfig, pb.environment());
+        if (b == null) {
+            status = "fehlt";
+            String t = konfig.get(0) + " nicht gefunden (weder in node_modules/.bin noch im PATH)  ->  npm install -g typescript typescript-language-server";
+            Main.log("Language Server: " + t + "; PATH=" + pb.environment().get("PATH"));
+            hoerer.meldung(t, true);
+            return;
+        }
+        Main.log("Language Server: " + String.join(" ", b));
+        fehlerZeilen.clear();
         try {
-            ProcessBuilder pb = new ProcessBuilder(b).directory(wurzel.toFile());
-            umgebung(pb);
-            if (!WINDOWS && !b.get(0).contains("/")) {
-                for (String d : pb.environment().get("PATH").split(":")) {
-                    Path x = Path.of(d, b.get(0));
-                    if (Files.isExecutable(x)) {
-                        b.set(0, x.toString());
-                        break;
-                    }
-                }
-                pb.command(b);
-            }
-            proc = pb.start();
+            proc = pb.command(b).start();
         } catch (IOException e) {
             status = "fehlt";
-            hoerer.meldung("Language Server nicht gestartet (" + String.join(" ", konfig) + "): " + e.getMessage()
+            hoerer.meldung("Language Server nicht gestartet (" + String.join(" ", b) + "): " + e.getMessage()
                     + "  ->  npm install -g typescript typescript-language-server", true);
             return;
         }
@@ -111,8 +146,16 @@ final class Lsp {
         leser.setDaemon(true);
         leser.start();
         Thread fehler = new Thread(() -> {
-            try (InputStream in = p.getErrorStream()) {
-                in.transferTo(OutputStream.nullOutputStream());
+            // die letzten Zeilen der Fehlerausgabe fuer die Meldung beim Beenden
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getErrorStream(), StandardCharsets.UTF_8))) {
+                String z;
+                while ((z = r.readLine()) != null) {
+                    if (z.isBlank()) continue;
+                    synchronized (fehlerZeilen) {
+                        fehlerZeilen.add(z);
+                        if (fehlerZeilen.size() > 30) fehlerZeilen.remove(0);
+                    }
+                }
             } catch (IOException e) {
                 // egal
             }
@@ -219,12 +262,28 @@ final class Lsp {
             }
         } catch (IOException | RuntimeException e) {
             if (proc == p) {
+                int rc;
+                try {
+                    rc = p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS) ? p.exitValue() : -1;
+                    Thread.sleep(200);
+                } catch (InterruptedException ie) {
+                    rc = -1;
+                }
+                List<String> zeilen;
+                synchronized (fehlerZeilen) {
+                    zeilen = List.copyOf(fehlerZeilen);
+                }
+                int code = rc;
                 SwingUtilities.invokeLater(() -> {
-                    if (proc == p) {
-                        bereit = false;
-                        status = "weg";
-                        hoerer.meldung("Language Server beendet", true);
-                    }
+                    if (proc != p) return;
+                    bereit = false;
+                    status = "weg";
+                    for (String z : zeilen) hoerer.meldung("  lsp: " + z, false);
+                    String grund = zeilen.isEmpty() ? "" : ": " + zeilen.get(zeilen.size() - 1);
+                    String hilfe = String.join(" ", zeilen).contains("TypeScript") ? "  ->  npm install -g typescript" : "";
+                    String t = "Language Server beendet (Exit-Code " + code + ")" + grund + hilfe;
+                    Main.log(t + (zeilen.isEmpty() ? "" : System.lineSeparator() + String.join(System.lineSeparator(), zeilen)));
+                    hoerer.meldung(t, true);
                 });
             }
         }

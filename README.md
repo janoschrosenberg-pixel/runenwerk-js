@@ -63,3 +63,7 @@ r umbenennen, F7 Ordner, F8 löschen, Strg+W macht den Ordner zum Arbeitsordner.
 Der Editor schreibt beim Start `~/.runenjs/start.log` (unter Windows `%USERPROFILE%\.runenjs\start.log`):
 Java-Version, Betriebssystem, Schrift, Arbeitsordner und ob das Fenster sichtbar ist. Fehler beim Start
 erscheinen zusätzlich als Fenster und in der Konsole. Nötig ist Java 17 oder neuer (`java -version`).
+
+Steht unten „Language Server beendet“ oder „nicht gefunden“: Im Terminal (`:`) und in `start.log` stehen die
+letzten Ausgaben des Servers. Meist fehlt `npm install -g typescript typescript-language-server`, oder der
+npm-Ordner (Windows: `%APPDATA%\npm`) ist nicht im `Path`. `:lspRestart` startet ihn danach neu.
