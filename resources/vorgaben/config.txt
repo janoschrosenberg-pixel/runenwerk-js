@@ -49,6 +49,9 @@ db.autocommit = off
 # Profil fuer Leertaste a a und den Debugger; weitere Profile fuer die Auswahl (dazu kommen application-*.yml)
 spring.profile = dev
 spring.profiles = dev
+# Modul (Ordner relativ zu java.workspace) und Klasse mit main; leer = Klasse mit @SpringBootApplication suchen
+spring.module =
+spring.mainClass =
 # eigener Startbefehl statt mvnw/gradlew ({profile}, {port}); leer = automatisch
 spring.run =
 spring.debug =

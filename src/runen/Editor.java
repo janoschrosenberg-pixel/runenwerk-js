@@ -1869,7 +1869,7 @@ final class Editor {
     }
 
     int rand(Doc d) {
-        return Math.max(5, String.valueOf(d.zeilen()).length() + 2);
+        return Math.max(5, String.valueOf(d.zeilen()).length() + 2) + (d.blame != null ? Werkzeug.BLAME_BREITE : 0);
     }
 
     private void grund(int y, int h) {
@@ -1963,6 +1963,15 @@ final class Editor {
                     scr.rect(0, y, 4, lh, E_WARN);
                 }
                 scr.text((rand - 1 - nr.length()) * cw, y, nr, nf);
+                if (d.blame != null) {
+                    // git blame: Commit, Autor, Datum am Anfang eines Commit-Blocks
+                    String bt = Werkzeug.blameText(d.blame, z);
+                    boolean offen = z < d.blame.kurz.length && "-------".equals(d.blame.kurz[z]);
+                    scr.clip(0, y, (Werkzeug.BLAME_BREITE - 1) * cw, lh);
+                    scr.text(cw / 2, y, bt, offen ? E_WARN : z == cz ? E_HELL : E_MATT);
+                    scr.noClip();
+                    scr.rect((Werkzeug.BLAME_BREITE - 1) * cw, y, 1, lh, E_MATT);
+                }
                 var hp = d.pfad == null ? null : wz.dbg.punkte.get(d.pfad);
                 if (hp != null && hp.contains(z)) {
                     // Haltepunkt: roter Punkt im Rand
@@ -2066,7 +2075,10 @@ final class Editor {
         int my = sy + (unten() - lh) / 2;
         scr.rect(0, sy, mw, unten(), mf);
         scr.text(0, my, m, E_GRUND);
-        String pf = relativ(d.pfad) + (d.geaendert ? " [+]" : "");
+        String pf = (d.term != null ? d.name() : relativ(d.pfad)) + (d.geaendert ? " [+]" : "");
+        // langer Pfad: vorne kuerzen, damit rechts Platz bleibt
+        int maxPf = Math.max(10, W / cw / 2);
+        if (pf.length() > maxPf) pf = "~" + pf.substring(pf.length() - maxPf + 1);
         x = scr.text(mw + cw, my, pf, E_HELL);
         int fehler = 0, warn = 0;
         for (Doc.Diag g : d.diags) {
@@ -2082,11 +2094,18 @@ final class Editor {
         if (meldung != null) {
             scr.text(x + 2 * cw, my, meldung, meldungFarbe);
         } else {
+            boolean gezeigt = false;
             for (Doc.Diag g : d.diags) {
                 if (g.zeile() == cz) {
                     scr.text(x + 2 * cw, my, g.text(), g.schwere() == 1 ? E_FEHLER : E_WARN);
+                    gezeigt = true;
                     break;
                 }
+            }
+            // git blame: Commit der aktuellen Zeile
+            if (!gezeigt && d.blame != null && cz < d.blame.kurz.length && d.blame.kurz[cz] != null) {
+                String bt = d.blame.kurz[cz] + " " + d.blame.autor[cz] + (d.blame.datum[cz].isEmpty() ? "" : ", " + d.blame.datum[cz]) + ": " + d.blame.nachricht[cz];
+                scr.text(x + 2 * cw, my, bt, E_INFO);
             }
         }
         scr.noClip();

@@ -44,6 +44,12 @@ final class Werkzeug {
         Timer t = new Timer(2000, e -> {
             if (gitLesen()) ed.neuMalen.run();
         });
+        // Blame nach Aenderungen am Text nachziehen
+        Timer bl = new Timer(700, e -> {
+            Doc d = ed.d();
+            if (d.blame != null && d.blame.version != d.version && !blameLaeuft) blameLesen(d, false);
+        });
+        bl.start();
         t.start();
     }
 
@@ -355,6 +361,131 @@ final class Werkzeug {
             s.text(2 * cw, zy, z, g ? E_GRUND : f);
         }
         s.noClip();
+    }
+
+    // ---------------------------------------------------------------- git blame
+    /** je Zeile: Commit (kurz), Autor, Datum, Nachricht; fuer die Textversion version */
+    static final class Blame {
+        final String[] kurz, autor, datum, nachricht;
+        final int version;
+
+        Blame(int n, int version) {
+            kurz = new String[n];
+            autor = new String[n];
+            datum = new String[n];
+            nachricht = new String[n];
+            this.version = version;
+        }
+    }
+
+    /** Breite der Blame-Spalte in Zeichen */
+    static final int BLAME_BREITE = 36;
+    private boolean blameLaeuft;
+
+    private void blameUmschalten() {
+        Doc d = ed.d();
+        if (d.blame != null) {
+            d.blame = null;
+            ed.meldung = "Blame aus";
+            return;
+        }
+        if (d.pfad == null || Git.wurzel(d.pfad) == null) {
+            ed.meldung = "Datei liegt in keinem git-Repo";
+            return;
+        }
+        blameLesen(d, true);
+    }
+
+    /** git blame ueber den Text im Editor (--contents -), damit ungespeicherte Zeilen passen */
+    private void blameLesen(Doc d, boolean melden) {
+        Path repo = Git.wurzel(d.pfad);
+        if (repo == null || blameLaeuft) return;
+        blameLaeuft = true;
+        String text = d.t.toString();
+        int version = d.version;
+        String rel = repo.relativize(d.pfad).toString().replace('\\', '/');
+        hintergrund(() -> {
+            Blame b = null;
+            String fehler = null;
+            try {
+                ProcessBuilder pb = new ProcessBuilder().directory(repo.toFile());
+                Lsp.umgebung(pb);
+                List<String> befehl = Lsp.befehl(repo, List.of("git", "blame", "--porcelain", "--contents", "-", "--", rel), pb.environment());
+                if (befehl == null) throw new IOException("git nicht gefunden");
+                Process p = pb.command(befehl).start();
+                Thread schreiber = new Thread(() -> {
+                    try (OutputStream o = p.getOutputStream()) {
+                        o.write(text.getBytes(StandardCharsets.UTF_8));
+                    } catch (IOException e) {
+                        // git liest nicht mehr
+                    }
+                });
+                schreiber.start();
+                String aus = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                String err = new String(p.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+                if (p.waitFor() != 0) throw new IOException(letzteZeile(err.isBlank() ? "git blame fehlgeschlagen" : err));
+                b = blameZerlegen(aus, (int) text.chars().filter(c -> c == '\n').count() + 1, version);
+            } catch (IOException | InterruptedException e) {
+                fehler = e.getMessage();
+            }
+            Blame fertig = b;
+            String f = fehler;
+            SwingUtilities.invokeLater(() -> {
+                blameLaeuft = false;
+                if (f != null) {
+                    if (melden) ed.fehler("git blame: " + f);
+                    d.blame = null;
+                } else {
+                    d.blame = fertig;
+                    if (melden) ed.meldung = "Blame an (Leertaste g B schaltet aus)";
+                }
+                ed.neuMalen.run();
+            });
+        });
+    }
+
+    private static Blame blameZerlegen(String aus, int zeilen, int version) {
+        Blame b = new Blame(zeilen, version);
+        Map<String, String[]> commits = new java.util.HashMap<>();
+        String sha = null;
+        int ziel = -1;
+        String[] info = null;
+        java.time.format.DateTimeFormatter df = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        for (String z : aus.split("\n")) {
+            if (z.startsWith("\t")) {
+                if (sha != null && ziel >= 0 && ziel < zeilen) {
+                    String[] c = commits.get(sha);
+                    boolean offen = sha.startsWith("0000000");
+                    b.kurz[ziel] = offen ? "-------" : sha.substring(0, 7);
+                    b.autor[ziel] = offen ? "nicht committet" : c[0];
+                    b.datum[ziel] = offen ? "" : c[1];
+                    b.nachricht[ziel] = offen ? "noch nicht committet" : c[2];
+                }
+                continue;
+            }
+            String[] t = z.split(" ");
+            if (t.length >= 3 && t[0].length() == 40 && t[0].matches("[0-9a-f]+")) {
+                sha = t[0];
+                ziel = Integer.parseInt(t[2]) - 1;
+                info = commits.computeIfAbsent(sha, k -> new String[] {"", "", ""});
+            } else if (info != null && z.startsWith("author ")) {
+                info[0] = z.substring(7);
+            } else if (info != null && z.startsWith("author-time ")) {
+                long sek = Long.parseLong(z.substring(12).strip());
+                info[1] = df.format(java.time.Instant.ofEpochSecond(sek).atZone(java.time.ZoneId.systemDefault()));
+            } else if (info != null && z.startsWith("summary ")) {
+                info[2] = z.substring(8);
+            }
+        }
+        return b;
+    }
+
+    /** Text der Blame-Spalte fuer Zeile z (nur in der ersten Zeile eines Commit-Blocks) */
+    static String blameText(Blame b, int z) {
+        if (b == null || z < 0 || z >= b.kurz.length || b.kurz[z] == null) return "";
+        if (z > 0 && b.kurz[z].equals(b.kurz[z - 1])) return "";
+        String a = b.autor[z].length() > 14 ? b.autor[z].substring(0, 13) + "~" : b.autor[z];
+        return String.format("%s %-14s %s", b.kurz[z], a, b.datum[z]);
     }
 
     private static String letzteZeile(String s) {
@@ -1384,25 +1515,92 @@ final class Werkzeug {
         return new ArrayList<>(p);
     }
 
-    private String springBefehl(String profil, boolean debug) {
+    /** Spring-Boot-Anwendung: Modul (Ordner mit pom.xml/build.gradle) und Klasse mit main */
+    record BootApp(Path modul, String klasse) {}
+
+    /** Klassen mit @SpringBootApplication unter src/main im Java-Arbeitsbereich */
+    private List<BootApp> bootApps() {
+        List<BootApp> r = new ArrayList<>();
+        String modul = ed.kf.get("spring.module", null), klasse = ed.kf.get("spring.mainClass", null);
+        if (modul != null || klasse != null) {
+            r.add(new BootApp(modul == null ? ed.javaOrdner : ed.javaOrdner.resolve(modul).normalize(), klasse));
+            return r;
+        }
+        for (Indexer.Datei d : ed.index.dateien) {
+            Path p = d.pfad();
+            String n = p.toString().replace('\\', '/');
+            if (!p.startsWith(ed.javaOrdner) || !n.endsWith(".java") || !n.contains("/src/main/")) continue;
+            String t;
+            try {
+                t = Files.readString(p, StandardCharsets.UTF_8);
+            } catch (IOException | RuntimeException e) {
+                continue;
+            }
+            if (!t.contains("@SpringBootApplication")) continue;
+            Matcher m = Pattern.compile("(?m)^\\s*package\\s+([\\w.]+)\\s*;").matcher(t);
+            String name = p.getFileName().toString().replace(".java", "");
+            String fq = m.find() ? m.group(1) + "." + name : name;
+            Path mod = p.getParent();
+            while (mod != null && mod.startsWith(ed.javaOrdner) && !Files.exists(mod.resolve("pom.xml")) && !Files.exists(mod.resolve("build.gradle"))
+                    && !Files.exists(mod.resolve("build.gradle.kts"))) {
+                mod = mod.getParent();
+            }
+            r.add(new BootApp(mod == null || !mod.startsWith(ed.javaOrdner) ? ed.javaOrdner : mod, fq));
+        }
+        return r;
+    }
+
+    /**
+     * Startbefehl: im Modul der Anwendung, mit ihrer Main-Klasse. Liegt sie in einem Untermodul,
+     * werden zuerst die Module gebaut, von denen sie abhaengt.
+     */
+    private String springBefehl(String profil, boolean debug, BootApp app) {
         int port = ed.kf.zahl("debug.java.port", 5005);
         String agent = "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:" + port;
         String eigen = ed.kf.get(debug ? "spring.debug" : "spring.run", null);
         if (eigen != null) return eigen.replace("{profile}", profil).replace("{port}", String.valueOf(port));
         Path j = ed.javaOrdner;
         boolean win = Lsp.WINDOWS;
+        Path modul = app == null ? j : app.modul();
+        String rel = j.relativize(modul).toString().replace('\\', '/');
         if (Files.exists(j.resolve("pom.xml"))) {
             String mvn = Files.exists(j.resolve(win ? "mvnw.cmd" : "mvnw")) ? (win ? "mvnw.cmd" : "./mvnw") : "mvn";
-            return mvn + " spring-boot:run -Dspring-boot.run.profiles=" + profil + (debug ? " \"-Dspring-boot.run.jvmArguments=" + agent + "\"" : "");
+            String start = " spring-boot:run -Dspring-boot.run.profiles=" + profil
+                    + (app != null && app.klasse() != null ? " -Dspring-boot.run.main-class=" + app.klasse() + " -Dstart-class=" + app.klasse() : "")
+                    + (debug ? " \"-Dspring-boot.run.jvmArguments=" + agent + "\"" : "");
+            if (rel.isEmpty()) return mvn + start;
+            return mvn + " -q install -DskipTests -pl " + rel + " -am && " + mvn + " -f " + rel + "/pom.xml" + start;
         }
-        if (Files.exists(j.resolve("build.gradle")) || Files.exists(j.resolve("build.gradle.kts"))) {
+        if (Files.exists(j.resolve("build.gradle")) || Files.exists(j.resolve("build.gradle.kts")) || Files.exists(j.resolve("settings.gradle"))
+                || Files.exists(j.resolve("settings.gradle.kts"))) {
             String g = Files.exists(j.resolve(win ? "gradlew.bat" : "gradlew")) ? (win ? "gradlew.bat" : "./gradlew") : "gradle";
-            return g + " bootRun --args=--spring.profiles.active=" + profil + (debug ? " --debug-jvm" : "");
+            String aufgabe = rel.isEmpty() ? "bootRun" : ":" + rel.replace('/', ':') + ":bootRun";
+            return g + " " + aufgabe + " --args=--spring.profiles.active=" + profil + (debug ? " --debug-jvm" : "");
         }
         return null;
     }
 
     private void springStarten(String profil, boolean debug) {
+        if (ed.javaOrdner == null) {
+            ed.fehler("kein java.workspace in config.txt");
+            return;
+        }
+        if (app != null && app.isAlive()) {
+            springStarten(profil, debug, null);
+            return;
+        }
+        List<BootApp> apps = bootApps();
+        if (apps.size() > 1) {
+            List<String> namen = new ArrayList<>();
+            for (BootApp a : apps) namen.add(a.klasse() + "   (" + ed.relativ(a.modul()) + ")");
+            auswahl("Welche Spring-Boot-Anwendung? (fest: spring.mainClass in config.txt)", namen, null,
+                    w -> springStarten(profil, debug, apps.get(namen.indexOf(w))));
+            return;
+        }
+        springStarten(profil, debug, apps.isEmpty() ? null : apps.get(0));
+    }
+
+    private void springStarten(String profil, boolean debug, BootApp bootApp) {
         if (ed.javaOrdner == null) {
             ed.fehler("kein java.workspace in config.txt");
             return;
@@ -1415,13 +1613,13 @@ final class Werkzeug {
             ed.fehler("die Anwendung laeuft schon (Leertaste a x stoppt sie)");
             return;
         }
-        String b = springBefehl(profil, debug);
+        String b = springBefehl(profil, debug, bootApp);
         if (b == null) {
             ed.fehler("weder pom.xml noch build.gradle in " + ed.javaOrdner + " (oder spring.run in config.txt setzen)");
             return;
         }
         ed.konsoleAuf();
-        ed.farbig("$ " + b + "   [Profil " + profil + (debug ? ", Debug" : "") + "]", E_HELL);
+        ed.farbig("$ " + b + "   [Profil " + profil + (debug ? ", Debug" : "") + (bootApp != null && bootApp.klasse() != null ? ", " + bootApp.klasse() : "") + "]", E_HELL);
         List<String> befehl = Lsp.WINDOWS ? List.of("cmd.exe", "/c", b) : List.of("/bin/sh", "-c", b);
         ProcessBuilder pb = new ProcessBuilder(befehl).directory(ed.javaOrdner.toFile()).redirectErrorStream(true);
         Lsp.umgebung(pb);
@@ -1657,6 +1855,7 @@ final class Werkzeug {
             if (l.size() == 1) los.accept(l.get(0));
             else auswahl("Konflikte in " + Editor.name(repo) + " (" + l.size() + " Dateien)", l, null, los);
         });
+        c.put("gitBlame", a -> blameUmschalten());
         c.put("gitPull", a -> pull());
         c.put("gitPush", a -> push());
         c.put("gitCommit", a -> commitStarten());

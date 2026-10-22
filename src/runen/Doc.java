@@ -84,7 +84,9 @@ final class Doc {
 
     /** aktives Datenbankkonto (SQL-Dateien) */
     String dbKonto;
-    /** Terminal-Tab (sonst null) */
+    /** git blame je Zeile (sonst null) */
+    Werkzeug.Blame blame;
+        /** Terminal-Tab (sonst null) */
     Terminal term;
         /** Ergebnistabelle der letzten Abfrage in dieser Datei */
     Werkzeug.Tabelle tabelle;

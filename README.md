@@ -63,7 +63,9 @@ Editor an, ihn herunterzuladen (`:installJsDebug`). TypeScript läuft mit Node 2
 `Leertaste a a` startet die Anwendung im Java-Arbeitsbereich mit dem Profil aus `spring.profile` (Vorgabe `dev`),
 `Leertaste a p` mit einem gewählten Profil (aus `spring.profiles` und `application-*.yml`), `Leertaste a d` im Debug-Modus
 mit angehängtem Debugger, `Leertaste a x` stoppt sie. Gestartet wird über `mvnw`/`mvn spring-boot:run` oder
-`gradlew bootRun`; eigener Befehl mit `spring.run` (`{profile}`). Die Ausgabe steht im Terminal.
+`gradlew bootRun`. Der Editor sucht die Klasse mit `@SpringBootApplication` und startet im Modul, in dem sie liegt
+(bei mehreren Modulen werden die abhängigen vorher gebaut, bei mehreren Anwendungen fragt er); fest einstellen mit
+`spring.module` und `spring.mainClass`, ganz eigener Befehl mit `spring.run` (`{profile}`). Die Ausgabe steht im Terminal.
 
 ## Git
 
@@ -77,6 +79,7 @@ Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten f
 | Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `s` vormerken, `u` zurücknehmen, `c` commit, `m` merge, ESC schließt |
 | Leertaste g R | reset --hard (nur nach Eintippen von `ja`) |
 | Leertaste g m | Merge-Editor für Konflikte |
+| Leertaste g B (oder g a) | git blame an/aus: links neben den Zeilennummern Commit, Autor und Datum, unten die Commit-Nachricht der aktuellen Zeile; neue Zeilen erscheinen als „nicht committet“ |
 
 **Merge-Editor** nach dem Vorbild von Emacs Ediff: oben **A** (deine Seite) und **B** (ihre Seite), unten **C**, das
 Ergebnis (die Datei). `n`/`p` nächster/voriger Konflikt, TAB nächster offener, `a`/`b` A bzw. B übernehmen, `+` beide
