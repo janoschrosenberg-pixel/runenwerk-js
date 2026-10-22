@@ -1,0 +1,27 @@
+// beispiel.map - Mapping-Funktionen fuer RUNENWERK JS
+//
+// Jede Datei *.map im Mapping-Ordner wird beim Start (und mit "keymap" im Terminal) gelesen.
+// Eine Funktion ist eine Folge von Editor-Befehlen (oder anderen Mapping-Funktionen); Argumente
+// sind Texte in "", Zahlen oder Parameter. Belegen in keymap.config: gc = kommentar
+
+// Zeile auskommentieren
+fun kommentar() {
+  firstNonBlank()
+  insertText("// ")
+}
+// Zeile verdoppeln
+fun zeileDoppeln() {
+  yankLine()
+  paste()
+}
+// Text einfuegen und eine Meldung zeigen (im Terminal: stempel Hallo Welt)
+fun stempel(text:str) {
+  insertText(text)
+  message("Stempel gesetzt")
+}
+// neue React-Komponente in einer leeren Datei (im Terminal: komponente Button)
+fun komponente(name:str) {
+  insertText("export function ")
+  insertText(name)
+  insertText("() {\n  return <div></div>;\n}\n")
+}
