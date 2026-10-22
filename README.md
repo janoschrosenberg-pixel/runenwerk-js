@@ -67,10 +67,29 @@ mit angehängtem Debugger, `Leertaste a x` stoppt sie. Gestartet wird über `mvn
 
 ## Git
 
-Oben rechts stehen Repo und Branch beider Arbeitsbereiche (`TS frontend:main   Java backend:develop`).
-`Leertaste b` wechselt den Branch des Repos der aktuellen Datei, `Leertaste g t` / `Leertaste g j` den des
-TS- bzw. Java-Repos: Liste mit allen lokalen und entfernten Branches, tippen filtert, ENTER wechselt
-(`git switch`). Offene, ungeänderte Dateien werden danach neu gelesen.
+Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten für das Repo der aktuellen Datei:
+
+| Taste | |
+|---|---|
+| Leertaste g b (oder b) | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; `g t` / `g j` für TS- bzw. Java-Repo |
+| Leertaste g p / g P | pull / push (push legt bei neuen Branches den Upstream an) |
+| Leertaste g c | commit: Fenster für die Nachricht; ist nichts vorgemerkt, wird alles committet |
+| Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `s` vormerken, `u` zurücknehmen, `c` commit, `m` merge, ESC schließt |
+| Leertaste g R | reset --hard (nur nach Eintippen von `ja`) |
+| Leertaste g m | Merge-Editor für Konflikte |
+
+**Merge-Editor** nach dem Vorbild von Emacs Ediff: oben **A** (deine Seite) und **B** (ihre Seite), unten **C**, das
+Ergebnis (die Datei). `n`/`p` nächster/voriger Konflikt, TAB nächster offener, `a`/`b` A bzw. B übernehmen, `+` beide
+(A dann B), `*` beide (B dann A), `r` Konfliktmarken zurück, `j`/`k` blättern, `e` C von Hand bearbeiten (Leertaste g m
+kommt zurück), `q` fertig: speichert und merkt die Datei vor (`git add`), danach Leertaste g c.
+
+## Terminal
+
+`Leertaste t` öffnet ein Terminal als eigenen Tab (beliebig viele). Im Normal-Mode ist die Ausgabe ein normaler Text
+(markieren, kopieren, suchen); `i` springt in die Eingabezeile unten, ENTER führt aus, ↑/↓ oder Strg+K/J durch den
+Verlauf, Strg+H/L bewegen in der Zeile, Strg+C bricht den laufenden Befehl ab, ESC zurück in den Text. Es läuft eine
+Shell (Windows `cmd.exe`, sonst die Login-Shell), `cd` und Variablen bleiben erhalten. Ohne Pseudo-Terminal laufen
+Zeilenprogramme (`npm test`, `git log`, `mvn …`), aber keine Vollbildprogramme wie `vim` oder `top`.
 
 ## Formatieren: `Leertaste f`
 
@@ -127,6 +146,8 @@ Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (um
 | K, gr, F2, Leertaste f | Hover, Referenzen, Umbenennen, Formatieren |
 | Strg+J / Strg+K | nächste / vorige Methode |
 | Leertaste b | Branch wechseln |
+| Leertaste t | Terminal-Tab |
+| Strg+H/J/K/L | wo h/j/k/l getippt werden (Suchfeld im Dateimanager, Terminal, Listen): bewegen |
 | Strg+Enter, F5, F6 | SQL: Statement, Datei, Konto |
 | ]d / [d | nächster / vorheriger Fehler |
 | Strg+Leertaste | Vorschläge (nach `.` automatisch), mit Auto-Import |

@@ -62,14 +62,32 @@ final class Git {
         }
     }
 
-    /** lokale Branches, dann entfernte ohne lokales Gegenstueck (origin/x) */
+    /**
+     * Branches, zuletzt benutzte zuerst: Reihenfolge der Wechsel aus dem Reflog, dann die
+     * uebrigen lokalen nach Datum des letzten Commits, dann entfernte ohne lokales Gegenstueck.
+     */
     static List<String> branches(Path repo) {
-        Lauf l = git(repo, "branch", "--format=%(refname:short)");
+        Lauf l = git(repo, "branch", "--sort=-committerdate", "--format=%(refname:short)");
         if (l.code() != 0) return List.of();
         Set<String> lokal = new LinkedHashSet<>();
         for (String z : l.ausgabe().split("\\R")) if (!z.isBlank() && !z.startsWith("(")) lokal.add(z.strip());
-        List<String> r = new ArrayList<>(lokal);
-        Lauf e = git(repo, "branch", "-r", "--format=%(refname:short)");
+        Set<String> r = new LinkedHashSet<>();
+        String jetzt = branch(repo);
+        if (jetzt != null && lokal.contains(jetzt)) r.add(jetzt);
+        Lauf log = git(repo, "reflog", "-n", "500", "--format=%gs");
+        if (log.code() == 0) {
+            for (String z : log.ausgabe().split("\\R")) {
+                // "checkout: moving from A to B"
+                int i = z.indexOf("moving from ");
+                int j = z.lastIndexOf(" to ");
+                if (!z.startsWith("checkout:") || i < 0 || j < i) continue;
+                String nach = z.substring(j + 4).strip(), von = z.substring(i + 12, j).strip();
+                if (lokal.contains(nach)) r.add(nach);
+                if (lokal.contains(von)) r.add(von);
+            }
+        }
+        r.addAll(lokal);
+        Lauf e = git(repo, "branch", "-r", "--sort=-committerdate", "--format=%(refname:short)");
         if (e.code() == 0) {
             for (String z : e.ausgabe().split("\\R")) {
                 z = z.strip();
@@ -77,6 +95,14 @@ final class Git {
                 if (!lokal.contains(z.substring(z.indexOf('/') + 1))) r.add(z);
             }
         }
+        return new ArrayList<>(r);
+    }
+
+    /** Dateien mit Merge-Konflikt (relativ zum Repo) */
+    static List<String> konflikte(Path repo) {
+        Lauf l = git(repo, "diff", "--name-only", "--diff-filter=U");
+        List<String> r = new ArrayList<>();
+        if (l.code() == 0) for (String z : l.ausgabe().split("\\R")) if (!z.isBlank()) r.add(z.strip());
         return r;
     }
 

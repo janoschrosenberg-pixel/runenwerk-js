@@ -244,6 +244,12 @@ final class FileManager {
         c.put("fmSwitch", a -> {
             if (listenTitel == null) aktiv = 1 - aktiv;
         });
+        c.put("fmLeft", a -> {
+            if (listenTitel == null) aktiv = 0;
+        });
+        c.put("fmRight", a -> {
+            if (listenTitel == null) aktiv = 1;
+        });
         c.put("fmEnter", a -> enter());
         c.put("fmOpen", a -> enter());
         c.put("fmView", a -> enter());

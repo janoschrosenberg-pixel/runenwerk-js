@@ -58,6 +58,7 @@ final class Doc {
     }
 
     String name() {
+        if (term != null) return "terminal " + term.nr;
         return pfad == null ? "[neu]" : pfad.getFileName().toString();
     }
 
@@ -83,7 +84,9 @@ final class Doc {
 
     /** aktives Datenbankkonto (SQL-Dateien) */
     String dbKonto;
-    /** Ergebnistabelle der letzten Abfrage in dieser Datei */
+    /** Terminal-Tab (sonst null) */
+    Terminal term;
+        /** Ergebnistabelle der letzten Abfrage in dieser Datei */
     Werkzeug.Tabelle tabelle;
 
     boolean jsx() {

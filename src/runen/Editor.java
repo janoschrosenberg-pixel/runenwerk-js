@@ -392,6 +392,7 @@ final class Editor {
             }
         }
         meldung = null;
+        meldungFarbe = E_WARN;
         if (info != null) {
             info = null;
             if (name.equals("ESC")) {
@@ -751,6 +752,51 @@ final class Editor {
         reg("qa!", a -> quit(true));
         // ------------------------------------------------ Terminal
         reg("console", a -> konsoleAuf());
+        reg("terminal", a -> {
+            Doc t = new Doc();
+            int nr = 1;
+            for (Doc x : tabs) if (x.term != null) nr = Math.max(nr, x.term.nr + 1);
+            Path p = d().pfad != null ? bereichVon(d().pfad) : null;
+            if (p == null && d().pfad != null) p = d().pfad.getParent();
+            if (p == null) p = arbeitsordner != null ? arbeitsordner : javaOrdner != null ? javaOrdner : Paths.get(System.getProperty("user.home"));
+            t.term = new Terminal(this, t, p, nr);
+            Doc alt = d();
+            if (tabs.size() == 1 && alt.pfad == null && alt.term == null && !alt.geaendert && alt.t.length() == 0) tabs.set(0, t);
+            else tabs.add(t);
+            aktiv = tabs.indexOf(t);
+            t.term.starten();
+            modus = "terminal";
+        });
+        reg("terminalChar", a -> {
+            if (d().term != null) d().term.zeichen(a);
+        });
+        reg("terminalBackspace", a -> {
+            if (d().term != null) d().term.zurueck();
+        });
+        reg("terminalRun", a -> {
+            if (d().term != null) d().term.ausfuehren();
+        });
+        reg("terminalLeft", a -> {
+            if (d().term != null) d().term.links();
+        });
+        reg("terminalRight", a -> {
+            if (d().term != null) d().term.rechts();
+        });
+        reg("terminalHistoryUp", a -> {
+            if (d().term != null) d().term.verlauf(-1);
+        });
+        reg("terminalHistoryDown", a -> {
+            if (d().term != null) d().term.verlauf(1);
+        });
+        reg("terminalInterrupt", a -> {
+            if (d().term != null) d().term.abbrechen();
+        });
+        reg("terminalScrollUp", a -> d().oben = Math.max(0, d().oben - 3));
+        reg("terminalScrollDown", a -> d().oben = Math.min(d().zeilen() - 1, d().oben + 3));
+        reg("terminalPaste", a -> {
+            String z = ausZwischenablage();
+            if (z != null && d().term != null) d().term.zeichen(z.replaceAll("[\\r\\n]+", " ").strip());
+        });
         reg("consoleClose", a -> {
             konsoleOffen = false;
             if (modus.equals("console")) modus = konsoleVorModus.equals("console") ? km.start : konsoleVorModus;
@@ -939,6 +985,8 @@ final class Editor {
     void switchState(String m) {
         m = m.trim();
         if (m.isEmpty()) return;
+        // im Terminal-Tab fuehrt Insert in die Eingabezeile
+        if (d().term != null && m.equals("insert")) m = "terminal";
         if ((modus.equals("insert") || modus.equals("replace")) && !m.equals("insert") && !m.equals("complete")) vim.insertEnde();
         if (vim.visArt != 0 && !m.equals("visual")) vim.visualEnde();
         if ((modus.equals("insert") || modus.equals("replace")) && !m.equals("insert")) {
@@ -1213,6 +1261,7 @@ final class Editor {
             return;
         }
         lspSchliessen(d);
+        if (d.term != null) d.term.beenden();
         tabs.remove(aktiv);
         if (tabs.isEmpty()) tabs.add(new Doc());
         aktiv = Math.min(aktiv, tabs.size() - 1);
@@ -1815,7 +1864,7 @@ final class Editor {
 
     int textZeilen() {
         int h = scr.h - oben() - unten() - 8;
-        if (konsoleOffen || wz.tabelleOffen() || wz.dbg.offen) h = (scr.h - oben() - unten()) * 3 / 5;
+        if (konsoleOffen || wz.tabelleOffen() || wz.dbg.offen || wz.statusOffen) h = (scr.h - oben() - unten()) * 3 / 5;
         return Math.max(1, h / scr.lh);
     }
 
@@ -1866,6 +1915,12 @@ final class Editor {
         // ------------------------------------------------ Text
         int oben = oben();
         int n = textZeilen();
+        boolean term = d.term != null;
+        if (term) {
+            // letzte Zeile: Eingabe; im Terminal-Mode folgt die Ansicht der Ausgabe
+            n = Math.max(1, n - 1);
+            if (modus.equals("terminal")) d.cursor = d.t.length();
+        }
         int cz = d.zeileVon(d.cursor);
         int rand = rand(d);
         int spalten = Math.max(1, W / cw - rand - 1);
@@ -1876,105 +1931,126 @@ final class Editor {
         int cs = vspalte(d, d.cursor);
         if (cs < d.links) d.links = cs;
         if (cs >= d.links + spalten) d.links = cs - spalten + 1;
-        grund(oben - 4, n * lh + 4);
         int tx = rand * cw;
-        boolean genau = !suche.equals(suche.toLowerCase());
-        String sucheK = !sucheZeigen ? "" : genau ? suche : suche.toLowerCase();
         boolean visuell = modus.equals("visual") || (modus.equals("char") && vim.visArt != 0);
-        int selLo = Math.min(vim.anker, d.cursor), selHi = Math.max(vim.anker, d.cursor);
-        int selZ1 = d.zeileVon(selLo), selZ2 = d.zeileVon(selHi);
-        int selV1 = Math.min(vspalte(d, vim.anker), cs), selV2 = Math.max(vspalte(d, vim.anker), cs);
-        for (int k = 0; k < n; k++) {
-            int z = d.oben + k;
-            if (z >= d.zeilen()) break;
-            int y = oben + k * lh;
-            if (z == cz) scr.rect(0, y, W, lh, E_ZEILE);
-            if (z == wz.dbg.haltZeile(d)) scr.rect(0, y, W, lh, 0x3A3200);
-            int schwer = 0;
-            for (Doc.Diag g : d.diags) {
-                if (g.zeile() <= z && g.endZeile() >= z && (schwer == 0 || g.schwere() < schwer)) schwer = g.schwere();
-            }
-            String nr = String.valueOf(z + 1);
-            int nf = z == cz ? E_HELL : E_MATT;
-            if (schwer == 1) {
-                nf = E_FEHLER;
-                scr.rect(0, y, 4, lh, E_FEHLER);
-            } else if (schwer == 2) {
-                nf = E_WARN;
-                scr.rect(0, y, 4, lh, E_WARN);
-            }
-            scr.text((rand - 1 - nr.length()) * cw, y, nr, nf);
-            var hp = d.pfad == null ? null : wz.dbg.punkte.get(d.pfad);
-            if (hp != null && hp.contains(z)) {
-                // Haltepunkt: roter Punkt im Rand
-                int r = Math.max(3, lh / 4);
-                scr.rect(cw / 2, y + lh / 2 - r, 2 * r, 2 * r, E_FEHLER);
-            }
-            if (z == wz.dbg.haltZeile(d)) scr.text(0, y, ">", E_WARN);
-            int a = d.anf(z), e = d.ende(z);
-            scr.clip(tx, y, W - tx, lh);
-            // Auswahl (Visual)
-            if (visuell && z >= selZ1 && z <= selZ2) {
-                int va, ve;
-                if (vim.visArt == 2) {
-                    va = 0;
-                    ve = vspalte(d, e) + 1;
-                } else if (vim.visArt == 3) {
-                    va = selV1;
-                    ve = d.spalteMerk >= Vim.BIS_ENDE ? Math.max(va + 1, vspalte(d, e) + 1) : selV2 + 1;
-                } else {
-                    va = z == selZ1 ? vspalte(d, selLo) : 0;
-                    ve = z == selZ2 ? vspalte(d, selHi) + 1 : vspalte(d, e) + 1;
+        // Merge-Editor (Ediff): drei Fenster statt des Textes
+        if (wz.merge.sichtbar()) {
+            wz.merge.malen(oben - 4, scr.h - unten() - 2);
+        } else {
+            grund(oben - 4, n * lh + 4);
+            boolean genau = !suche.equals(suche.toLowerCase());
+            String sucheK = !sucheZeigen ? "" : genau ? suche : suche.toLowerCase();
+            int selLo = Math.min(vim.anker, d.cursor), selHi = Math.max(vim.anker, d.cursor);
+            int selZ1 = d.zeileVon(selLo), selZ2 = d.zeileVon(selHi);
+            int selV1 = Math.min(vspalte(d, vim.anker), cs), selV2 = Math.max(vspalte(d, vim.anker), cs);
+            for (int k = 0; k < n; k++) {
+                int z = d.oben + k;
+                if (z >= d.zeilen()) break;
+                int y = oben + k * lh;
+                if (z == cz) scr.rect(0, y, W, lh, E_ZEILE);
+                if (z == wz.dbg.haltZeile(d)) scr.rect(0, y, W, lh, 0x3A3200);
+                int schwer = 0;
+                for (Doc.Diag g : d.diags) {
+                    if (g.zeile() <= z && g.endZeile() >= z && (schwer == 0 || g.schwere() < schwer)) schwer = g.schwere();
                 }
-                scr.rect(tx + (va - d.links) * cw, y, (ve - va) * cw, lh, 0x1E5A2E);
+                String nr = String.valueOf(z + 1);
+                int nf = z == cz ? E_HELL : E_MATT;
+                if (schwer == 1) {
+                    nf = E_FEHLER;
+                    scr.rect(0, y, 4, lh, E_FEHLER);
+                } else if (schwer == 2) {
+                    nf = E_WARN;
+                    scr.rect(0, y, 4, lh, E_WARN);
+                }
+                scr.text((rand - 1 - nr.length()) * cw, y, nr, nf);
+                var hp = d.pfad == null ? null : wz.dbg.punkte.get(d.pfad);
+                if (hp != null && hp.contains(z)) {
+                    // Haltepunkt: roter Punkt im Rand
+                    int r = Math.max(3, lh / 4);
+                    scr.rect(cw / 2, y + lh / 2 - r, 2 * r, 2 * r, E_FEHLER);
+                }
+                if (z == wz.dbg.haltZeile(d)) scr.text(0, y, ">", E_WARN);
+                int a = d.anf(z), e = d.ende(z);
+                scr.clip(tx, y, W - tx, lh);
+                // Auswahl (Visual)
+                if (visuell && z >= selZ1 && z <= selZ2) {
+                    int va, ve;
+                    if (vim.visArt == 2) {
+                        va = 0;
+                        ve = vspalte(d, e) + 1;
+                    } else if (vim.visArt == 3) {
+                        va = selV1;
+                        ve = d.spalteMerk >= Vim.BIS_ENDE ? Math.max(va + 1, vspalte(d, e) + 1) : selV2 + 1;
+                    } else {
+                        va = z == selZ1 ? vspalte(d, selLo) : 0;
+                        ve = z == selZ2 ? vspalte(d, selHi) + 1 : vspalte(d, e) + 1;
+                    }
+                    scr.rect(tx + (va - d.links) * cw, y, (ve - va) * cw, lh, 0x1E5A2E);
+                }
+                // Suchtreffer
+                if (sucheK.length() > 0) {
+                    String zl = genau ? d.t.substring(a, e) : d.t.substring(a, e).toLowerCase();
+                    for (int p = zl.indexOf(sucheK); p >= 0; p = zl.indexOf(sucheK, p + 1)) {
+                        int vx = vspalte(d, a + p) - d.links;
+                        scr.rect(tx + vx * cw, y, sucheK.length() * cw, lh, 0x2A4A10);
+                    }
+                }
+                int v = 0;
+                for (int p = a; p < e; p++) {
+                    char c = d.t.charAt(p);
+                    int nv = c == '\t' ? (v / tabBreite + 1) * tabBreite : v + 1;
+                    if (nv > d.links && v - d.links < spalten && c != '\t') {
+                        int farbe = d.farben != null && d.farbenVersion == d.version && p < d.farben.length ? FARBEN[d.farben[p]] : E_TEXT;
+                        int cp = c;
+                        if (Character.isHighSurrogate(c) && p + 1 < e) cp = Character.toCodePoint(c, d.t.charAt(p + 1));
+                        if (!Character.isLowSurrogate(c)) scr.glyph(tx + (v - d.links) * cw, y, cp, farbe);
+                    }
+                    v = nv;
+                }
+                // Fehler unterwellen
+                for (Doc.Diag g : d.diags) {
+                    if (g.zeile() > z || g.endZeile() < z) continue;
+                    int sa = g.zeile() == z ? Math.min(e, a + g.spalte()) : a;
+                    int se = g.endZeile() == z ? Math.min(e, a + g.endSpalte()) : e;
+                    int va = vspalte(d, sa), ve = Math.max(va + 1, vspalte(d, se));
+                    scr.wave(tx + (va - d.links) * cw, y + lh - 3, (ve - va) * cw, g.schwere() == 1 ? E_FEHLER : E_WARN);
+                }
+                scr.noClip();
             }
-            // Suchtreffer
-            if (sucheK.length() > 0) {
-                String zl = genau ? d.t.substring(a, e) : d.t.substring(a, e).toLowerCase();
-                for (int p = zl.indexOf(sucheK); p >= 0; p = zl.indexOf(sucheK, p + 1)) {
-                    int vx = vspalte(d, a + p) - d.links;
-                    scr.rect(tx + vx * cw, y, sucheK.length() * cw, lh, 0x2A4A10);
+            if (term) {
+                int y = oben + n * lh;
+                scr.rect(0, y, W, lh, E_ZEILE);
+                scr.rect(0, y, W, 1, E_MATT);
+                String pr = d.term.prompt();
+                String e = d.term.eingabe.toString();
+                int x0 = scr.text(cw, y, pr, E_HELL);
+                int platz = Math.max(1, (W - x0) / cw - 2);
+                int ab = Math.max(0, d.term.eingabeCursor - platz + 1);
+                scr.clip(x0, y, W - x0, lh);
+                scr.text(x0, y, e.substring(Math.min(ab, e.length())), E_TEXT);
+                if (modus.equals("terminal")) scr.rect(x0 + (d.term.eingabeCursor - ab) * cw, y + 1, Math.max(2, cw / 5), lh - 2, E_HELL);
+                scr.noClip();
+            }
+            // ------------------------------------------------ Cursor
+            if ((!konsoleOffen || !modus.equals("console")) && !modus.equals("terminal")) {
+                int cx = tx + (cs - d.links) * cw;
+                int cy = oben + (cz - d.oben) * lh;
+                if (modus.equals("insert") || modus.equals("complete")) {
+                    scr.rect(cx, cy + 1, Math.max(2, cw / 5), lh - 2, E_HELL);
+                } else if (modus.equals("replace") || modus.equals("operator")) {
+                    scr.rect(cx, cy + lh - Math.max(3, lh / 6), cw, Math.max(3, lh / 6), E_HELL);
+                } else if (!fm.offen && !popupOffen) {
+                    scr.rect(cx, cy + 1, cw, lh - 2, E_TEXT);
+                    char ch = d.at(d.cursor);
+                    if (ch > 32) scr.glyph(cx, cy, ch, E_GRUND);
                 }
             }
-            int v = 0;
-            for (int p = a; p < e; p++) {
-                char c = d.t.charAt(p);
-                int nv = c == '\t' ? (v / tabBreite + 1) * tabBreite : v + 1;
-                if (nv > d.links && v - d.links < spalten && c != '\t') {
-                    int farbe = d.farben != null && d.farbenVersion == d.version && p < d.farben.length ? FARBEN[d.farben[p]] : E_TEXT;
-                    int cp = c;
-                    if (Character.isHighSurrogate(c) && p + 1 < e) cp = Character.toCodePoint(c, d.t.charAt(p + 1));
-                    if (!Character.isLowSurrogate(c)) scr.glyph(tx + (v - d.links) * cw, y, cp, farbe);
-                }
-                v = nv;
-            }
-            // Fehler unterwellen
-            for (Doc.Diag g : d.diags) {
-                if (g.zeile() > z || g.endZeile() < z) continue;
-                int sa = g.zeile() == z ? Math.min(e, a + g.spalte()) : a;
-                int se = g.endZeile() == z ? Math.min(e, a + g.endSpalte()) : e;
-                int va = vspalte(d, sa), ve = Math.max(va + 1, vspalte(d, se));
-                scr.wave(tx + (va - d.links) * cw, y + lh - 3, (ve - va) * cw, g.schwere() == 1 ? E_FEHLER : E_WARN);
-            }
-            scr.noClip();
         }
-        // ------------------------------------------------ Cursor
-        if (!konsoleOffen || !modus.equals("console")) {
-            int cx = tx + (cs - d.links) * cw;
-            int cy = oben + (cz - d.oben) * lh;
-            if (modus.equals("insert") || modus.equals("complete")) {
-                scr.rect(cx, cy + 1, Math.max(2, cw / 5), lh - 2, E_HELL);
-            } else if (modus.equals("replace") || modus.equals("operator")) {
-                scr.rect(cx, cy + lh - Math.max(3, lh / 6), cw, Math.max(3, lh / 6), E_HELL);
-            } else if (!fm.offen && !popupOffen) {
-                scr.rect(cx, cy + 1, cw, lh - 2, E_TEXT);
-                char ch = d.at(d.cursor);
-                if (ch > 32) scr.glyph(cx, cy, ch, E_GRUND);
-            }
-        }
-        if (konsoleOffen) konsoleMalen(oben + n * lh + 6);
-        else if (wz.dbg.offen && (modus.equals("debug") || !wz.tabelleOffen() || !modus.equals("result"))) wz.dbg.malen(oben + n * lh + 6);
-        else if (wz.tabelleOffen()) wz.ergebnisMalen(oben + n * lh + 6);
+        int panelY = oben + textZeilen() * lh + 6;
+        if (konsoleOffen) konsoleMalen(panelY);
+        else if (wz.statusOffen) wz.statusMalen(panelY);
+        else if (wz.dbg.offen && (modus.equals("debug") || !wz.tabelleOffen() || !modus.equals("result"))) wz.dbg.malen(panelY);
+        else if (wz.tabelleOffen()) wz.ergebnisMalen(panelY);
         if (vorschlagOffen) vorschlaegeMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben + 1) * lh);
         if (info != null) infoMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben) * lh);
         if (fm.offen) fm.malen(scr, bh + 2, H - unten());
@@ -2028,6 +2104,9 @@ final class Editor {
             case "operator" -> "NORMAL " + vim.op;
             case "result" -> "ERGEBNIS";
             case "debug" -> "DEBUG";
+            case "terminal" -> "TERMINAL";
+            case "gitstatus" -> "GIT";
+            case "merge" -> "MERGE";
             case "picker" -> "AUSWAHL";
             default -> modus;
         };

@@ -35,10 +35,12 @@ final class Werkzeug {
     private final Editor ed;
     final Db db = new Db();
     final Debug dbg;
+    final Merge merge;
 
     Werkzeug(Editor ed) {
         this.ed = ed;
         dbg = new Debug(ed);
+        merge = new Merge(ed);
         Timer t = new Timer(2000, e -> {
             if (gitLesen()) ed.neuMalen.run();
         });
@@ -76,20 +78,28 @@ final class Werkzeug {
         return Editor.name(repo) + ":" + branch;
     }
 
-    private void branchWaehlen(String welcher) {
+    /** Repo zu ts, java oder (leer) dem der aktuellen Datei; null mit Meldung */
+    private Path repoFuer(String welcher) {
         Path repo = switch (welcher.trim()) {
             case "ts" -> tsRepo;
             case "java" -> javaRepo;
             default -> {
-                Path b = ed.bereichVon(ed.d().pfad);
+                Doc d = ed.d();
+                Path p = d.pfad != null ? d.pfad : d.term != null ? d.term.ordner() : null;
+                Path eigen = p == null ? null : Git.wurzel(p);
+                if (eigen != null) yield eigen;
+                Path b = ed.bereichVon(p);
                 if (b != null && b.equals(ed.javaOrdner)) yield javaRepo;
                 yield tsRepo != null ? tsRepo : javaRepo;
             }
         };
-        if (repo == null) {
-            ed.meldung = "kein git-Repo im Arbeitsbereich";
-            return;
-        }
+        if (repo == null) ed.meldung = "kein git-Repo im Arbeitsbereich";
+        return repo;
+    }
+
+    private void branchWaehlen(String welcher) {
+        Path repo = repoFuer(welcher);
+        if (repo == null) return;
         String aktuell = Git.branch(repo);
         ed.meldung = "Branches werden gelesen ...";
         Path r = repo;
@@ -144,6 +154,207 @@ final class Werkzeug {
         } catch (IOException e) {
             return false;
         }
+    }
+
+    // ---------------------------------------------------------------- pull, push, commit, reset
+    private Path gitRepo;
+
+    /** git-Befehl im Hintergrund, Ausgabe ins Terminal, danach fertig (im Swing-Faden) */
+    private void gitLauf(Path repo, String titel, String[] args, java.util.function.Consumer<Git.Lauf> fertig) {
+        ed.meldung = "git " + titel + " (" + Editor.name(repo) + ") ...";
+        hintergrund(() -> {
+            Git.Lauf l = Git.git(repo, args);
+            SwingUtilities.invokeLater(() -> {
+                ed.farbig("$ git " + String.join(" ", args) + "   (" + Editor.name(repo) + ")", E_HELL);
+                if (!l.ausgabe().isEmpty()) ed.farbig(l.ausgabe(), l.code() == 0 ? E_TEXT : Editor.E_FEHLER);
+                fertig.accept(l);
+                gitLesen();
+                if (statusOffen && repo.equals(statusRepo)) statusLesen();
+                ed.neuMalen.run();
+            });
+        });
+    }
+
+    private void pull() {
+        Path repo = repoFuer("");
+        if (repo == null) return;
+        // ohne eigene Einstellung (pull.rebase / pull.ff) wie klassisches git: mergen
+        boolean eigen = !Git.git(repo, "config", "--get", "pull.rebase").ausgabe().isBlank() || !Git.git(repo, "config", "--get", "pull.ff").ausgabe().isBlank();
+        gitLauf(repo, "pull", eigen ? new String[] {"pull"} : new String[] {"pull", "--no-rebase"}, l -> {
+            neuLaden(repo);
+            ed.index.neuEinlesen();
+            if (l.code() == 0) {
+                ed.meldung = "pull: " + letzteZeile(l.ausgabe().isEmpty() ? "fertig" : l.ausgabe());
+            } else if (!Git.konflikte(repo).isEmpty()) {
+                ed.fehler("pull: Konflikte in " + Git.konflikte(repo).size() + " Dateien - Leertaste g m oeffnet den Merge-Editor");
+            } else {
+                ed.fehler("pull fehlgeschlagen: " + letzteZeile(l.ausgabe()));
+            }
+        });
+    }
+
+    private void push() {
+        Path repo = repoFuer("");
+        if (repo == null) return;
+        gitLauf(repo, "push", new String[] {"push"}, l -> {
+            if (l.code() == 0) {
+                ed.meldung = "push: " + letzteZeile(l.ausgabe().isEmpty() ? "fertig" : l.ausgabe());
+            } else if (l.ausgabe().contains("no upstream") || l.ausgabe().contains("set-upstream")) {
+                // neuer Branch: Upstream anlegen
+                gitLauf(repo, "push -u", new String[] {"push", "-u", "origin", "HEAD"}, l2 -> {
+                    if (l2.code() == 0) ed.meldung = "push: Branch " + Git.branch(repo) + " auf origin angelegt";
+                    else ed.fehler("push fehlgeschlagen: " + letzteZeile(l2.ausgabe()));
+                });
+            } else {
+                ed.fehler("push fehlgeschlagen: " + letzteZeile(l.ausgabe()));
+            }
+        });
+    }
+
+    private void commitStarten() {
+        Path repo = repoFuer("");
+        if (repo == null) return;
+        alleSpeichern(repo);
+        Git.Lauf st = Git.git(repo, "status", "--porcelain");
+        if (st.code() == 0 && st.ausgabe().isBlank()) {
+            ed.meldung = "nichts zu committen in " + Editor.name(repo);
+            return;
+        }
+        gitRepo = repo;
+        boolean vorgemerkt = Git.git(repo, "diff", "--cached", "--quiet").code() != 0;
+        int n = st.ausgabe().split("\\R").length;
+        ed.popupOpen("Commit in " + Editor.name(repo) + ":" + Git.branch(repo) + " (" + (vorgemerkt ? "vorgemerkte Aenderungen" : "alle " + n + " Aenderungen")
+                + ") - Nachricht:", "gitCommitDo", "");
+    }
+
+    private void commit(String nachricht) {
+        Path repo = gitRepo;
+        if (repo == null || nachricht.isBlank()) {
+            ed.meldung = "Commit abgebrochen (keine Nachricht)";
+            return;
+        }
+        hintergrund(() -> {
+            boolean vorgemerkt = Git.git(repo, "diff", "--cached", "--quiet").code() != 0;
+            if (!vorgemerkt) Git.git(repo, "add", "-A");
+            SwingUtilities.invokeLater(() -> gitLauf(repo, "commit", new String[] {"commit", "-m", nachricht.strip()}, l -> {
+                if (l.code() == 0) ed.meldung = "committet: " + l.ausgabe().split("\\R")[0];
+                else ed.fehler("commit fehlgeschlagen: " + letzteZeile(l.ausgabe()));
+            }));
+        });
+    }
+
+    private void resetStarten() {
+        Path repo = repoFuer("");
+        if (repo == null) return;
+        gitRepo = repo;
+        ed.popupOpen("git reset --hard in " + Editor.name(repo) + ":" + Git.branch(repo) + " - ALLE nicht committeten Aenderungen gehen verloren. ja eintippen und ENTER:",
+                "gitResetDo", "");
+    }
+
+    private void reset(String antwort) {
+        Path repo = gitRepo;
+        if (repo == null || !antwort.strip().equalsIgnoreCase("ja")) {
+            ed.meldung = "reset abgebrochen";
+            return;
+        }
+        // offene Texte im Repo gelten danach als unveraendert
+        for (Doc t : ed.tabs) if (t.pfad != null && t.pfad.startsWith(repo)) t.geaendert = false;
+        gitLauf(repo, "reset --hard", new String[] {"reset", "--hard"}, l -> {
+            neuLaden(repo);
+            ed.index.neuEinlesen();
+            if (l.code() == 0) ed.meldung = "reset --hard: " + letzteZeile(l.ausgabe());
+            else ed.fehler("reset fehlgeschlagen: " + letzteZeile(l.ausgabe()));
+        });
+    }
+
+    private void alleSpeichern(Path repo) {
+        int a = ed.aktiv;
+        for (int i = 0; i < ed.tabs.size(); i++) {
+            Doc t = ed.tabs.get(i);
+            if (t.geaendert && t.pfad != null && t.pfad.startsWith(repo)) {
+                ed.aktiv = i;
+                ed.befehl("save", "");
+            }
+        }
+        ed.aktiv = a;
+    }
+
+    // ---------------------------------------------------------------- git status (Panel unten)
+    boolean statusOffen;
+    private Path statusRepo;
+    private List<String> statusZeilen = List.of();
+    private int statusWahl, statusOben;
+
+    private void statusOeffnen() {
+        Path repo = repoFuer("");
+        if (repo == null) return;
+        statusRepo = repo;
+        statusOffen = true;
+        ed.konsoleOffen = false;
+        ed.modus = "gitstatus";
+        statusLesen();
+    }
+
+    private void statusLesen() {
+        Path repo = statusRepo;
+        hintergrund(() -> {
+            Git.Lauf l = Git.git(repo, "status", "--short", "--branch");
+            List<String> z = new ArrayList<>();
+            if (l.code() != 0) z.add("git status fehlgeschlagen: " + l.ausgabe());
+            else for (String x : l.ausgabe().split("\\R")) if (!x.isEmpty()) z.add(x);
+            if (z.size() == 1 && z.get(0).startsWith("##")) z.add("   (sauber - nichts zu committen)");
+            // git sieht nur die Platte: ungespeicherte Texte dazuschreiben
+            for (Doc t : ed.tabs) if (t.geaendert && t.pfad != null && t.pfad.startsWith(repo)) z.add("   (ungespeichert im Editor: " + repo.relativize(t.pfad) + ")");
+            SwingUtilities.invokeLater(() -> {
+                statusZeilen = z;
+                statusWahl = Math.min(Math.max(statusWahl, z.size() > 1 ? 1 : 0), z.size() - 1);
+                ed.neuMalen.run();
+            });
+        });
+    }
+
+    /** Datei der gewaehlten Zeile (" M src/a.ts" -> Pfad), oder null */
+    private Path statusDatei() {
+        if (statusWahl <= 0 || statusWahl >= statusZeilen.size()) return null;
+        String z = statusZeilen.get(statusWahl);
+        if (z.length() < 4 || z.startsWith("##") || z.startsWith("   (")) return null;
+        String n = z.substring(3);
+        if (n.contains(" -> ")) n = n.substring(n.indexOf(" -> ") + 4);
+        n = n.replace("\"", "");
+        return statusRepo.resolve(n);
+    }
+
+    void statusMalen(int y0) {
+        Screen s = ed.scr;
+        int W = s.w, lh = s.lh, cw = s.cw;
+        int h = s.h - ed.unten() - 6 - y0;
+        boolean fokus = ed.modus.equals("gitstatus");
+        s.rect(0, y0, W, h, E_KONSOLE);
+        s.frame(4, y0, W - 8, h, fokus ? E_HELL : E_TEXT);
+        s.frame(5, y0 + 1, W - 10, h - 2, E_MATT);
+        String titel = " GIT STATUS " + Editor.name(statusRepo) + ":" + Git.branch(statusRepo)
+                + (fokus ? "  (j/k, ENTER oeffnen, s vormerken, u zuruecknehmen, c commit, m merge, g neu, ESC zu) " : " ");
+        s.rect(3 * cw, y0 - lh / 2, s.textWidth(titel), lh, E_KONSOLE);
+        s.text(3 * cw, y0 - lh / 2, titel, E_HELL);
+        int n = Math.max(1, (h - lh - 8) / lh);
+        if (statusWahl < statusOben) statusOben = statusWahl;
+        if (statusWahl >= statusOben + n) statusOben = statusWahl - n + 1;
+        s.clip(8, y0 + 2, W - 16, h - 4);
+        for (int k = 0; k < n && statusOben + k < statusZeilen.size(); k++) {
+            int i = statusOben + k;
+            String z = statusZeilen.get(i);
+            int zy = y0 + lh / 2 + 4 + k * lh;
+            boolean g = fokus && i == statusWahl;
+            if (g) s.rect(8, zy, W - 16, lh, E_TEXT);
+            int f = E_TEXT;
+            if (z.startsWith("##")) f = E_HELL;
+            else if (z.startsWith("??")) f = E_MATT;
+            else if (z.startsWith("UU") || z.startsWith("AA") || z.startsWith("DD")) f = Editor.E_FEHLER;
+            else if (z.length() > 1 && z.charAt(0) != ' ' && z.charAt(1) == ' ') f = E_INFO;
+            else if (z.length() > 1) f = E_WARN;
+            s.text(2 * cw, zy, z, g ? E_GRUND : f);
+        }
+        s.noClip();
     }
 
     private static String letzteZeile(String s) {
@@ -1425,6 +1636,56 @@ final class Werkzeug {
             ed.meldung = "neue SQL-Datei (Konto " + konto(d) + "): Strg+Enter fuehrt aus, :w speichert in " + p.getParent();
         });
         c.put("gitBranch", this::branchWaehlen);
+        merge.befehle(c);
+        c.put("gitMerge", a -> {
+            Doc d = ed.d();
+            if (Merge.hatKonflikte(d.t)) {
+                merge.starten(d);
+                return;
+            }
+            Path repo = repoFuer("");
+            if (repo == null) return;
+            List<String> l = Git.konflikte(repo);
+            if (l.isEmpty()) {
+                ed.meldung = "keine Dateien mit Konflikten in " + Editor.name(repo);
+                return;
+            }
+            Consumer<String> los = n -> {
+                Doc t = ed.oeffnen(repo.resolve(n));
+                if (t != null) merge.starten(t);
+            };
+            if (l.size() == 1) los.accept(l.get(0));
+            else auswahl("Konflikte in " + Editor.name(repo) + " (" + l.size() + " Dateien)", l, null, los);
+        });
+        c.put("gitPull", a -> pull());
+        c.put("gitPush", a -> push());
+        c.put("gitCommit", a -> commitStarten());
+        c.put("gitCommitDo", this::commit);
+        c.put("gitReset", a -> resetStarten());
+        c.put("gitResetDo", this::reset);
+        c.put("gitStatus", a -> statusOeffnen());
+        c.put("gitStatusClose", a -> {
+            statusOffen = false;
+            if (ed.modus.equals("gitstatus")) ed.modus = "normal";
+        });
+        c.put("gitStatusDown", a -> statusWahl = Math.min(statusZeilen.size() - 1, statusWahl + 1));
+        c.put("gitStatusUp", a -> statusWahl = Math.max(0, statusWahl - 1));
+        c.put("gitStatusRefresh", a -> statusLesen());
+        c.put("gitStatusOpen", a -> {
+            Path p = statusDatei();
+            if (p == null || !Files.isRegularFile(p)) return;
+            statusOffen = false;
+            ed.modus = "normal";
+            ed.oeffnen(p);
+        });
+        c.put("gitStatusStage", a -> {
+            Path p = statusDatei();
+            if (p != null) gitLauf(statusRepo, "add", new String[] {"add", "--", statusRepo.relativize(p).toString()}, l -> {});
+        });
+        c.put("gitStatusUnstage", a -> {
+            Path p = statusDatei();
+            if (p != null) gitLauf(statusRepo, "restore --staged", new String[] {"restore", "--staged", "--", statusRepo.relativize(p).toString()}, l -> {});
+        });
         c.put("gitRefresh", a -> gitLesen());
         c.put("javaWorkdir", a -> {
             if (a.isBlank()) {
