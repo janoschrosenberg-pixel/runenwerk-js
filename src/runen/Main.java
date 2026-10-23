@@ -206,7 +206,13 @@ public final class Main {
         double s = ed.skala;
         int w = (int) Math.round(flaeche.getWidth() * s), h = (int) Math.round(flaeche.getHeight() * s);
         ed.scr.resize(w, h);
-        ed.malen();
+        try {
+            ed.malen();
+        } catch (RuntimeException e) {
+            // ein Fehler beim Malen soll den Editor nicht lahmlegen
+            ed.protokoll("Malen", e);
+            ed.meldung = "Fehler beim Malen: " + e + "  (Details in start.log)";
+        }
         BufferedImage img = ed.scr.img;
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
         // Bildpunkte 1:1 aufs Geraet (die Grafik ist schon mit s skaliert)

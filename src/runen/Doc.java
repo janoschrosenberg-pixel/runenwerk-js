@@ -58,7 +58,7 @@ final class Doc {
     }
 
     String name() {
-        if (term != null) return "terminal " + term.nr;
+        if (term != null) return term.titel != null ? term.titel : "terminal " + term.nr;
         return pfad == null ? "[neu]" : pfad.getFileName().toString();
     }
 

@@ -19,6 +19,8 @@ import javax.swing.SwingUtilities;
  */
 final class Terminal {
     final int nr;
+    /** Name des Tabs (sonst "terminal N") */
+    String titel;
     private final Editor ed;
     private final Doc doc;
     private Process p;

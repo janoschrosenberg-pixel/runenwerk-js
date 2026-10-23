@@ -65,7 +65,8 @@ Editor an, ihn herunterzuladen (`:installJsDebug`). TypeScript läuft mit Node 2
 mit angehängtem Debugger, `Leertaste a x` stoppt sie. Gestartet wird über `mvnw`/`mvn spring-boot:run` oder
 `gradlew bootRun`. Der Editor sucht die Klasse mit `@SpringBootApplication` und startet im Modul, in dem sie liegt
 (bei mehreren Modulen werden die abhängigen vorher gebaut, bei mehreren Anwendungen fragt er); fest einstellen mit
-`spring.module` und `spring.mainClass`, ganz eigener Befehl mit `spring.run` (`{profile}`). Die Ausgabe steht im Terminal.
+`spring.module` und `spring.mainClass`, ganz eigener Befehl mit `spring.run` (`{profile}`). Gestartet wird in einem eigenen
+Terminal-Tab („spring dev“): Der Befehl steht sichtbar darin, die Ausgabe läuft mit, Strg+C oder Leertaste a x stoppt.
 
 ## Git
 
@@ -162,6 +163,8 @@ ENTER öffnet (bei Inhaltstreffern an der Zeile), F2 neue Datei, F5 kopieren, F6
 r umbenennen, F7 Ordner, F8 löschen, Strg+W macht den Ordner zum Arbeitsordner.
 
 ## Wenn kein Fenster kommt
+
+Jede Exception landet mit Stacktrace in `start.log` (auch Fehler beim Zeichnen) – bei Problemen diese Datei mitschicken.
 
 Der Editor schreibt beim Start `start.log` neben die Jar:
 Java-Version, Betriebssystem, Schrift, Arbeitsordner und ob das Fenster sichtbar ist. Fehler beim Start

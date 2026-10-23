@@ -1496,8 +1496,13 @@ final class Werkzeug {
     }
 
     // ================================================================ Spring Boot
-    private Process app;
+    /** Terminal-Tab, in dem die Anwendung laeuft */
+    private Doc springTab;
     private boolean appDebug;
+
+    private boolean springLaeuft() {
+        return springTab != null && ed.tabs.contains(springTab) && springTab.term != null && springTab.term.laeuft;
+    }
 
     /** Profile aus application-*.yml/.properties und spring.profiles in config.txt */
     private List<String> profile() {
@@ -1585,7 +1590,7 @@ final class Werkzeug {
             ed.fehler("kein java.workspace in config.txt");
             return;
         }
-        if (app != null && app.isAlive()) {
+        if (springLaeuft()) {
             springStarten(profil, debug, null);
             return;
         }
@@ -1605,12 +1610,13 @@ final class Werkzeug {
             ed.fehler("kein java.workspace in config.txt");
             return;
         }
-        if (app != null && app.isAlive()) {
+        if (springLaeuft()) {
             if (debug && appDebug) {
                 javaVerbinden();
                 return;
             }
-            ed.fehler("die Anwendung laeuft schon (Leertaste a x stoppt sie)");
+            ed.aktiv = ed.tabs.indexOf(springTab);
+            ed.fehler("die Anwendung laeuft schon in " + springTab.name() + " (Leertaste a x stoppt sie)");
             return;
         }
         String b = springBefehl(profil, debug, bootApp);
@@ -1618,50 +1624,30 @@ final class Werkzeug {
             ed.fehler("weder pom.xml noch build.gradle in " + ed.javaOrdner + " (oder spring.run in config.txt setzen)");
             return;
         }
-        ed.konsoleAuf();
-        ed.farbig("$ " + b + "   [Profil " + profil + (debug ? ", Debug" : "") + (bootApp != null && bootApp.klasse() != null ? ", " + bootApp.klasse() : "") + "]", E_HELL);
-        List<String> befehl = Lsp.WINDOWS ? List.of("cmd.exe", "/c", b) : List.of("/bin/sh", "-c", b);
-        ProcessBuilder pb = new ProcessBuilder(befehl).directory(ed.javaOrdner.toFile()).redirectErrorStream(true);
-        Lsp.umgebung(pb);
-        try {
-            Process p = pb.start();
-            app = p;
-            appDebug = debug;
-            p.getOutputStream().close();
-            hintergrund(() -> {
-                try (var r = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                    String z;
-                    while ((z = r.readLine()) != null) {
-                        String t = z.replaceAll("\u001B\\[[0-9;?]*[A-Za-z]", "");
-                        SwingUtilities.invokeLater(() -> {
-                            ed.farbig(t, t.contains(" ERROR ") || t.startsWith("Caused by") ? Editor.E_FEHLER : E_TEXT);
-                            ed.neuMalen.run();
-                        });
-                    }
-                    int rc = p.waitFor();
-                    SwingUtilities.invokeLater(() -> {
-                        ed.farbig("[Anwendung beendet: " + rc + "]", rc == 0 ? E_HELL : Editor.E_FEHLER);
-                        ed.neuMalen.run();
-                    });
-                } catch (IOException | InterruptedException e) {
-                    // gestoppt
-                }
-            });
-            ed.meldung = "Spring Boot startet mit Profil " + profil;
-            if (debug) javaVerbinden();
-        } catch (IOException e) {
-            ed.fehler("nicht gestartet: " + e.getMessage());
+        // eigener Terminal-Tab: der Befehl steht sichtbar darin, Strg+C oder Leertaste a x stoppt
+        if (springTab != null && ed.tabs.contains(springTab) && springTab.term != null) {
+            ed.aktiv = ed.tabs.indexOf(springTab);
+        } else {
+            springTab = ed.terminalOeffnen(ed.javaOrdner, "spring");
         }
+        springTab.term.titel = "spring " + profil + (debug ? " debug" : "");
+        springTab.term.eingabe.setLength(0);
+        springTab.term.eingabe.append(b);
+        springTab.term.ausfuehren();
+        ed.modus = "normal";
+        appDebug = debug;
+        ed.meldung = "Spring Boot startet mit Profil " + profil + (bootApp != null && bootApp.klasse() != null ? " (" + bootApp.klasse() + ")" : "")
+                + " - Ausgabe im Tab " + springTab.name();
+        if (debug) javaVerbinden();
     }
 
     private void springStoppen() {
-        if (app == null || !app.isAlive()) {
+        if (!springLaeuft()) {
             ed.meldung = "keine Anwendung laeuft";
             return;
         }
         if (dbg.aktiv() && dbg.backend instanceof JavaDebug) ed.befehl("debugStop", "");
-        app.descendants().forEach(ProcessHandle::destroy);
-        app.destroy();
+        springTab.term.abbrechen();
         ed.meldung = "Anwendung gestoppt";
     }
 

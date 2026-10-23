@@ -506,14 +506,40 @@ final class Editor {
                 fehler("unbekannter Befehl: " + name);
             }
         } catch (RuntimeException e) {
-            fehler(name + ": " + e);
-            e.printStackTrace();
+            fehler(name + ": " + e + "  (Details in start.log)");
+            protokoll("Befehl " + name + " " + arg, e);
         } finally {
             tiefe--;
         }
     }
 
-    private void nachBefehl() {
+    /** neuen Terminal-Tab in ordner oeffnen (titel null: "terminal N") */
+    Doc terminalOeffnen(Path ordner, String titel) {
+        Doc t = new Doc();
+        int nr = 1;
+        for (Doc x : tabs) if (x.term != null) nr = Math.max(nr, x.term.nr + 1);
+        t.term = new Terminal(this, t, ordner, nr);
+        t.term.titel = titel;
+        Doc alt = d();
+        if (tabs.size() == 1 && alt.pfad == null && alt.term == null && !alt.geaendert && alt.t.length() == 0) tabs.set(0, t);
+        else tabs.add(t);
+        aktiv = tabs.indexOf(t);
+        t.term.starten();
+        return t;
+    }
+
+        /** letzte Exception (fuer Tests) */
+    Throwable letzterFehler;
+
+    /** Exception mit Stacktrace nach start.log */
+    void protokoll(String was, Throwable e) {
+        letzterFehler = e;
+        java.io.StringWriter w = new java.io.StringWriter();
+        e.printStackTrace(new java.io.PrintWriter(w));
+        Main.log(was + ": " + w);
+    }
+
+        private void nachBefehl() {
         vorGruppe = jetztGruppe;
         jetztGruppe = null;
         Doc d = d();
@@ -753,18 +779,10 @@ final class Editor {
         // ------------------------------------------------ Terminal
         reg("console", a -> konsoleAuf());
         reg("terminal", a -> {
-            Doc t = new Doc();
-            int nr = 1;
-            for (Doc x : tabs) if (x.term != null) nr = Math.max(nr, x.term.nr + 1);
-            Path p = d().pfad != null ? bereichVon(d().pfad) : null;
+            Path p = d().pfad != null ? bereichVon(d().pfad) : d().term != null ? d().term.ordner() : null;
             if (p == null && d().pfad != null) p = d().pfad.getParent();
             if (p == null) p = arbeitsordner != null ? arbeitsordner : javaOrdner != null ? javaOrdner : Paths.get(System.getProperty("user.home"));
-            t.term = new Terminal(this, t, p, nr);
-            Doc alt = d();
-            if (tabs.size() == 1 && alt.pfad == null && alt.term == null && !alt.geaendert && alt.t.length() == 0) tabs.set(0, t);
-            else tabs.add(t);
-            aktiv = tabs.indexOf(t);
-            t.term.starten();
+            terminalOeffnen(p, null);
             modus = "terminal";
         });
         reg("terminalChar", a -> {
@@ -1003,6 +1021,8 @@ final class Editor {
 
     // ================================================================ Bewegen und Aendern
     int vspalte(Doc d, int pos) {
+        // alte Positionen (Anker, Marken) koennen hinter dem Textende liegen
+        pos = Math.max(0, Math.min(pos, d.t.length()));
         int v = 0;
         for (int k = d.anf(d.zeileVon(pos)); k < pos; k++) v = d.t.charAt(k) == '\t' ? (v / tabBreite + 1) * tabBreite : v + 1;
         return v;
@@ -1940,9 +1960,11 @@ final class Editor {
             grund(oben - 4, n * lh + 4);
             boolean genau = !suche.equals(suche.toLowerCase());
             String sucheK = !sucheZeigen ? "" : genau ? suche : suche.toLowerCase();
+            if (visuell) vim.anker = Math.max(0, Math.min(vim.anker, d.t.length()));
             int selLo = Math.min(vim.anker, d.cursor), selHi = Math.max(vim.anker, d.cursor);
             int selZ1 = d.zeileVon(selLo), selZ2 = d.zeileVon(selHi);
-            int selV1 = Math.min(vspalte(d, vim.anker), cs), selV2 = Math.max(vspalte(d, vim.anker), cs);
+            int ankerSp = visuell ? vspalte(d, vim.anker) : 0;
+            int selV1 = Math.min(ankerSp, cs), selV2 = Math.max(ankerSp, cs);
             for (int k = 0; k < n; k++) {
                 int z = d.oben + k;
                 if (z >= d.zeilen()) break;
