@@ -79,6 +79,8 @@ run.MeineApp.mavenProfiles = dev                          Maven-Profile (-P), wi
 (`.idea/workspace.xml`), sonst `maven.profiles` in `config.txt` (`!x` schaltet eines ab). Sie gelten für den Klassenpfad
 und für den Java Language Server. Fehlt beim Start z. B. Tomcat („no ServletWebServerFactory“), liegt es meist an einem
 Maven-Profil, das den Webserver nur dort einbindet. Maven-Profile sind etwas anderes als Spring-Profile.
+Vor dem Bauen steht im Terminal-Tab, welche Maven-Profile gelten und woher sie kommen; steht dort „keine“, obwohl in
+IntelliJ eines angehakt ist, hilft `maven.profiles = dev` in `config.txt`.
 
 **Start ohne Bauen**: Den Klassenpfad holt Maven nur beim ersten Start und nach einer Änderung an einer `pom.xml` oder
 den Profilen. Danach startet `java` sofort; die Klassen in `target/classes` hält der Java Language Server beim

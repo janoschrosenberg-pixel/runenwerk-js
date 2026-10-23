@@ -1714,7 +1714,8 @@ final class Werkzeug {
         if (Files.exists(ed.javaOrdner.resolve("pom.xml")) && ed.kf.get("spring.start", "java").equals("java") && ed.kf.get(debug ? "spring.debug" : "spring.run", null) == null
                 && bootApp != null && bootApp.klasse() != null) {
             Map<String, String> env = Map.of();
-            javaStart(new Lauf("auto", null, bootApp.modul(), bootApp.klasse(), "", "-Dspring.profiles.active=" + profil, ed.javaOrdner, env, true, null), debug);
+            String vm = ("-Dspring.profiles.active=" + profil + " " + ed.kf.get("spring.vmArgs", "")).strip();
+            javaStart(new Lauf("auto", null, bootApp.modul(), bootApp.klasse(), ed.kf.get("spring.args", ""), vm, ed.javaOrdner, env, true, null), debug);
             return;
         }
         String b = springBefehl(profil, debug, bootApp);
@@ -1761,21 +1762,42 @@ final class Werkzeug {
     /** Maven-Profile als "a,b,!c" (leer: keine) */
     String mavenProfilListe(String eigen) {
         String p = eigen != null ? eigen : ed.kf.get("maven.profiles", null);
+        profilQuelle = eigen != null ? "run-Konfiguration" : p != null ? "maven.profiles in config.txt" : null;
         if (p == null && ed.javaOrdner != null) {
+            Path ws = ed.javaOrdner.resolve(".idea").resolve("workspace.xml");
             try {
-                String w = Files.readString(ed.javaOrdner.resolve(".idea").resolve("workspace.xml"), StandardCharsets.UTF_8);
-                List<String> l = new ArrayList<>();
-                Matcher an = Pattern.compile("name=\"explicitlyEnabledProfiles\"\\s+value=\"([^\"]*)\"").matcher(w);
-                if (an.find()) for (String x : an.group(1).split(",")) if (!x.isBlank()) l.add(x.strip());
-                Matcher ab = Pattern.compile("name=\"explicitlyDisabledProfiles\"\\s+value=\"([^\"]*)\"").matcher(w);
-                if (ab.find()) for (String x : ab.group(1).split(",")) if (!x.isBlank()) l.add("!" + x.strip());
+                String w = Files.readString(ws, StandardCharsets.UTF_8);
+                List<String> l = new ArrayList<>(ideaProfile(w, "explicitlyEnabledProfiles"));
+                for (String x : ideaProfile(w, "explicitlyDisabledProfiles")) l.add("!" + x);
                 p = String.join(",", l);
+                profilQuelle = "IntelliJ (" + ws + ")";
             } catch (IOException | RuntimeException e) {
-                // kein IntelliJ-Projekt
+                profilQuelle = "keine: " + ws + " nicht gefunden";
             }
         }
         if (p == null) return "";
         return p.replaceAll("[\\s;]+", ",").replaceAll(",+", ",").replaceAll("^,|,$", "");
+    }
+
+    /** woher die Maven-Profile des letzten Aufrufs von mavenProfilListe kamen (fuer die Anzeige) */
+    private String profilQuelle;
+
+    /**
+     * Profile aus IntelliJs workspace.xml (Komponente MavenProjectsManager). Je nach Version als Attribut
+     * (value="a,b") oder als Menge mit einzelnen Eintraegen (&lt;set&gt;&lt;option value="a"/&gt;...&lt;/set&gt;).
+     */
+    static List<String> ideaProfile(String xml, String option) {
+        List<String> r = new ArrayList<>();
+        Matcher m = Pattern.compile("<option\\s+name=\"" + option + "\"(?:\\s+value=\"([^\"]*)\"\\s*/>|\\s*>(.*?)</option>)", Pattern.DOTALL).matcher(xml);
+        while (m.find()) {
+            if (m.group(1) != null) {
+                for (String x : m.group(1).split(",")) if (!x.isBlank() && !r.contains(x.strip())) r.add(x.strip());
+            } else {
+                Matcher v = Pattern.compile("value=\"([^\"]*)\"").matcher(m.group(2));
+                while (v.find()) if (!v.group(1).isBlank() && !r.contains(v.group(1).strip())) r.add(v.group(1).strip());
+            }
+        }
+        return r;
     }
 
     /**
@@ -1969,6 +1991,8 @@ final class Werkzeug {
             }
             starten.run();
         };
+        String liste = mavenProfilListe(lauf.mavenProfile());
+        t.hinweis("Maven-Profile: " + (liste.isEmpty() ? "keine" : liste) + "   (Quelle: " + profilQuelle + ")\n");
         t.eingabe.setLength(0);
         t.eingabe.append(bauenUndCp);
         t.ausfuehren();

@@ -160,6 +160,11 @@ final class Terminal {
         danach = null;
     }
 
+    /** Hinweis des Editors in die Ausgabe (z. B. welche Maven-Profile gelten) */
+    void hinweis(String t) {
+        schreiben(t);
+    }
+
     /** Text ans Ende des Tabs (im Swing-Faden); folgt der Cursor dem Ende, bleibt er dort */
     private void schreiben(String t) {
         SwingUtilities.invokeLater(() -> {
