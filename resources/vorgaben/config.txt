@@ -58,6 +58,13 @@ db.autocommit = off
 # run.NAME.workdir   = C:/projekte/backend                   Working directory (leer: java.workspace)
 # run.NAME.env       = VAR=wert; VAR1=wert1                  Environment variables
 # run.NAME.provided  = on                                    Add dependencies with "provided" scope to classpath
+# run.NAME.mavenProfiles = dev                               Maven-Profile (-P), wie im Maven-Fenster von IntelliJ angehakt
+#
+# Maven-Profile fuer alle Starts; leer = die in IntelliJ angehakten (.idea/workspace.xml), "!x" schaltet eines ab
+# maven.profiles = dev
+# Bauen vor dem Start: auto = nur beim ersten Mal und wenn sich eine pom.xml oder die Profile aendern (sonst kommen
+# die Klassen vom Language Server), always = jedes Mal; Leertaste a b baut einmalig neu
+java.run.build = auto
 
 # ---------------------------------------------------------------- Spring Boot automatisch (ohne run.NAME.*): Leertaste a a / a p / a d / a x
 # Profil fuer Leertaste a a und den Debugger; weitere Profile fuer die Auswahl (dazu kommen application-*.yml)

@@ -72,9 +72,21 @@ run.MeineApp.vmArgs    = -Xmx1g                           VM options
 run.MeineApp.workdir   = C:/projekte/backend              Working directory
 run.MeineApp.env       = VAR=wert; VAR1=wert1             Environment variables
 run.MeineApp.provided  = on                               Add dependencies with "provided" scope to classpath
+run.MeineApp.mavenProfiles = dev                          Maven-Profile (-P), wie im Maven-Fenster angehakt
 ```
 
-`Leertaste a a` startet, `Leertaste a d` startet im Debug-Modus und hängt den Debugger an, `Leertaste a x` stoppt (bei
+**Maven-Profile**: Ohne Angabe nimmt der Editor die Profile, die im Maven-Fenster von IntelliJ angehakt sind
+(`.idea/workspace.xml`), sonst `maven.profiles` in `config.txt` (`!x` schaltet eines ab). Sie gelten für den Klassenpfad
+und für den Java Language Server. Fehlt beim Start z. B. Tomcat („no ServletWebServerFactory“), liegt es meist an einem
+Maven-Profil, das den Webserver nur dort einbindet. Maven-Profile sind etwas anderes als Spring-Profile.
+
+**Start ohne Bauen**: Den Klassenpfad holt Maven nur beim ersten Start und nach einer Änderung an einer `pom.xml` oder
+den Profilen. Danach startet `java` sofort; die Klassen in `target/classes` hält der Java Language Server beim
+Speichern aktuell, wie in IntelliJ. `Leertaste a b` baut einmalig neu, `java.run.build = always` jedes Mal.
+
+**Stoppen**: `Leertaste a x` (oder `Strg+C` im Terminal-Tab). Läuft die Anwendung nach 5 s noch, wird sie hart beendet.
+
+`Leertaste a a` startet, `Leertaste a d` startet im Debug-Modus und hängt den Debugger an, `Leertaste a b` baut vorher neu, `Leertaste a x` stoppt (bei
 mehreren Konfigurationen erst eine Auswahl, die zuletzt benutzte oben). Im Terminal-Tab sieht man beide Schritte: Maven
 kompiliert das Modul samt Nachbarmodulen (`-pl modul -am`) und schreibt den Klassenpfad, wobei Nachbarmodule wie in
 IntelliJ als `target/classes` eingehen (nichts wird nach `~/.m2` installiert); dann startet `java` die Main-Klasse.

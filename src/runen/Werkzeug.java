@@ -653,7 +653,10 @@ final class Werkzeug {
             if (profil != null) s.put("profile", profil);
             format.put("settings", s);
         }
-        return Json.obj("java", Json.obj("format", format, "configuration", Json.obj("updateBuildConfiguration", "automatic"),
+        Map<String, Object> konf = Json.obj("updateBuildConfiguration", "automatic");
+        Path mvnSettings = jdtlsMavenEinstellungen();
+        if (mvnSettings != null) konf.put("maven", Json.obj("userSettings", mvnSettings.toString()));
+        return Json.obj("java", Json.obj("format", format, "configuration", konf,
                 "import", Json.obj("maven", Json.obj("enabled", true), "gradle", Json.obj("enabled", true)), "autobuild", Json.obj("enabled", true)));
     }
 
@@ -665,6 +668,10 @@ final class Werkzeug {
     boolean nurEingebaut;
 
     void javaLspVorbereiten(Consumer<List<String>> fertig) {
+        if (ed.kf.get("java.lsp", "jdtls").equals("off")) {
+            ed.javaLsp.status = "aus";
+            return;
+        }
         String eigen = nurEingebaut ? null : ed.kf.get("java.lsp.home", null);
         String javaEinst = ed.kf.get("java.lsp.java", null);
         hintergrund(() -> {
@@ -1656,8 +1663,9 @@ final class Werkzeug {
             String start = " spring-boot:run -Dspring-boot.run.profiles=" + profil
                     + (app != null && app.klasse() != null ? " -Dspring-boot.run.main-class=" + app.klasse() + " -Dstart-class=" + app.klasse() : "")
                     + (debug ? " \"-Dspring-boot.run.jvmArguments=" + agent + "\"" : "");
-            if (rel.isEmpty()) return mvn + start;
-            return mvn + " -q install -DskipTests -pl " + rel + " -am && " + mvn + " -f " + rel + "/pom.xml" + start;
+            String mp = mavenProfile(null);
+            if (rel.isEmpty()) return mvn + mp + start;
+            return mvn + mp + " -q install -DskipTests -pl " + rel + " -am && " + mvn + mp + " -f " + rel + "/pom.xml" + start;
         }
         if (Files.exists(j.resolve("build.gradle")) || Files.exists(j.resolve("build.gradle.kts")) || Files.exists(j.resolve("settings.gradle"))
                 || Files.exists(j.resolve("settings.gradle.kts"))) {
@@ -1706,7 +1714,7 @@ final class Werkzeug {
         if (Files.exists(ed.javaOrdner.resolve("pom.xml")) && ed.kf.get("spring.start", "java").equals("java") && ed.kf.get(debug ? "spring.debug" : "spring.run", null) == null
                 && bootApp != null && bootApp.klasse() != null) {
             Map<String, String> env = Map.of();
-            javaStart(new Lauf("auto", null, bootApp.modul(), bootApp.klasse(), "", "-Dspring.profiles.active=" + profil, ed.javaOrdner, env, true), debug);
+            javaStart(new Lauf("auto", null, bootApp.modul(), bootApp.klasse(), "", "-Dspring.profiles.active=" + profil, ed.javaOrdner, env, true, null), debug);
             return;
         }
         String b = springBefehl(profil, debug, bootApp);
@@ -1737,9 +1745,71 @@ final class Werkzeug {
      * variables, "Add dependencies with provided scope to classpath".
      */
     record Lauf(String name, String java, Path modul, String klasse, String args, String vmArgs, Path workdir, Map<String, String> env,
-            boolean provided) {}
+            boolean provided, String mavenProfile) {}
 
-    private static final List<String> LAUF_FELDER = List.of("java", "module", "mainClass", "args", "vmArgs", "workdir", "env", "provided");
+    private static final List<String> LAUF_FELDER = List.of("java", "module", "mainClass", "args", "vmArgs", "workdir", "env", "provided", "mavenProfiles");
+
+    /**
+     * Maven-Profile fuer den Build (-P): run.NAME.mavenProfiles, sonst maven.profiles, sonst die im Maven-Fenster
+     * von IntelliJ angehakten (.idea/workspace.xml). Leer: keine. "!x" schaltet ein Profil ab.
+     */
+    String mavenProfile(String eigen) {
+        String p = mavenProfilListe(eigen);
+        return p.isEmpty() ? "" : " \"-P" + p + "\"";
+    }
+
+    /** Maven-Profile als "a,b,!c" (leer: keine) */
+    String mavenProfilListe(String eigen) {
+        String p = eigen != null ? eigen : ed.kf.get("maven.profiles", null);
+        if (p == null && ed.javaOrdner != null) {
+            try {
+                String w = Files.readString(ed.javaOrdner.resolve(".idea").resolve("workspace.xml"), StandardCharsets.UTF_8);
+                List<String> l = new ArrayList<>();
+                Matcher an = Pattern.compile("name=\"explicitlyEnabledProfiles\"\\s+value=\"([^\"]*)\"").matcher(w);
+                if (an.find()) for (String x : an.group(1).split(",")) if (!x.isBlank()) l.add(x.strip());
+                Matcher ab = Pattern.compile("name=\"explicitlyDisabledProfiles\"\\s+value=\"([^\"]*)\"").matcher(w);
+                if (ab.find()) for (String x : ab.group(1).split(",")) if (!x.isBlank()) l.add("!" + x.strip());
+                p = String.join(",", l);
+            } catch (IOException | RuntimeException e) {
+                // kein IntelliJ-Projekt
+            }
+        }
+        if (p == null) return "";
+        return p.replaceAll("[\\s;]+", ",").replaceAll(",+", ",").replaceAll("^,|,$", "");
+    }
+
+    /**
+     * Maven-Einstellungen fuer jdtls: die eigene ~/.m2/settings.xml plus die aktiven Profile, damit jdtls
+     * target/classes mit denselben Abhaengigkeiten kompiliert wie der Start (der nicht mehr selbst baut).
+     * null: keine Profile, jdtls nimmt die normale settings.xml.
+     */
+    private Path jdtlsMavenEinstellungen() {
+        List<String> an = new ArrayList<>();
+        for (String x : mavenProfilListe(null).split(",")) if (!x.isBlank() && !x.startsWith("!")) an.add(x.strip());
+        if (an.isEmpty()) return null;
+        try {
+            Path eigen = Path.of(System.getProperty("user.home"), ".m2", "settings.xml");
+            String t = Files.isRegularFile(eigen) ? Files.readString(eigen, StandardCharsets.UTF_8) : "<settings>\n</settings>\n";
+            Matcher alt = Pattern.compile("(?s)<activeProfiles>(.*?)</activeProfiles>").matcher(t);
+            if (alt.find()) {
+                Matcher m = Pattern.compile("<activeProfile>\\s*([^<\\s]+)\\s*</activeProfile>").matcher(alt.group(1));
+                while (m.find()) if (!an.contains(m.group(1))) an.add(m.group(1));
+                t = t.substring(0, alt.start()) + t.substring(alt.end());
+            }
+            StringBuilder b = new StringBuilder("  <activeProfiles>\n");
+            for (String x : an) b.append("    <activeProfile>").append(x).append("</activeProfile>\n");
+            b.append("  </activeProfiles>\n");
+            int ende = t.lastIndexOf("</settings>");
+            if (ende < 0) return null;
+            t = t.substring(0, ende) + b + t.substring(ende);
+            Path z = ed.konfig.resolve("jdtls-maven-settings.xml");
+            if (!Files.isRegularFile(z) || !Files.readString(z, StandardCharsets.UTF_8).equals(t)) Files.writeString(z, t, StandardCharsets.UTF_8);
+            return z;
+        } catch (IOException | RuntimeException e) {
+            ed.fehler("Maven-Profile fuer jdtls: " + e.getMessage());
+            return null;
+        }
+    }
     private String letzterLauf;
 
     /** alle run.NAME.feld-Eintraege aus config.txt, in der Reihenfolge der Datei */
@@ -1772,7 +1842,8 @@ final class Werkzeug {
             String wd = f.get("workdir");
             String pr = f.getOrDefault("provided", "on").toLowerCase();
             r.add(new Lauf(e.getKey(), f.get("java"), modul, f.get("mainClass"), f.getOrDefault("args", ""), f.getOrDefault("vmArgs", ""),
-                    wd == null || wd.isBlank() ? basis : basis.resolve(wd).normalize(), env, !(pr.equals("off") || pr.equals("false") || pr.equals("nein"))));
+                    wd == null || wd.isBlank() ? basis : basis.resolve(wd).normalize(), env, !(pr.equals("off") || pr.equals("false") || pr.equals("nein")),
+                    f.get("mavenProfiles")));
         }
         return r;
     }
@@ -1839,17 +1910,27 @@ final class Werkzeug {
         String mvn = Files.exists(j.resolve(win ? "mvnw.cmd" : "mvnw")) ? (win ? "mvnw.cmd" : "./mvnw") : "mvn";
         Path ordner = ed.konfig.resolve("spring");
         Path cpC = ordner.resolve("cp-compile.txt"), cpR = ordner.resolve("cp-runtime.txt"), argDatei = ordner.resolve("java-args.txt");
+        Path merk = ordner.resolve("cp-schluessel.txt");
+        String profile = mavenProfile(lauf.mavenProfile());
+        String schluessel = rel + "|" + profile + "|" + lauf.provided();
+        // ohne Bauen starten, solange der gemerkte Klassenpfad passt: die Klassen in target/classes haelt
+        // der Java Language Server beim Speichern aktuell (wie IntelliJ)
+        boolean bauen = neuBauen || ed.kf.get("java.run.build", "auto").equals("always") || !klassenpfadGueltig(lauf, merk, schluessel, cpC, cpR);
+        neuBauen = false;
         try {
             Files.createDirectories(ordner);
-            Files.deleteIfExists(cpC);
-            Files.deleteIfExists(cpR);
+            if (bauen) {
+                Files.deleteIfExists(cpC);
+                Files.deleteIfExists(cpR);
+                Files.deleteIfExists(merk);
+            }
         } catch (IOException e) {
             ed.fehler("Ordner " + ordner + ": " + e.getMessage());
             return;
         }
         // Reactor-Build wie IntelliJ: andere Module des Projekts kommen als target/classes in den Klassenpfad
         // (kein install); dependency:build-classpath schreibt fuer jedes Modul, das Zielmodul kommt zuletzt.
-        String pl = rel.isEmpty() ? "" : " -pl " + rel + " -am";
+        String pl = (rel.isEmpty() ? "" : " -pl " + rel + " -am") + profile;
         String cd = (win ? "cd /d \"" : "cd \"") + j + "\" && ";
         // compile enthaelt provided; ohne provided nur runtime (= compile + runtime ohne provided)
         String cpCompile = mvn + " -B compile dependency:build-classpath -Dmdep.includeScope=compile \"-Dmdep.outputFile=" + cpC + "\"" + pl;
@@ -1861,25 +1942,64 @@ final class Werkzeug {
         String titel = lauf.name().equals("auto") ? "spring" : lauf.name();
         t.titel = titel + (debug ? " debug" : "");
         appDebug = debug;
-        t.danach = code -> {
-            if (code != 0) {
-                ed.fehler("Bauen fehlgeschlagen (Exit-Code " + code + ") - Ausgabe im Tab " + springTab.name());
-                return;
-            }
+        Runnable starten = () -> {
             String start = javaBefehl(lauf, debug, lauf.provided() ? List.of(cpC, cpR) : List.of(cpR), argDatei);
             if (start == null) return;
             t.eingabe.setLength(0);
             t.eingabe.append(start);
             t.ausfuehren();
-            ed.meldung = (debug ? "Debug: " : "Start: ") + lauf.klasse() + " - Ausgabe im Tab " + springTab.name();
+            ed.meldung = (debug ? "Debug: " : "Start: ") + lauf.klasse() + " - Ausgabe im Tab " + springTab.name() + (bauen ? "" : "  (ohne Bauen; Leertaste a b baut neu)");
             if (debug) javaVerbinden();
             ed.neuMalen.run();
+        };
+        ed.modus = "normal";
+        if (!bauen) {
+            starten.run();
+            return;
+        }
+        t.danach = code -> {
+            if (code != 0) {
+                ed.fehler("Bauen fehlgeschlagen (Exit-Code " + code + ") - Ausgabe im Tab " + springTab.name());
+                return;
+            }
+            try {
+                Files.writeString(merk, schluessel, StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                // dann beim naechsten Mal wieder
+            }
+            starten.run();
         };
         t.eingabe.setLength(0);
         t.eingabe.append(bauenUndCp);
         t.ausfuehren();
-        ed.modus = "normal";
-        ed.meldung = "baue " + (rel.isEmpty() ? Editor.name(j) : rel) + " und hole den Klassenpfad - danach startet " + lauf.klasse() + (debug ? " (Debug)" : "");
+        ed.meldung = "baue " + (rel.isEmpty() ? Editor.name(j) : rel) + " und hole den Klassenpfad (nur beim ersten Mal oder nach Aenderung einer pom.xml) - danach startet "
+                + lauf.klasse() + (debug ? " (Debug)" : "");
+    }
+
+    /** Leertaste a b: beim naechsten Start bauen und den Klassenpfad neu holen */
+    private boolean neuBauen;
+
+    /** gemerkter Klassenpfad passt: gleiches Modul/Profile/provided, Klassen da, keine pom.xml neuer */
+    private boolean klassenpfadGueltig(Lauf lauf, Path merk, String schluessel, Path cpC, Path cpR) {
+        try {
+            if (!Files.isRegularFile(merk) || !Files.readString(merk, StandardCharsets.UTF_8).equals(schluessel)) return false;
+            if (!Files.isRegularFile(cpR) || (lauf.provided() && !Files.isRegularFile(cpC))) return false;
+            if (!Files.isDirectory(lauf.modul().resolve("target").resolve("classes"))) return false;
+            long stand = Files.getLastModifiedTime(merk).toMillis();
+            try (Stream<Path> st = Files.walk(ed.javaOrdner, 6)) {
+                return st.noneMatch(p -> {
+                    String n = p.getFileName() == null ? "" : p.getFileName().toString();
+                    if (!n.equals("pom.xml") || p.toString().contains("node_modules")) return false;
+                    try {
+                        return Files.getLastModifiedTime(p).toMillis() > stand;
+                    } catch (IOException e) {
+                        return true;
+                    }
+                });
+            }
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
     }
 
     /** java-Befehl: Arbeitsordner, Umgebungsvariablen, JRE, Argumentdatei (-cp), VM options, Main-Klasse, Program arguments */
@@ -2101,6 +2221,10 @@ final class Werkzeug {
         c.put("springDebug", a -> {
             if (a.isBlank() && !laeufe().isEmpty()) laufWaehlen(true);
             else springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), true);
+        });
+        c.put("springBuild", a -> {
+            neuBauen = true;
+            ed.befehl("springRun", "");
         });
         c.put("springProfile", a -> auswahl("Spring Boot starten mit Profil", profile(), ed.kf.get("spring.profile", "dev"), p -> springStarten(p, false)));
         c.put("springStop", a -> springStoppen());

@@ -99,7 +99,10 @@ final class Terminal {
                     }
                 }
                 // angefangene Zeile (z. B. eine Rueckfrage ohne Zeilenende) gleich zeigen
-                if (zeile.length() > 0 && in.available() == 0 && !zeile.toString().contains(marke.substring(0, 8))) {
+                // eine angefangene Zeile, die nur die Eingabeaufforderung von cmd.exe ist, wartet (sie wird weggelassen)
+                String ohne = Lsp.WINDOWS ? CMD_PROMPT.matcher(zeile).replaceFirst("") : "";
+                boolean nurPrompt = Lsp.WINDOWS && ohne.length() < zeile.length() && ohne.isBlank();
+                if (zeile.length() > 0 && in.available() == 0 && !nurPrompt && !zeile.toString().contains(marke.substring(0, 8))) {
                     fertig.append(zeile);
                     zeile.setLength(0);
                 }
@@ -119,10 +122,17 @@ final class Terminal {
         laeuft = false;
     }
 
+    /** cmd.exe setzt trotz /Q seine Eingabeaufforderung (C:\pfad>) vor Zeilen */
+    private static final java.util.regex.Pattern CMD_PROMPT = java.util.regex.Pattern.compile("^[A-Za-z]:\\\\[^<>|\r\n]*>");
+
     private void verarbeiten(String z, StringBuilder fertig) {
+        if (Lsp.WINDOWS) {
+            String ohne = CMD_PROMPT.matcher(z).replaceFirst("");
+            // nur die Eingabeaufforderung: weglassen
+            if (ohne.length() < z.length() && ohne.isBlank()) return;
+            z = ohne;
+        }
         int m = z.indexOf(marke);
-        // cmd.exe setzt trotz /Q manchmal seine Eingabeaufforderung (C:\pfad>) davor
-        if (Lsp.WINDOWS) z = z.replaceFirst("^[A-Za-z]:\\\\[^<>|\r\n]*>", "");
         if (m < 0) {
             fertig.append(z.replaceAll("\u001B\\[[0-9;?]*[A-Za-z]", "").replaceAll("\u001B\\][^\u0007]*\u0007", ""));
             return;
@@ -196,8 +206,27 @@ final class Terminal {
     /** laufenden Befehl abbrechen (Kindprozesse der Shell beenden) */
     void abbrechen() {
         if (p == null) return;
-        p.descendants().forEach(ProcessHandle::destroy);
+        List<ProcessHandle> kinder = p.descendants().toList();
+        kinder.forEach(ProcessHandle::destroy);
         schreiben("^C\n");
+        // wer nach 5 s noch laeuft (Spring faehrt herunter, haengt aber), wird hart beendet
+        Thread t = new Thread(() -> {
+            try {
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                return;
+            }
+            boolean hart = false;
+            for (ProcessHandle k : kinder) {
+                if (k.isAlive()) {
+                    k.destroyForcibly();
+                    hart = true;
+                }
+            }
+            if (hart) schreiben("[hart beendet]\n");
+        }, "terminal-stopp-" + nr);
+        t.setDaemon(true);
+        t.start();
     }
 
     void beenden() {
