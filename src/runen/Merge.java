@@ -209,16 +209,19 @@ final class Merge {
     }
 
     void befehle(Map<String, Editor.Cmd> c) {
+        /** @binding Merge: naechster Unterschied */
         c.put("mergeNext", a -> {
             k = Math.min(konflikte.size() - 1, k + 1);
             versatz = 0;
             cursorZumKonflikt();
         });
+        /** @binding Merge: voriger Unterschied */
         c.put("mergePrev", a -> {
             k = Math.max(0, k - 1);
             versatz = 0;
             cursorZumKonflikt();
         });
+        /** @binding Merge: naechster offener Konflikt */
         c.put("mergeNextOpen", a -> {
             for (int i = 1; i <= konflikte.size(); i++) {
                 int x = (k + i) % konflikte.size();
@@ -231,6 +234,13 @@ final class Merge {
             }
             ed.meldung = "alle Konflikte geloest - q speichert und merkt die Datei vor";
         });
+        /**
+         * @binding Merge: uebernimmt a, b oder beide (ab, ba) in das Ergebnis
+         * @binding-arg a = nimmt A
+         * @binding-arg b = nimmt B
+         * @binding-arg ab = nimmt beide, erst A, dann B
+         * @binding-arg ba = nimmt beide, erst B, dann A
+         */
         c.put("mergeTake", a -> {
             if (k >= konflikte.size()) return;
             konflikte.get(k).wahl = a.trim().isEmpty() ? "a" : a.trim();
@@ -238,11 +248,13 @@ final class Merge {
             int o = offen();
             ed.meldung = o == 0 ? "alle Konflikte geloest - q speichert und merkt die Datei vor" : o + " Konflikte offen";
         });
+        /** @binding Merge: hebt die Wahl fuer den Konflikt wieder auf */
         c.put("mergeRestore", a -> {
             if (k >= konflikte.size()) return;
             konflikte.get(k).wahl = null;
             anwenden();
         });
+        /** @binding Merge: rollt alle Fenster */
         c.put("mergeScroll", a -> {
             try {
                 versatz += Integer.parseInt(a.trim());
@@ -250,11 +262,13 @@ final class Merge {
                 // nichts
             }
         });
+        /** @binding Merge: Ergebnis von Hand bearbeiten */
         c.put("mergeEdit", a -> {
             // C von Hand bearbeiten; Leertaste g m kommt zurueck
             ed.modus = "normal";
             ed.meldung = "C bearbeiten - Leertaste g m zurueck in den Merge-Editor";
         });
+        /** @binding Merge: speichern und beenden */
         c.put("mergeQuit", a -> {
             int o = offen();
             if (o > 0 && !zweitesQ) {

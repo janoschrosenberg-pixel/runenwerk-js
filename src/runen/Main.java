@@ -29,7 +29,7 @@ import javax.swing.SwingUtilities;
 
 /** Startet den Editor im Vollbild; Java zeigt nur das fertige Bild, gemalt wird in {@link Screen}. */
 public final class Main {
-    private static final String[] VORGABEN = {"config.txt", "keymap.config", "mapping/beispiel.map"};
+    private static final String[] VORGABEN = {"config.txt", "keymap.config", "sondertasten.config", "mapping/beispiel.map"};
 
     private Editor ed;
     private JFrame fenster;
@@ -274,7 +274,7 @@ public final class Main {
             else if (c == KeyEvent.VK_SUBTRACT) n = "Ctrl--";
             else if (c == KeyEvent.VK_PERIOD) n = "Ctrl-.";
             else if (c == KeyEvent.VK_COMMA) n = "Ctrl-,";
-            else if (c == KeyEvent.VK_OPEN_BRACKET) n = "ESC";
+            else if (c == KeyEvent.VK_OPEN_BRACKET) n = "Ctrl-[";
         }
         if (n == null) return;
         e.consume();
@@ -298,14 +298,15 @@ public final class Main {
             @Override
             public void mousePressed(MouseEvent e) {
                 flaeche.requestFocusInWindow();
-                if (e.getButton() == MouseEvent.BUTTON1) ed.maus(px(e.getPoint()).x, px(e.getPoint()).y, true, 0);
+                if (e.getButton() == MouseEvent.BUTTON1) ed.mausTaste("MAUS-LINKS", px(e.getPoint()).x, px(e.getPoint()).y);
             }
 
             @Override
             public void mouseWheelMoved(MouseWheelEvent e) {
                 int r = e.getWheelRotation();
                 if (r == 0) r = e.getPreciseWheelRotation() > 0 ? 1 : e.getPreciseWheelRotation() < 0 ? -1 : 0;
-                if (r != 0) ed.maus(px(e.getPoint()).x, px(e.getPoint()).y, false, r);
+                // je Raste eine Taste (Belegung in sondertasten.config)
+                for (int i = 0; i < Math.abs(r); i++) ed.mausTaste(r > 0 ? "MAUS-RAD-RUNTER" : "MAUS-RAD-HOCH", px(e.getPoint()).x, px(e.getPoint()).y);
             }
         };
         flaeche.addMouseListener(m);

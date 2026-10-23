@@ -17,6 +17,8 @@ dir /s /b src\*.java > out\quellen.txt
 javac --release 17 -encoding UTF-8 -d out @out\quellen.txt || exit /b 1
 del out\quellen.txt
 xcopy /e /i /q resources out >nul
+rem Beschreibungen der Befehle aus den @binding-Javadocs (fuer den Befehl bindings)
+java tools\BindingDoku.java src out\vorgaben\befehle.txt || exit /b 1
 if not defined OHNE_JDTLS (
   for %%d in (plugins features config_win config_mac config_mac_arm config_linux config_linux_arm) do if exist vendor\jdtls\%%d xcopy /e /i /q vendor\jdtls\%%d out\jdtls\%%d >nul
   copy /y vendor\lombok-1.18.48.jar out\jdtls\lombok.jar >nul

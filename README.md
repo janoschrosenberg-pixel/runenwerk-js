@@ -200,6 +200,29 @@ In der Ergebnistabelle kopiert auch `y` auf der Kopfzeile die ganze Spalte.
 In eigenen Belegungen steht `DIGIT` für eine Ziffer 0–9, die als letztes Argument an den Befehl geht
 (`Ctrl-c DIGIT = bankCopy`).
 
+## Übersicht aller Tasten: `bindings`
+
+`:bindings` öffnet einen schreibgeschützten Tab mit allen Tastenbelegungen als Tabelle, je Mode: Taste, Befehl,
+Beschreibung. `bindings normal` zeigt nur einen Mode, `bindings git` nur Zeilen mit dem Text; `q` schließt den Tab.
+Am Ende stehen die Befehle ohne Taste (in der Befehlszeile aufrufbar).
+
+- **Tasten** kommen direkt aus `keymap.config` und `sondertasten.config`, so wie der Editor sie gelesen hat. Was du
+  gegenüber der Vorgabe geändert hast, ist mit `[eigene Belegung: …]` markiert.
+- **Sondertasten**: Was früher fest im Programm stand (Maus, `Strg+[` als ESC, ESC am Hover-Fenster), steht jetzt in
+  `sondertasten.config` (`mode immer` gilt vor jedem Mode, `mode info` solange das Hover-Fenster offen ist). Fehlt die
+  Datei neben der Jar, legt der Editor sie beim Start an.
+- **Beschreibungen** entstehen beim Bauen: `tools/BindingDoku.java` liest das Javadoc mit dem Tag `@binding`, das über
+  jeder Befehlsregistrierung steht, und `@binding-arg ARG = Text` für einzelne Argumente (z. B. `motion w`); das
+  Ergebnis landet als `vorgaben/befehle.txt` in der Jar. Mapping-Funktionen beschreibt der `//`-Kommentar über `fun`.
+
+```java
+/**
+ * @binding Bildlauf
+ * @binding-arg halfDown = halbe Seite runter
+ */
+c.put("scroll", this::rollen);
+```
+
 ## Weitere Tasten
 
 | Taste | Befehl |

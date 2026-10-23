@@ -30,7 +30,8 @@ final class Mapping {
 
     record Aufruf(String name, List<Arg> args, int zeile) {}
 
-    record Fun(String name, List<String> params, List<Aufruf> rumpf, String datei) {}
+    /** text: die Kommentarzeilen (//) direkt ueber "fun", fuer die Uebersicht (bindings) */
+    record Fun(String name, List<String> params, List<Aufruf> rumpf, String datei, String text) {}
 
     final Map<String, Fun> funs = new HashMap<>();
     final List<String> fehler = new ArrayList<>();
@@ -98,6 +99,7 @@ final class Mapping {
             while (true) {
                 ws();
                 if (i >= s.length()) break;
+                String doku = kommentarDavor(i);
                 if (!name().equals("fun")) throw new IllegalStateException("fun erwartet");
                 String n = name();
                 List<String> params = new ArrayList<>();
@@ -134,11 +136,25 @@ final class Mapping {
                     rumpf.add(new Aufruf(b, args, z));
                 }
                 i++;
-                funs.put(n, new Fun(n, params, rumpf, datei));
+                funs.put(n, new Fun(n, params, rumpf, datei, doku));
             }
         } catch (RuntimeException e) {
             fehler.add(datei + ":" + zeile + ": " + e.getMessage());
         }
+    }
+
+    /** zusammenhaengende //-Zeilen direkt vor pos */
+    private String kommentarDavor(int pos) {
+        List<String> z = new ArrayList<>();
+        int e = s.lastIndexOf('\n', pos - 1);
+        while (e > 0) {
+            int a = s.lastIndexOf('\n', e - 1);
+            String zeile = s.substring(a + 1, e).strip();
+            if (!zeile.startsWith("//")) break;
+            z.add(0, zeile.substring(2).strip());
+            e = a;
+        }
+        return String.join(" ", z);
     }
 
     private String textLesen() {

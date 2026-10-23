@@ -59,7 +59,15 @@ final class Doc {
         geaendert = false;
     }
 
+    /** schreibgeschuetzt (z. B. die Uebersicht von bindings); Aenderungen werden abgewiesen */
+    boolean nurLesen;
+    /** wurde eine Aenderung abgewiesen (der Editor meldet es) */
+    boolean abgewiesen;
+    /** Name ohne Datei (z. B. "bindings") */
+    String titel;
+
     String name() {
+        if (titel != null) return titel;
         if (term != null) return term.titel != null ? term.titel : "terminal " + term.nr;
         return pfad == null ? "[neu]" : pfad.getFileName().toString();
     }
@@ -160,12 +168,20 @@ final class Doc {
     // ---------------------------------------------------------------- Aendern
     void einfuegen(int pos, String s) {
         if (s.isEmpty()) return;
+        if (nurLesen) {
+            abgewiesen = true;
+            return;
+        }
         t.insert(pos, s);
         if (cursor >= pos) cursor += s.length();
         geaendert();
     }
 
     void loeschen(int pos, int n) {
+        if (nurLesen) {
+            abgewiesen = true;
+            return;
+        }
         if (pos < 0) {
             n += pos;
             pos = 0;
@@ -179,6 +195,10 @@ final class Doc {
     }
 
     void ersetzen(int a, int e, String s) {
+        if (nurLesen) {
+            abgewiesen = true;
+            return;
+        }
         int c = cursor;
         t.replace(a, e, s);
         if (c >= e) cursor = c + s.length() - (e - a);

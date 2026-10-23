@@ -266,6 +266,8 @@ final class Editor {
     void keymapLaden() {
         // die Vorgabe aus der Jar zuerst, keymap.config ergaenzt und ueberschreibt sie
         km.lesen(keymapPfad, Main.class.getResourceAsStream("/vorgaben/keymap.config"));
+        // Maus, Strg+[ und das Hover-Fenster: frueher fest im Programm
+        km.dazuLesen(konfig.resolve("sondertasten.config"), Main.class.getResourceAsStream("/vorgaben/sondertasten.config"));
         for (String f : km.fehler) farbig(f, E_WARN);
         mp.laden(mappingPfad);
         for (String f : mp.fehler) farbig(f, E_WARN);
@@ -391,11 +393,22 @@ final class Editor {
                 name = m == 32 ? "SPACE" : new String(Character.toChars(m));
             }
         }
+        // sondertasten.config: mode immer gilt vor jedem Mode
+        String immer = km.befehl("immer", name);
+        if (immer != null) {
+            ausfuehren(immer, code);
+            nachBefehl();
+            neuMalen.run();
+            return;
+        }
         meldung = null;
         meldungFarbe = E_WARN;
         if (info != null) {
+            // jede Taste schliesst das Hover-Fenster; in mode info belegte tun sonst nichts
             info = null;
-            if (name.equals("ESC")) {
+            String b = km.befehl("info", name);
+            if (b != null) {
+                ausfuehren(b, code);
                 neuMalen.run();
                 return;
             }
@@ -547,7 +560,18 @@ final class Editor {
         if (vim.visArt != 0 && !modus.equals("visual") && !modus.equals("char")) vim.visualEnde();
         // Tabelle gehoert zur Datei: nach einem Wechsel ohne Tabelle zurueck in den Normal-Mode
         if (modus.equals("result") && !wz.tabelleOffen()) modus = "normal";
-        if (modus.equals("normal")) {
+        // schreibgeschuetzte Puffer (bindings): eigener Mode nurlesen (wie normal, q schliesst)
+        if (d.nurLesen) {
+            if (modus.equals("insert") || modus.equals("replace")) meldung = d.name() + " ist schreibgeschuetzt";
+            if (modus.equals("normal") || modus.equals("insert") || modus.equals("replace")) modus = km.modeDa("nurlesen") ? "nurlesen" : "normal";
+            if (d.abgewiesen) {
+                d.abgewiesen = false;
+                meldung = d.name() + " ist schreibgeschuetzt";
+            }
+        } else if (modus.equals("nurlesen")) {
+            modus = "normal";
+        }
+        if (modus.equals("normal") || modus.equals("nurlesen")) {
             // im Normal-Mode steht der Cursor auf einem Zeichen, nicht hinter der Zeile
             int z = d.zeileVon(d.cursor);
             if (d.cursor == d.ende(z) && d.cursor > d.anf(z)) d.cursor--;
@@ -568,6 +592,12 @@ final class Editor {
     }
 
     private void befehle() {
+        /**
+         * @binding Wechselt in den angegebenen Mode (z. B. insert, normal)
+         * @binding-arg insert = Insert-Mode
+         * @binding-arg normal = Normal-Mode
+         * @binding-arg replace = Replace-Mode (ueberschreiben)
+         */
         reg("switchState", a -> {
             if (a.trim().equals("insert") && !modus.equals("insert")) {
                 switchState(a);
@@ -577,55 +607,69 @@ final class Editor {
             }
         });
         // ------------------------------------------------ Bewegen
+        /** @binding Cursor ein Zeichen nach links */
         reg("cursorLeft", a -> {
             Doc d = d();
             if (d.cursor > d.anf(d.zeileVon(d.cursor))) d.cursor--;
             d.spalteMerk = -1;
         });
+        /** @binding Cursor ein Zeichen nach rechts */
         reg("cursorRight", a -> {
             Doc d = d();
             if (d.cursor < d.ende(d.zeileVon(d.cursor))) d.cursor++;
             d.spalteMerk = -1;
         });
+        /** @binding Cursor eine Zeile nach oben */
         reg("cursorUp", a -> zeileWechseln(-1));
+        /** @binding Cursor eine Zeile nach unten */
         reg("cursorDown", a -> zeileWechseln(1));
+        /** @binding Cursor an den Zeilenanfang */
         reg("lineStart", a -> {
             Doc d = d();
             d.cursor = d.anf(d.zeileVon(d.cursor));
             d.spalteMerk = -1;
         });
+        /** @binding Cursor an das Zeilenende */
         reg("lineEnd", a -> {
             Doc d = d();
             d.cursor = d.ende(d.zeileVon(d.cursor));
             d.spalteMerk = -1;
         });
+        /** @binding Cursor auf das erste Zeichen der Zeile, das kein Leerraum ist */
         reg("firstNonBlank", a -> firstNonBlank());
+        /** @binding Cursor zum naechsten Wort */
         reg("wordForward", a -> {
             Doc d = d();
             d.cursor = wortVor(d, d.cursor);
             d.spalteMerk = -1;
         });
+        /** @binding Cursor zum vorigen Wort */
         reg("wordBack", a -> {
             Doc d = d();
             d.cursor = wortZurueck(d, d.cursor);
             d.spalteMerk = -1;
         });
+        /** @binding Cursor an den Anfang der Datei */
         reg("gotoTop", a -> {
             springMerken();
             d().cursor = 0;
         });
+        /** @binding Cursor an das Ende der Datei */
         reg("gotoBottom", a -> {
             springMerken();
             Doc d = d();
             d.cursor = d.anf(d.zeilen() - 1);
         });
+        /** @binding Springt zur Zeile N */
         reg("gotoLine", a -> gotoLine(zahl(a, 1)));
+        /** @binding Eine Bildschirmseite nach unten */
         reg("pageDown", a -> {
             Doc d = d();
             int n = textZeilen();
             d.oben = Math.min(d.zeilen() - 1, d.oben + n);
             zeileWechseln(n);
         });
+        /** @binding Eine Bildschirmseite nach oben */
         reg("pageUp", a -> {
             Doc d = d();
             int n = textZeilen();
@@ -633,13 +677,18 @@ final class Editor {
             zeileWechseln(-n);
         });
         // ------------------------------------------------ Aendern
+        /** @binding Fuegt den angegebenen Text am Cursor ein */
         reg("insertText", a -> {
             merken(null);
             d().einfuegen(d().cursor, a);
         });
+        /** @binding Fuegt das getippte Zeichen ein */
         reg("insertChar", this::insertChar);
+        /** @binding Neue Zeile mit der Einrueckung der aktuellen */
         reg("newline", a -> newline());
+        /** @binding Loescht das Zeichen vor dem Cursor */
         reg("backspace", a -> backspace());
+        /** @binding Loescht das Zeichen unter dem Cursor */
         reg("deleteChar", a -> {
             Doc d = d();
             boolean ins = modus.equals("insert");
@@ -647,6 +696,7 @@ final class Editor {
             merken(ins ? "tippen" : null);
             d.loeschen(d.cursor, Character.isHighSurrogate(d.at(d.cursor)) ? 2 : 1);
         });
+        /** @binding Fuegt die Systemzwischenablage am Cursor ein */
         reg("pasteClipboard", a -> {
             String s = ausZwischenablage();
             if (s == null || s.isEmpty()) return;
@@ -654,8 +704,11 @@ final class Editor {
             d().einfuegen(d().cursor, s.replace("\r\n", "\n"));
         });
         // Speicherbaenke: Strg+C/Strg+V mit Ziffer, 0 ist die Systemzwischenablage
+        /** @binding Kopiert in Speicherbank 0-9 (0 = Systemzwischenablage): Auswahl, Zeile, Eingabefeld oder Zelle */
         reg("bankCopy", a -> bankKopieren(bankNr(a)));
+        /** @binding Fuegt Speicherbank 0-9 ein (0 = Systemzwischenablage) */
         reg("bankPaste", a -> bankEinfuegen(bankNr(a)));
+        /** @binding Neue Zeile unter der aktuellen, Insert-Mode */
         reg("openLineBelow", a -> {
             Doc d = d();
             merken(null);
@@ -665,6 +718,7 @@ final class Editor {
             d.einfuegen(d.cursor, "\n" + e);
             state("insert");
         });
+        /** @binding Neue Zeile ueber der aktuellen, Insert-Mode */
         reg("openLineAbove", a -> {
             Doc d = d();
             merken(null);
@@ -675,54 +729,68 @@ final class Editor {
             d.cursor = an + e.length();
             state("insert");
         });
+        /** @binding Rueckt ein (Tabulator bzw. Leerzeichen) */
         reg("indent", a -> {
             Doc d = d();
             merken("tippen");
             int v = vspalte(d, d.cursor);
             d.einfuegen(d.cursor, " ".repeat(einzug - v % einzug));
         });
+        /** @binding Insert-Mode hinter dem Cursor */
         reg("appendAfter", a -> {
             Doc d = d();
             if (d.cursor < d.ende(d.zeileVon(d.cursor))) d.cursor++;
             state("insert");
             vim.insertMitZaehler();
         });
+        /** @binding Insert-Mode am Zeilenende */
         reg("appendLineEnd", a -> {
             Doc d = d();
             d.cursor = d.ende(d.zeileVon(d.cursor));
             state("insert");
             vim.insertMitZaehler();
         });
+        /** @binding Insert-Mode vor dem ersten Zeichen der Zeile */
         reg("insertLineStart", a -> {
             firstNonBlank();
             state("insert");
             vim.insertMitZaehler();
         });
+        /** @binding Rueckgaengig */
         reg("undo", a -> {
             vim.nichtMerken = true;
             if (!d().undo()) meldung = "nichts mehr rueckgaengig zu machen";
             else d().cursor = Math.min(d().cursor, d().t.length());
         });
+        /** @binding Wiederherstellen */
         reg("redo", a -> {
             vim.nichtMerken = true;
             if (!d().redo()) meldung = "nichts zu wiederholen";
         });
         // ------------------------------------------------ Suchen im Text
+        /** @binding Suche im Text vorwaerts (fragt nach dem Suchtext) */
         reg("find", a -> popupOpen("Suchen im Text (/):", "findText", ""));
+        /** @binding Suche im Text rueckwaerts (fragt nach dem Suchtext) */
         reg("findBack", a -> popupOpen("Rueckwaerts suchen (?):", "findTextBack", ""));
+        /** @binding Sucht den angegebenen Text vorwaerts */
         reg("findText", a -> {
             if (!a.isEmpty()) suche = a;
             vim.sucheRueck = false;
             findNext(true);
         });
+        /** @binding Sucht den angegebenen Text rueckwaerts */
         reg("findTextBack", a -> {
             if (!a.isEmpty()) suche = a;
             vim.sucheRueck = true;
             findNext(true);
         });
+        /** @binding Naechster Suchtreffer */
         reg("findNext", a -> findNext(true));
+        /** @binding Voriger Suchtreffer */
         reg("findPrev", a -> findNext(false));
+        /** @binding Hebt die Suchtreffer nicht mehr hervor */
         reg("clearSearch", a -> sucheZeigen = false);
+        /** @binding Sucht das Wort unter dem Cursor vorwaerts */
         reg("findWord", a -> {
             String w = wortHier();
             if (w.isEmpty()) return;
@@ -730,6 +798,7 @@ final class Editor {
             vim.sucheRueck = false;
             findNext(true);
         });
+        /** @binding Sucht das Wort unter dem Cursor rueckwaerts */
         reg("findWordBack", a -> {
             String w = wortHier();
             if (w.isEmpty()) return;
@@ -738,36 +807,52 @@ final class Editor {
             findNext(true);
         });
         // ------------------------------------------------ Dateien und Tabs
+        /** @binding Oeffnet die angegebene Datei */
         reg("open", a -> {
             if (a.isEmpty()) popupOpen("Datei oeffnen:", "open", "");
             else oeffnen(aufloesen(a));
         });
+        /** @binding Oeffnet die angegebene Datei (wie open) */
         reg("e", cmds.get("open"));
+        /** @binding Speichert die Datei */
         reg("save", a -> save());
+        /** @binding Speichert die Datei (mit Namen: unter diesem Namen) */
         reg("w", a -> {
             if (a.isEmpty()) save();
             else speichernUnter(aufloesen(a));
         });
+        /** @binding Speichert die Datei unter einem neuen Namen */
         reg("saveAs", a -> {
             if (a.isEmpty()) popupOpen("Speichern unter:", "saveAs", d().pfad == null ? "" : relativ(d().pfad));
             else speichernUnter(aufloesen(a));
         });
+        /** @binding Schliesst den Tab (fragt bei ungespeicherten Aenderungen) */
         reg("close", a -> close(false));
+        /** @binding Schliesst den Tab */
         reg("q", a -> close(false));
+        /** @binding Schliesst den Tab ohne zu speichern */
         reg("forceClose", a -> close(true));
+        /** @binding Schliesst den Tab ohne zu speichern */
         reg("q!", a -> close(true));
+        /** @binding Speichert und schliesst den Tab */
         reg("wq", a -> {
             save();
             if (!d().geaendert) close(false);
         });
+        /** @binding Speichert und schliesst den Tab (wie wq) */
         reg("x", cmds.get("wq"));
+        /** @binding Neue leere Datei im Tab */
         reg("newFile", a -> {
             tabs.add(new Doc());
             aktiv = tabs.size() - 1;
         });
+        /** @binding Naechster Tab */
         reg("nextTab", a -> aktiv = (aktiv + 1) % tabs.size());
+        /** @binding Voriger Tab */
         reg("prevTab", a -> aktiv = (aktiv + tabs.size() - 1) % tabs.size());
+        /** @binding Wechselt zu Tab N */
         reg("tab", a -> aktiv = Math.max(0, Math.min(tabs.size() - 1, zahl(a, 1) - 1)));
+        /** @binding Listet die offenen Tabs */
         reg("tabs", a -> {
             konsoleAuf();
             for (int i = 0; i < tabs.size(); i++) {
@@ -775,12 +860,18 @@ final class Editor {
                 print((i == aktiv ? "> " : "  ") + (i + 1) + "  " + relativ(t.pfad) + (t.geaendert ? " [+]" : ""));
             }
         });
+        /** @binding Beendet den Editor (fragt bei ungespeicherten Aenderungen) */
         reg("quit", a -> quit(false));
+        /** @binding Beendet den Editor */
         reg("qa", a -> quit(false));
+        /** @binding Beendet den Editor ohne zu speichern */
         reg("quit!", a -> quit(true));
+        /** @binding Beendet den Editor ohne zu speichern */
         reg("qa!", a -> quit(true));
         // ------------------------------------------------ Terminal
+        /** @binding Oeffnet die Befehlszeile (:) */
         reg("console", a -> konsoleAuf());
+        /** @binding Oeffnet einen neuen Terminal-Tab */
         reg("terminal", a -> {
             Path p = d().pfad != null ? bereichVon(d().pfad) : d().term != null ? d().term.ordner() : null;
             if (p == null && d().pfad != null) p = d().pfad.getParent();
@@ -788,42 +879,57 @@ final class Editor {
             terminalOeffnen(p, null);
             modus = "terminal";
         });
+        /** @binding Terminal: tippt das Zeichen in die Eingabezeile */
         reg("terminalChar", a -> {
             if (d().term != null) d().term.zeichen(a);
         });
+        /** @binding Terminal: loescht das Zeichen vor dem Cursor in der Eingabezeile */
         reg("terminalBackspace", a -> {
             if (d().term != null) d().term.zurueck();
         });
+        /** @binding Terminal: fuehrt die Eingabezeile aus */
         reg("terminalRun", a -> {
             if (d().term != null) d().term.ausfuehren();
         });
+        /** @binding Terminal: Cursor in der Eingabezeile nach links */
         reg("terminalLeft", a -> {
             if (d().term != null) d().term.links();
         });
+        /** @binding Terminal: Cursor in der Eingabezeile nach rechts */
         reg("terminalRight", a -> {
             if (d().term != null) d().term.rechts();
         });
+        /** @binding Terminal: voriger Befehl aus dem Verlauf */
         reg("terminalHistoryUp", a -> {
             if (d().term != null) d().term.verlauf(-1);
         });
+        /** @binding Terminal: naechster Befehl aus dem Verlauf */
         reg("terminalHistoryDown", a -> {
             if (d().term != null) d().term.verlauf(1);
         });
+        /** @binding Terminal: bricht den laufenden Befehl ab */
         reg("terminalInterrupt", a -> {
             if (d().term != null) d().term.abbrechen();
         });
+        /** @binding Terminal: Ausgabe nach oben rollen */
         reg("terminalScrollUp", a -> d().oben = Math.max(0, d().oben - 3));
+        /** @binding Terminal: Ausgabe nach unten rollen */
         reg("terminalScrollDown", a -> d().oben = Math.min(d().zeilen() - 1, d().oben + 3));
+        /** @binding Terminal: fuegt die Systemzwischenablage in die Eingabezeile ein */
         reg("terminalPaste", a -> {
             String z = ausZwischenablage();
             if (z != null && d().term != null) d().term.zeichen(z.replaceAll("[\\r\\n]+", " ").strip());
         });
+        /** @binding Schliesst die Befehlszeile */
         reg("consoleClose", a -> {
             konsoleOffen = false;
             if (modus.equals("console")) modus = konsoleVorModus.equals("console") ? km.start : konsoleVorModus;
         });
+        /** @binding Befehlszeile: tippt das Zeichen */
         reg("consoleChar", a -> eingabe.append(a));
+        /** @binding Befehlszeile: loescht das letzte Zeichen */
         reg("consoleBackspace", a -> zurueck(eingabe));
+        /** @binding Befehlszeile: fuehrt den Befehl aus */
         reg("consoleRun", a -> {
             String z = eingabe.toString();
             eingabe.setLength(0);
@@ -832,6 +938,7 @@ final class Editor {
             verlaufPos = verlauf.size();
             ausfuehren(z, 0);
         });
+        /** @binding Befehlszeile: voriger Befehl aus dem Verlauf */
         reg("consoleUp", a -> {
             if (verlaufPos > 0) {
                 verlaufPos--;
@@ -839,19 +946,26 @@ final class Editor {
                 eingabe.append(verlauf.get(verlaufPos));
             }
         });
+        /** @binding Befehlszeile: naechster Befehl aus dem Verlauf */
         reg("consoleDown", a -> {
             eingabe.setLength(0);
             if (verlaufPos < verlauf.size() - 1) eingabe.append(verlauf.get(++verlaufPos));
             else verlaufPos = verlauf.size();
         });
+        /** @binding Leert die Ausgabe der Befehlszeile */
         reg("consoleClear", a -> {
             konsole.clear();
             konsoleFarbe.clear();
         });
+        /** @binding Schreibt den Text in die Ausgabe der Befehlszeile */
         reg("consolePrint", this::print);
+        /** @binding Schreibt den Text als Fehler in die Ausgabe der Befehlszeile */
         reg("consoleError", this::fehler);
+        /** @binding Schreibt den Text in die Ausgabe der Befehlszeile */
         reg("echo", this::print);
+        /** @binding Zeigt den Text in der Statuszeile */
         reg("message", a -> meldung = a);
+        /** @binding Listet Dateien im Arbeitsordner */
         reg("ls", a -> {
             konsoleAuf();
             Path p = a.isEmpty() ? arbeitsordner : aufloesen(a);
@@ -861,10 +975,17 @@ final class Editor {
                 fehler("ls: " + e.getMessage());
             }
         });
+        /** @binding Listet alle Befehle */
         reg("help", a -> hilfe());
+        /** @binding Listet alle Befehle */
         reg("hilfe", a -> hilfe());
+        /** @binding Setzt eine Einstellung aus config.txt fuer diese Sitzung */
         reg("set", this::einstellung);
+        /** @binding Oeffnet die Uebersicht aller Tastenbelegungen (Filter: Mode oder Text) */
+        reg("bindings", this::bindingsZeigen);
+        /** @binding Laedt keymap.config, sondertasten.config und die Mapping-Funktionen neu */
         reg("keymap", a -> keymapLaden());
+        /** @binding Laedt die Datei im Tab neu von der Platte */
         reg("reload", a -> {
             Path altTs = arbeitsordner, altJava = javaOrdner;
             konfigLesen();
@@ -878,6 +999,7 @@ final class Editor {
             else arbeitsbereicheAn();
             meldung = "config.txt neu gelesen";
         });
+        /** @binding Setzt den TypeScript-Arbeitsbereich */
         reg("workdir", a -> {
             if (a.isEmpty()) {
                 popupOpen("TypeScript-Arbeitsbereich (wird in config.txt gespeichert):", "workdir", arbeitsordner == null ? "" : arbeitsordner.toString());
@@ -892,31 +1014,66 @@ final class Editor {
             kf.setzen("ts.workspace", p.toString());
             arbeitsordnerSetzen(p);
         });
+        /** @binding Setzt den TypeScript-Arbeitsbereich (wie workdir) */
         reg("cd", cmds.get("workdir"));
+        /** @binding Indiziert den Arbeitsbereich neu */
         reg("reindex", a -> {
             index.neuEinlesen();
             meldung = "Index wird neu eingelesen";
         });
+        /** @binding Schrift groesser */
         reg("fontBigger", a -> {
             schriftGroesse = Math.min(72, schriftGroesse + 1);
             schriftAn();
         });
+        /** @binding Schrift kleiner */
         reg("fontSmaller", a -> {
             schriftGroesse = Math.max(6, schriftGroesse - 1);
             schriftAn();
         });
+        /** @binding Vollbild an/aus */
         reg("fullscreen", a -> vollbild.run());
         // ------------------------------------------------ Ausfuehren (F9, F10)
+        /** @binding Speichert alles und startet den Pruefbefehl aus config.txt (TypeScript bzw. Java) */
         reg("compile", a -> {
             alleSpeichern();
             if ("java".equals(d().lspArt()) && !javaCompileBefehl.isBlank()) starten(javaCompileBefehl, javaOrdner);
             else starten(compileBefehl);
         });
+        /** @binding Speichert alles und startet den schnellen Pruefbefehl aus config.txt */
         reg("compileFast", a -> {
             alleSpeichern();
             starten(compileFastBefehl);
         });
+        /** @binding Wirkt wie die angegebene Taste (z. B. key ESC) */
+        reg("key", a -> {
+            if (a.isBlank()) return;
+            if (keyTiefe > 8) {
+                fehler("key: Tasten verweisen im Kreis aufeinander (" + a.strip() + ")");
+                return;
+            }
+            keyTiefe++;
+            try {
+                taste(a.strip(), a.strip().length() == 1 ? a.strip().charAt(0) : 0);
+            } finally {
+                keyTiefe--;
+            }
+        });
+        /** @binding Schliesst das Hover-Fenster */
+        reg("infoClose", a -> info = null);
+        /** @binding Maus: setzt den Cursor bzw. waehlt im Dateimanager */
+        reg("mouseClick", a -> maus(mausX, mausY, true, 0));
+        /** @binding Maus: rollt um N Rasten (negativ nach oben) */
+        reg("mouseWheel", a -> {
+            try {
+                maus(mausX, mausY, false, Integer.parseInt(a.strip()));
+            } catch (NumberFormatException e) {
+                fehler("mouseWheel: Zahl erwartet, nicht " + a);
+            }
+        });
+        /** @binding Startet einen Befehl im Arbeitsordner, Ausgabe in der Befehlszeile */
         reg("run", this::starten);
+        /** @binding Stoppt den mit run gestarteten Befehl */
         reg("stop", a -> {
             if (laufend != null) {
                 laufend.descendants().forEach(ProcessHandle::destroy);
@@ -925,10 +1082,12 @@ final class Editor {
             }
         });
         // ------------------------------------------------ Fenster mit Eingabe
+        /** @binding Oeffnet ein Eingabefenster fuer einen Befehl */
         reg("popupOpen", a -> {
             String[] t = (a + "||").split("\\|", -1);
             popupOpen(t[0], t[1], t[2]);
         });
+        /** @binding Schliesst das Eingabefenster */
         reg("popupClose", a -> {
             if (arbeitsordner == null && popupBefehl.equals("workdir")) {
                 meldung = "erst einen Arbeitsordner waehlen (ENTER), quit! beendet";
@@ -936,22 +1095,30 @@ final class Editor {
             }
             popupClose();
         });
+        /** @binding Eingabefenster: tippt das Zeichen */
         reg("popupChar", a -> popupEingabe.append(a));
+        /** @binding Eingabefenster: leert die Eingabe */
         reg("popupClear", a -> popupEingabe.setLength(0));
+        /** @binding Eingabefenster: loescht das letzte Zeichen */
         reg("popupBackspace", a -> zurueck(popupEingabe));
+        /** @binding Eingabefenster: bestaetigt die Eingabe */
         reg("popupRun", a -> {
             String b = popupBefehl, e = popupEingabe.toString();
             popupClose();
             farbig("runen> " + b + " " + e, E_HELL);
             befehl(b, e);
         });
+        /** @binding Eingabefenster: ergaenzt den Pfad */
         reg("popupComplete", a -> pfadErgaenzen(popupEingabe));
+        /** @binding Eingabefenster: fuegt die Systemzwischenablage ein */
         reg("popupPaste", a -> {
             String z = ausZwischenablage();
             if (z != null) popupEingabe.append(z.replaceAll("[\\r\\n]+", " ").strip());
         });
         // ------------------------------------------------ Language Server
+        /** @binding Springt zur Definition (Language Server) */
         reg("gotoDefinition", a -> gotoDefinition());
+        /** @binding Springt zurueck zur letzten Sprungmarke */
         reg("goBack", a -> {
             if (spruenge.isEmpty()) {
                 meldung = "keine Sprungmarke";
@@ -961,31 +1128,48 @@ final class Editor {
             if (s.pfad() != null) oeffnen(s.pfad());
             d().cursor = Math.min(s.pos(), d().t.length());
         });
+        /** @binding Springt zum naechsten Fehler oder zur naechsten Warnung */
         reg("gotoError", a -> gotoError(true));
+        /** @binding Springt zum vorigen Fehler oder zur vorigen Warnung */
         reg("gotoErrorPrev", a -> gotoError(false));
+        /** @binding Zeigt Typ und Doku unter dem Cursor */
         reg("hover", a -> hover());
+        /** @binding Zeigt Typ und Doku unter dem Cursor (wie hover) */
         reg("callUnderCursor", a -> hover());
+        /** @binding Formatiert die Datei (prettier bzw. Eclipse-/IntelliJ-Formatierung) */
         reg("format", a -> wz.formatieren());
+        /** @binding Listet alle Verwendungen des Symbols unter dem Cursor */
         reg("references", a -> references());
+        /** @binding Benennt das Symbol unter dem Cursor um (fragt nach dem Namen) */
         reg("rename", a -> {
             String w = wortHier();
             if (w.isEmpty()) meldung = "kein Name unter dem Cursor";
             else popupOpen("Umbenennen: " + w + " in", "renameTo", w);
         });
+        /** @binding Benennt das Symbol unter dem Cursor in den angegebenen Namen um */
         reg("renameTo", this::renameTo);
+        /** @binding Startet die Language Server neu */
         reg("lspRestart", a -> {
             for (Doc t : tabs) t.lspOffen = false;
             if (arbeitsordner != null && !lspBefehl.isEmpty()) tsLsp.start(arbeitsordner, lspBefehl);
             javaLspOrdner = null;
             javaLspStarten();
         });
+        /** @binding Vervollstaendigung (Language Server bzw. SQL-Metadaten) */
         reg("complete", a -> vervollstaendigen());
+        /** @binding Vervollstaendigung: voriger Vorschlag */
         reg("completeUp", a -> vorschlagWahl = Math.max(0, vorschlagWahl - 1));
+        /** @binding Vervollstaendigung: naechster Vorschlag */
         reg("completeDown", a -> vorschlagWahl = Math.min(gefiltert.size() - 1, vorschlagWahl + 1));
+        /** @binding Vervollstaendigung: zehn Vorschlaege hoch */
         reg("completePageUp", a -> vorschlagWahl = Math.max(0, vorschlagWahl - 10));
+        /** @binding Vervollstaendigung: zehn Vorschlaege runter */
         reg("completePageDown", a -> vorschlagWahl = Math.min(gefiltert.size() - 1, vorschlagWahl + 10));
+        /** @binding Vervollstaendigung: uebernimmt den Vorschlag */
         reg("completeAccept", a -> vorschlagNehmen());
+        /** @binding Vervollstaendigung: schliesst die Liste */
         reg("completeClose", a -> vorschlagZu());
+        /** @binding Vervollstaendigung: tippt das Zeichen und filtert */
         reg("completeChar", a -> {
             if (!a.isEmpty() && Highlight.ident(a.charAt(0))) {
                 merken("tippen");
@@ -996,6 +1180,7 @@ final class Editor {
                 insertChar(a);
             }
         });
+        /** @binding Vervollstaendigung: loescht das letzte Zeichen */
         reg("completeBackspace", a -> {
             backspace();
             if (d().cursor < vorschlagAnf) vorschlagZu();
@@ -1324,6 +1509,10 @@ final class Editor {
 
     private void save() {
         Doc d = d();
+        if (d.nurLesen) {
+            meldung = d.name() + " ist schreibgeschuetzt";
+            return;
+        }
         if (d.pfad == null) {
             popupOpen("Speichern unter:", "saveAs", "");
             return;
@@ -1418,6 +1607,27 @@ final class Editor {
         }
     }
 
+    /** bindings [MODE|TEXT]: Tabelle aller Tasten in einem schreibgeschuetzten Tab (gibt es ihn, wird er neu gefuellt) */
+    private void bindingsZeigen(String filter) {
+        Doc d = null;
+        for (Doc x : tabs) if (x.nurLesen && "bindings".equals(x.titel)) d = x;
+        if (d == null) {
+            d = new Doc();
+            d.titel = "bindings";
+            tabs.add(d);
+        }
+        d.nurLesen = false;
+        d.setText(Uebersicht.text(km, mp, cmds.keySet(), filter));
+        d.nurLesen = true;
+        d.geaendert = false;
+        d.cursor = 0;
+        d.oben = 0;
+        aktiv = tabs.indexOf(d);
+        konsoleOffen = false;
+        modus = km.modeDa("nurlesen") ? "nurlesen" : "normal";
+        meldung = "bindings: /suchen, q schliesst, bindings MODE oder bindings TEXT filtert";
+    }
+
     private void hilfe() {
         konsoleAuf();
         print("Befehle (in keymap.config belegbar, im Terminal mit Argumenten ohne Anfuehrungszeichen):");
@@ -1432,7 +1642,7 @@ final class Editor {
             b.append(s).append("  ");
         }
         print(b.toString());
-        print("Tasten im Mode " + modus + ": siehe " + keymapPfad + "  (keymap laedt sie neu)");
+        print("Alle Tasten mit Beschreibung: bindings (bindings MODE oder bindings TEXT filtert); belegt in " + keymapPfad + " und sondertasten.config");
     }
 
     /** Befehl im Arbeitsordner starten, Ausgabe ins Terminal */
@@ -1933,6 +2143,17 @@ final class Editor {
     }
 
     // ================================================================ Maus
+    private int mausX, mausY, keyTiefe;
+
+    /** Maus als Taste (MAUS-LINKS, MAUS-RAD-HOCH/RUNTER), belegt in sondertasten.config */
+    void mausTaste(String name, int x, int y) {
+        mausX = x;
+        mausY = y;
+        String b = km.befehl("immer", name);
+        if (b != null) ausfuehren(b, 0);
+        neuMalen.run();
+    }
+
     void maus(int x, int y, boolean klick, int rad) {
         if (popupOffen) return;
         if (fm.offen) {
@@ -2188,7 +2409,7 @@ final class Editor {
         int my = sy + (unten() - lh) / 2;
         scr.rect(0, sy, mw, unten(), mf);
         scr.text(0, my, m, E_GRUND);
-        String pf = (d.term != null ? d.name() : relativ(d.pfad)) + (d.geaendert ? " [+]" : "");
+        String pf = (d.term != null || d.titel != null ? d.name() : relativ(d.pfad)) + (d.nurLesen ? " [nur lesen]" : "") + (d.geaendert ? " [+]" : "");
         // langer Pfad: vorne kuerzen, damit rechts Platz bleibt
         int maxPf = Math.max(10, W / cw / 2);
         if (pf.length() > maxPf) pf = "~" + pf.substring(pf.length() - maxPf + 1);

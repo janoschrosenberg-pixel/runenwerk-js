@@ -1473,79 +1473,260 @@ final class Vim {
 
     // ================================================================ Befehle
     void befehle(Map<String, Editor.Cmd> c) {
+        /** @binding Zaehler fuer den naechsten Befehl (Ziffer) */
         c.put("count", a -> {
             if (!a.isEmpty() && Character.isDigit(a.charAt(0))) zaehler = Math.min(99999, zaehler * 10 + (a.charAt(0) - '0'));
         });
+        /** @binding 0: Zeilenanfang, nach einer Ziffer Teil des Zaehlers */
         c.put("countZero", a -> {
             if (zaehler > 0) zaehler = Math.min(99999, zaehler * 10);
             else motion("0");
         });
+        /**
+         * @binding Vim-Bewegung (w, b, e, f, t, %, gg, G ...)
+         * @binding-arg h = links
+         * @binding-arg j = runter
+         * @binding-arg k = hoch
+         * @binding-arg l = rechts
+         * @binding-arg w = naechster Wortanfang
+         * @binding-arg W = naechstes WORT (nur Leerraum trennt)
+         * @binding-arg b = voriger Wortanfang
+         * @binding-arg B = voriges WORT
+         * @binding-arg e = Wortende
+         * @binding-arg E = Ende des WORTs
+         * @binding-arg ge = Ende des vorigen Worts
+         * @binding-arg gE = Ende des vorigen WORTs
+         * @binding-arg 0 = Zeilenanfang
+         * @binding-arg ^ = erstes Zeichen der Zeile, das kein Leerraum ist
+         * @binding-arg _ = erstes Zeichen der Zeile (mit Zaehler N-1 Zeilen tiefer)
+         * @binding-arg $ = Zeilenende
+         * @binding-arg + = Anfang der naechsten Zeile
+         * @binding-arg - = Anfang der vorigen Zeile
+         * @binding-arg ENTER = Anfang der naechsten Zeile
+         * @binding-arg gg = erste Zeile (mit Zaehler: Zeile N)
+         * @binding-arg G = letzte Zeile (mit Zaehler: Zeile N)
+         * @binding-arg H = oberste sichtbare Zeile
+         * @binding-arg M = mittlere sichtbare Zeile
+         * @binding-arg L = unterste sichtbare Zeile
+         * @binding-arg % = passende Klammer
+         * @binding-arg { = voriger Absatz
+         * @binding-arg } = naechster Absatz
+         * @binding-arg n = naechster Suchtreffer
+         * @binding-arg N = voriger Suchtreffer
+         * @binding-arg ; = letztes f/t/F/T wiederholen
+         * @binding-arg , = letztes f/t/F/T in Gegenrichtung
+         * @binding-arg f = vorwaerts auf das naechste getippte Zeichen
+         * @binding-arg t = vorwaerts vor das naechste getippte Zeichen
+         * @binding-arg F = rueckwaerts auf das getippte Zeichen
+         * @binding-arg T = rueckwaerts hinter das getippte Zeichen
+         */
         c.put("motion", this::motion);
+        /**
+         * @binding Vim-Operator (d, c, y, >, <, gu ...), wartet auf eine Bewegung
+         * @binding-arg d = loeschen, wartet auf eine Bewegung (dw, d$, dd ...)
+         * @binding-arg c = aendern: loeschen und Insert-Mode, wartet auf eine Bewegung
+         * @binding-arg y = kopieren, wartet auf eine Bewegung (yw, yy ...)
+         * @binding-arg > = einruecken, wartet auf eine Bewegung
+         * @binding-arg < = ausruecken, wartet auf eine Bewegung
+         * @binding-arg gu = in Kleinbuchstaben, wartet auf eine Bewegung
+         * @binding-arg gU = in Grossbuchstaben, wartet auf eine Bewegung
+         * @binding-arg g~ = Gross/Klein umdrehen, wartet auf eine Bewegung
+         */
         c.put("operator", this::operator);
+        /** @binding Vim-Operator auf ganze Zeilen (dd, cc, yy ...) */
         c.put("operatorLine", this::operatorZeile);
+        /** @binding Vim-Operator auf ganze Zeilen (wie operatorLine) */
         c.put("opLine", this::operatorZeile);
+        /**
+         * @binding Vim-Operator mit Bewegung in einem Schritt (z. B. d w)
+         * @binding-arg d l = loescht das Zeichen unter dem Cursor (x)
+         * @binding-arg d h = loescht das Zeichen vor dem Cursor (X)
+         * @binding-arg d $ = loescht bis zum Zeilenende (D)
+         * @binding-arg c $ = aendert bis zum Zeilenende (C)
+         * @binding-arg c l = ersetzt das Zeichen unter dem Cursor (s)
+         */
         c.put("opMotion", this::opMotion);
+        /**
+         * @binding Vim-Textobjekt (iw, a", i(, it, ip ...)
+         * @binding-arg iw = das Wort (innen)
+         * @binding-arg iW = das WORT (innen)
+         * @binding-arg ip = der Absatz (innen)
+         * @binding-arg it = der HTML/XML-Tag (innen)
+         * @binding-arg i" = Text in "..." (innen)
+         * @binding-arg i' = Text in '...' (innen)
+         * @binding-arg i` = Text in `...` (innen)
+         * @binding-arg i( = Inhalt von (...) (innen)
+         * @binding-arg i) = Inhalt von (...) (innen)
+         * @binding-arg ib = Inhalt von (...) (innen)
+         * @binding-arg i{ = Inhalt von {...} (innen)
+         * @binding-arg i} = Inhalt von {...} (innen)
+         * @binding-arg iB = Inhalt von {...} (innen)
+         * @binding-arg i[ = Inhalt von [...] (innen)
+         * @binding-arg i] = Inhalt von [...] (innen)
+         * @binding-arg i< = Inhalt von <...> (innen)
+         * @binding-arg i> = Inhalt von <...> (innen)
+         * @binding-arg aw = das Wort mit Rand bzw. Leerraum
+         * @binding-arg aW = das WORT mit Rand bzw. Leerraum
+         * @binding-arg ap = der Absatz mit Rand bzw. Leerraum
+         * @binding-arg at = der HTML/XML-Tag mit Rand bzw. Leerraum
+         * @binding-arg a" = Text in "..." mit Rand bzw. Leerraum
+         * @binding-arg a' = Text in '...' mit Rand bzw. Leerraum
+         * @binding-arg a` = Text in `...` mit Rand bzw. Leerraum
+         * @binding-arg a( = Inhalt von (...) mit Rand bzw. Leerraum
+         * @binding-arg a) = Inhalt von (...) mit Rand bzw. Leerraum
+         * @binding-arg ab = Inhalt von (...) mit Rand bzw. Leerraum
+         * @binding-arg a{ = Inhalt von {...} mit Rand bzw. Leerraum
+         * @binding-arg a} = Inhalt von {...} mit Rand bzw. Leerraum
+         * @binding-arg aB = Inhalt von {...} mit Rand bzw. Leerraum
+         * @binding-arg a[ = Inhalt von [...] mit Rand bzw. Leerraum
+         * @binding-arg a] = Inhalt von [...] mit Rand bzw. Leerraum
+         * @binding-arg a< = Inhalt von <...> mit Rand bzw. Leerraum
+         * @binding-arg a> = Inhalt von <...> mit Rand bzw. Leerraum
+         */
         c.put("textObject", this::textObjektBefehl);
+        /** @binding Wartet auf ein Zeichen und gibt es an den Befehl weiter (f, t, r, m ...) */
         c.put("awaitChar", this::warteAufZeichen);
+        /** @binding Uebergibt das getippte Zeichen an den wartenden Befehl */
         c.put("charArg", this::zeichen);
+        /** @binding Bricht den wartenden Befehl ab */
         c.put("cancel", a -> {
             abbrechen();
             ed.sucheZeigen = false;
         });
+        /** @binding Waehlt ein Register fuer den naechsten Befehl ("a) */
         c.put("selectRegister", a -> {
             if (!a.isEmpty()) regWahl = a.charAt(0);
         });
+        /**
+         * @binding Visual-Mode: v Zeichen, V Zeilen, b Block
+         * @binding-arg v = Visual-Mode: Zeichen markieren
+         * @binding-arg V = Visual-Mode: ganze Zeilen markieren
+         * @binding-arg b = Visual-Mode: Block (Spalten) markieren
+         */
         c.put("visual", this::visual);
+        /** @binding Verlaesst den Visual-Mode */
         c.put("visualExit", a -> visualEnde());
+        /** @binding Visual: Cursor ans andere Ende der Auswahl */
         c.put("visualSwap", a -> tauschen());
+        /**
+         * @binding Visual: wendet den Operator auf die Auswahl an
+         * @binding-arg d = loescht die Auswahl
+         * @binding-arg x = loescht die Auswahl
+         * @binding-arg D = loescht die Zeilen der Auswahl
+         * @binding-arg X = loescht die Zeilen der Auswahl
+         * @binding-arg y = kopiert die Auswahl
+         * @binding-arg Y = kopiert die Zeilen der Auswahl
+         * @binding-arg c = aendert die Auswahl
+         * @binding-arg s = aendert die Auswahl
+         * @binding-arg C = aendert die Zeilen der Auswahl
+         * @binding-arg S = aendert die Zeilen der Auswahl
+         * @binding-arg R = aendert die Zeilen der Auswahl
+         * @binding-arg p = ersetzt die Auswahl durch das Register
+         * @binding-arg P = ersetzt die Auswahl durch das Register
+         * @binding-arg > = rueckt die Auswahl ein
+         * @binding-arg < = rueckt die Auswahl aus
+         * @binding-arg u = Auswahl in Kleinbuchstaben
+         * @binding-arg U = Auswahl in Grossbuchstaben
+         * @binding-arg ~ = Gross/Klein der Auswahl umdrehen
+         * @binding-arg J = verbindet die Zeilen der Auswahl
+         * @binding-arg gJ = verbindet die Zeilen der Auswahl ohne Leerzeichen
+         * @binding-arg I = Insert am Anfang der Auswahl (Block: in jeder Zeile)
+         * @binding-arg A = Insert am Ende der Auswahl (Block: in jeder Zeile)
+         * @binding-arg r = ersetzt jedes Zeichen der Auswahl durch das getippte
+         */
         c.put("visualOp", this::visualOp);
+        /** @binding Visual: Befehlszeile fuer den markierten Bereich (:'<,'>) */
         c.put("visualConsole", a -> {
             visualEnde();
             ed.konsoleAuf();
             ed.eingabe.setLength(0);
             ed.eingabe.append("'<,'>");
         });
+        /** @binding Waehlt die letzte Auswahl wieder aus (gv) */
         c.put("reselect", a -> wiederAuswaehlen());
+        /** @binding Ersetzt das Zeichen unter dem Cursor (r) */
         c.put("replaceChar", this::zeichenErsetzen);
+        /** @binding Replace-Mode: ueberschreibt mit dem getippten Zeichen */
         c.put("replaceTyped", this::ueberschreiben);
+        /** @binding Gross-/Kleinschreibung des Zeichens umdrehen (~) */
         c.put("toggleCase", a -> grossKlein());
+        /** @binding Verbindet Zeilen mit Leerzeichen (J) */
         c.put("join", a -> {
             int n = Math.max(2, nehmen());
             ed.merken(null);
             int z = d().zeileVon(d().cursor);
             verbinden(z, z + n - 1, true);
         });
+        /** @binding Verbindet Zeilen ohne Leerzeichen (gJ) */
         c.put("joinNoSpace", a -> {
             int n = Math.max(2, nehmen());
             ed.merken(null);
             int z = d().zeileVon(d().cursor);
             verbinden(z, z + n - 1, false);
         });
+        /** @binding Zahl unter dem Cursor erhoehen */
         c.put("increment", a -> zahlAendern(1));
+        /** @binding Zahl unter dem Cursor verringern */
         c.put("decrement", a -> zahlAendern(-1));
+        /** @binding Fuegt das Register hinter dem Cursor ein (p) */
         c.put("paste", a -> paste(false));
+        /** @binding Fuegt das Register vor dem Cursor ein (P) */
         c.put("pasteBefore", a -> paste(true));
         // Namen der RUNENWERK-Editor-Lib
+        /** @binding Kopiert die Zeile (yy) */
         c.put("yankLine", a -> operatorZeile("y"));
+        /** @binding Loescht die Zeile (dd) */
         c.put("deleteLine", a -> operatorZeile("d"));
+        /** @binding Loescht bis zum naechsten Wort (dw) */
         c.put("deleteWord", a -> opMotion("d w"));
+        /** @binding Ersetzt bis zum Wortende (cw) */
         c.put("changeWord", a -> opMotion("c w"));
+        /** @binding Loescht bis zum Zeilenende (D) */
         c.put("deleteToLineEnd", a -> opMotion("d $"));
+        /** @binding Ersetzt bis zum Zeilenende (C) */
         c.put("changeToLineEnd", a -> opMotion("c $"));
+        /** @binding Setzt eine Marke (m) */
         c.put("setMark", this::marke);
+        /** @binding Springt zur Marke, genau an die Stelle (`) */
         c.put("gotoMark", a -> zurMarke(a, true));
+        /** @binding Springt zur Zeile der Marke (') */
         c.put("gotoMarkLine", a -> zurMarke(a, false));
+        /** @binding Makroaufnahme starten bzw. beenden (q) */
         c.put("macroQ", a -> makroQ());
+        /** @binding Startet die Makroaufnahme in das Register */
         c.put("macroStart", this::makroStart);
+        /** @binding Spielt das Makro aus dem Register ab (@) */
         c.put("macroPlay", this::makroSpielen);
+        /** @binding Wiederholt die letzte Aenderung (.) */
         c.put("dot", a -> punkt());
+        /**
+         * @binding Bildlauf: halfDown halfUp pageDown pageUp lineDown lineUp lineRight lineLeft center top bottom
+         * @binding-arg halfDown = halbe Seite runter
+         * @binding-arg halfUp = halbe Seite hoch
+         * @binding-arg pageDown = ganze Seite runter
+         * @binding-arg pageUp = ganze Seite hoch
+         * @binding-arg lineDown = Text eine Zeile hochrollen, Cursor bleibt
+         * @binding-arg lineUp = Text eine Zeile runterrollen, Cursor bleibt
+         * @binding-arg lineRight = nur die aktuelle Zeile ein Wort nach rechts schieben
+         * @binding-arg lineLeft = nur die aktuelle Zeile ein Wort nach links schieben
+         * @binding-arg center = Zeile mit dem Cursor in die Mitte (zz)
+         * @binding-arg top = Zeile mit dem Cursor nach oben (zt)
+         * @binding-arg bottom = Zeile mit dem Cursor nach unten (zb)
+         */
         c.put("scroll", this::rollen);
+        /** @binding Insert: loescht das Wort vor dem Cursor */
         c.put("insertDeleteWord", a -> insertWortZurueck());
+        /** @binding Insert: loescht bis zum Zeilenanfang */
         c.put("insertDeleteLine", a -> insertZeileZurueck());
+        /** @binding Insert: Zeile einruecken */
         c.put("insertIndent", a -> insertEinruecken(true));
+        /** @binding Insert: Zeile ausruecken */
         c.put("insertOutdent", a -> insertEinruecken(false));
+        /** @binding Hebt die Suchtreffer nicht mehr hervor */
         c.put("noh", a -> ed.sucheZeigen = false);
+        /** @binding Hebt die Suchtreffer nicht mehr hervor */
         c.put("nohlsearch", a -> ed.sucheZeigen = false);
+        /** @binding Listet die Register */
         c.put("reg", a -> {
             ed.konsoleAuf();
             ed.print("Register:");
@@ -1555,8 +1736,11 @@ final class Vim {
                 ed.print("  \"" + e.getKey() + "  " + t);
             }
         });
+        /** @binding Listet die Register */
         c.put("registers", c.get("reg"));
+        /** @binding Listet die Register */
         c.put("display", c.get("reg"));
+        /** @binding Listet die Marken */
         c.put("marks", a -> {
             ed.konsoleAuf();
             ed.print("Marken:");

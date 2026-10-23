@@ -2212,25 +2212,35 @@ final class Werkzeug {
     // ================================================================ Befehle
     void befehle(Map<String, Editor.Cmd> c) {
         dbg.befehle(c, this);
+        /** @binding Laedt den JS/TS-Debugger (js-debug) herunter */
         c.put("installJsDebug", a -> installieren("js-debug", "js-debug", () -> ed.meldung = "js-debug ist da: Leertaste d d startet den Debugger"));
         // mit run.NAME.* in config.txt: diese Startkonfigurationen, sonst Spring Boot automatisch erkennen
+        /** @binding Startet die Spring-Boot-Anwendung bzw. eine Startkonfiguration */
         c.put("springRun", a -> {
             if (a.isBlank() && !laeufe().isEmpty()) laufWaehlen(false);
             else springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), false);
         });
+        /** @binding Startet im Debug-Modus und haengt den Debugger an */
         c.put("springDebug", a -> {
             if (a.isBlank() && !laeufe().isEmpty()) laufWaehlen(true);
             else springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), true);
         });
+        /** @binding Baut und holt den Klassenpfad neu, dann Start */
         c.put("springBuild", a -> {
             neuBauen = true;
             ed.befehl("springRun", "");
         });
+        /** @binding Startet Spring Boot mit einem gewaehlten Profil */
         c.put("springProfile", a -> auswahl("Spring Boot starten mit Profil", profile(), ed.kf.get("spring.profile", "dev"), p -> springStarten(p, false)));
+        /** @binding Stoppt die laufende Anwendung */
         c.put("springStop", a -> springStoppen());
+        /** @binding Startet den Debugger fuer die aktuelle Datei */
         c.put("debugStart", a -> debugStarten(false));
+        /** @binding Haengt den Debugger an einen laufenden Prozess */
         c.put("debugAttach", a -> debugStarten(true));
+        /** @binding Zeigt alle Aufrufer der Methode unter dem Cursor */
         c.put("callHierarchy", a -> aufrufer());
+        /** @binding Oeffnet eine neue leere SQL-Datei */
         c.put("sqlScratch", a -> {
             String zeit = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
             Path p = ed.konfig.resolve("sql").resolve("abfrage-" + zeit + ".sql");
@@ -2240,8 +2250,14 @@ final class Werkzeug {
             ed.befehl("switchState", "insert");
             ed.meldung = "neue SQL-Datei (Konto " + konto(d) + "): Strg+Enter fuehrt aus, :w speichert in " + p.getParent();
         });
+        /**
+         * @binding Branch wechseln oder neu erstellen (Liste, zuletzt benutzte oben)
+         * @binding-arg ts = Branch im TypeScript-Repo wechseln oder erstellen
+         * @binding-arg java = Branch im Java-Repo wechseln oder erstellen
+         */
         c.put("gitBranch", this::branchWaehlen);
         merge.befehle(c);
+        /** @binding Oeffnet den Merge-Editor fuer Dateien mit Konflikten */
         c.put("gitMerge", a -> {
             Doc d = ed.d();
             if (Merge.hatKonflikte(d.t)) {
@@ -2262,21 +2278,34 @@ final class Werkzeug {
             if (l.size() == 1) los.accept(l.get(0));
             else auswahl("Konflikte in " + Editor.name(repo) + " (" + l.size() + " Dateien)", l, null, los);
         });
+        /** @binding git blame an/aus: wer hat welche Zeile wann geaendert */
         c.put("gitBlame", a -> blameUmschalten());
+        /** @binding git pull */
         c.put("gitPull", a -> pull());
+        /** @binding git push (legt bei neuen Branches den Upstream an) */
         c.put("gitPush", a -> push());
+        /** @binding git commit (fragt nach der Nachricht) */
         c.put("gitCommit", a -> commitStarten());
+        /** @binding git commit mit der angegebenen Nachricht */
         c.put("gitCommitDo", this::commit);
+        /** @binding git reset --hard (mit Rueckfrage) */
         c.put("gitReset", a -> resetStarten());
+        /** @binding git reset --hard ohne Rueckfrage */
         c.put("gitResetDo", this::reset);
+        /** @binding Zeigt git status */
         c.put("gitStatus", a -> statusOeffnen());
+        /** @binding git status: schliessen */
         c.put("gitStatusClose", a -> {
             statusOffen = false;
             if (ed.modus.equals("gitstatus")) ed.modus = "normal";
         });
+        /** @binding git status: naechste Datei */
         c.put("gitStatusDown", a -> statusWahl = Math.min(statusZeilen.size() - 1, statusWahl + 1));
+        /** @binding git status: vorige Datei */
         c.put("gitStatusUp", a -> statusWahl = Math.max(0, statusWahl - 1));
+        /** @binding git status: neu lesen */
         c.put("gitStatusRefresh", a -> statusLesen());
+        /** @binding git status: Datei oeffnen */
         c.put("gitStatusOpen", a -> {
             Path p = statusDatei();
             if (p == null || !Files.isRegularFile(p)) return;
@@ -2284,15 +2313,19 @@ final class Werkzeug {
             ed.modus = "normal";
             ed.oeffnen(p);
         });
+        /** @binding git status: Datei vormerken (add) */
         c.put("gitStatusStage", a -> {
             Path p = statusDatei();
             if (p != null) gitLauf(statusRepo, "add", new String[] {"add", "--", statusRepo.relativize(p).toString()}, l -> {});
         });
+        /** @binding git status: Datei nicht mehr vormerken */
         c.put("gitStatusUnstage", a -> {
             Path p = statusDatei();
             if (p != null) gitLauf(statusRepo, "restore --staged", new String[] {"restore", "--staged", "--", statusRepo.relativize(p).toString()}, l -> {});
         });
+        /** @binding Liest Repo und Branch neu */
         c.put("gitRefresh", a -> gitLesen());
+        /** @binding Setzt den Java-Arbeitsbereich */
         c.put("javaWorkdir", a -> {
             if (a.isBlank()) {
                 ed.popupOpen("Java-Arbeitsbereich (wird in config.txt gespeichert):", "javaWorkdir", ed.javaOrdner == null ? "" : ed.javaOrdner.toString());
@@ -2306,20 +2339,28 @@ final class Werkzeug {
             ed.kf.setzen("java.workspace", p.toString());
             ed.javaOrdnerSetzen(p);
         });
+        /** @binding Springt zur naechsten Methode */
         c.put("methodNext", a -> methode(true));
+        /** @binding Springt zur vorigen Methode */
         c.put("methodPrev", a -> methode(false));
         // Auswahlliste
+        /** @binding Auswahlliste: tippt das Zeichen und filtert */
         c.put("pickerChar", a -> {
             auswahlFilter.append(a);
             filtern();
         });
+        /** @binding Auswahlliste: loescht das letzte Zeichen des Filters */
         c.put("pickerBackspace", a -> {
             if (auswahlFilter.length() > 0) auswahlFilter.setLength(auswahlFilter.length() - 1);
             filtern();
         });
+        /** @binding Auswahlliste: voriger Eintrag */
         c.put("pickerUp", a -> auswahlWahl = Math.max(0, auswahlWahl - 1));
+        /** @binding Auswahlliste: naechster Eintrag */
         c.put("pickerDown", a -> auswahlWahl = Math.min(auswahlListe.size() - 1, auswahlWahl + 1));
+        /** @binding Auswahlliste: schliessen */
         c.put("pickerClose", a -> auswahlZu());
+        /** @binding Auswahlliste: Eintrag uebernehmen */
         c.put("pickerAccept", a -> {
             if (auswahlListe.isEmpty()) return;
             String w = auswahlListe.get(auswahlWahl);
@@ -2330,8 +2371,11 @@ final class Werkzeug {
             else ak.accept(w);
         });
         // Datenbank
+        /** @binding SQL: fuehrt das Statement am Cursor bzw. die Auswahl aus */
         c.put("sqlRun", a -> sqlLaufen(false));
+        /** @binding SQL: fuehrt die ganze Datei aus */
         c.put("sqlRunFile", a -> sqlLaufen(true));
+        /** @binding SQL: Datenbankkonto der Datei wechseln */
         c.put("sqlAccount", a -> {
             Doc d = ed.d();
             if (!sqlDatei(d)) return;
@@ -2348,17 +2392,22 @@ final class Werkzeug {
             if (!a.isBlank() && db.konten.containsKey(a.trim())) setzen.accept(a.trim());
             else auswahl("Datenbankkonto fuer " + d.name(), new ArrayList<>(db.konten.keySet()), konto(d), setzen);
         });
+        /** @binding SQL: commit */
         c.put("sqlCommit", a -> commit(true));
+        /** @binding SQL: rollback */
         c.put("sqlRollback", a -> commit(false));
+        /** @binding SQL: bricht die laufende Abfrage ab */
         c.put("sqlCancel", a -> {
             db.abbrechen();
             ed.meldung = "Abbruch gesendet";
         });
+        /** @binding SQL: trennt die Verbindung */
         c.put("sqlDisconnect", a -> {
             db.trennen();
             ed.meldung = "Verbindungen getrennt";
         });
         // Ergebnistabelle
+        /** @binding Springt in die Ergebnistabelle der Datei */
         c.put("resultFocus", a -> {
             Tabelle t = tabelle();
             if (t == null) {
@@ -2369,41 +2418,57 @@ final class Werkzeug {
             ed.konsoleOffen = false;
             ed.modus = "result";
         });
+        /** @binding Ergebnistabelle: zurueck in den Text (Tabelle bleibt offen) */
         c.put("resultBack", a -> ed.modus = "normal");
+        /** @binding Ergebnistabelle: schliessen */
         c.put("resultClose", a -> {
             Tabelle t = tabelle();
             if (t != null) t.offen = false;
             if (ed.modus.equals("result")) ed.modus = "normal";
         });
+        /** @binding Ergebnistabelle: Zeile runter */
         c.put("resultDown", a -> ergBewegen(ed.vim.nehmen(), 0));
+        /** @binding Ergebnistabelle: Zeile hoch */
         c.put("resultUp", a -> ergBewegen(-ed.vim.nehmen(), 0));
+        /** @binding Ergebnistabelle: Spalte links */
         c.put("resultLeft", a -> ergBewegen(0, -ed.vim.nehmen()));
+        /** @binding Ergebnistabelle: Spalte rechts */
         c.put("resultRight", a -> ergBewegen(0, ed.vim.nehmen()));
+        /** @binding Ergebnistabelle: Seite runter */
         c.put("resultPageDown", a -> ergBewegen(ergZeilen(), 0));
+        /** @binding Ergebnistabelle: Seite hoch */
         c.put("resultPageUp", a -> ergBewegen(-ergZeilen(), 0));
+        /** @binding Ergebnistabelle: auf die Kopfzeile */
         c.put("resultHeader", a -> {
             Tabelle t = tabelle();
             if (t != null) t.ez = -1;
         });
+        /** @binding Ergebnistabelle: erste Zeile */
         c.put("resultTop", a -> {
             Tabelle t = tabelle();
             if (t != null) t.ez = 0;
         });
+        /** @binding Ergebnistabelle: letzte Zeile */
         c.put("resultBottom", a -> ergBewegen(Integer.MAX_VALUE / 2, 0));
+        /** @binding Ergebnistabelle: erste Spalte */
         c.put("resultHome", a -> ergBewegen(0, -Integer.MAX_VALUE / 2));
+        /** @binding Ergebnistabelle: letzte Spalte */
         c.put("resultEnd", a -> ergBewegen(0, Integer.MAX_VALUE / 2));
+        /** @binding Ergebnistabelle: kopiert die Zelle, auf der Kopfzeile die ganze Spalte */
         c.put("resultYank", a -> {
             String v = tabellenText();
             if (v == null) return;
             Editor.zwischenablage(v);
             ed.meldung = tabelle().ez < 0 ? "Spalte kopiert (Werte untereinander)" : "Zelle kopiert";
         });
+        /** @binding Ergebnistabelle: kopiert die Zeile (Tab-getrennt) */
         c.put("resultYankRow", a -> {
             Tabelle t = tabelle();
             if (t == null || t.ez < 0 || t.ez >= t.zeilen().size()) return;
             Editor.zwischenablage(String.join("\t", nullLeer(t.zeilen().get(t.ez))));
             ed.meldung = "Zeile kopiert (Tab-getrennt)";
         });
+        /** @binding Ergebnistabelle: kopiert alles mit Kopf (Tab-getrennt) */
         c.put("resultYankAll", a -> {
             Tabelle t = tabelle();
             if (t == null) return;
@@ -2413,6 +2478,7 @@ final class Werkzeug {
             ed.meldung = t.zeilen().size() + " Zeilen kopiert (Tab-getrennt, mit Kopf)";
         });
         // ENTER: auf der Kopfzeile das Filtermenue, sonst den ganzen Wert
+        /** @binding Ergebnistabelle: ganzer Wert bzw. auf der Kopfzeile das Filtermenue */
         c.put("resultEnter", a -> {
             Tabelle t = tabelle();
             if (t == null) return;
@@ -2427,20 +2493,25 @@ final class Werkzeug {
             z.addAll(List.of(v.split("\\R")));
             ed.info = z;
         });
+        /** @binding Ergebnistabelle: zeigt den ganzen Wert */
         c.put("resultShow", c.get("resultEnter"));
+        /** @binding Ergebnistabelle: Filtermenue der Spalte */
         c.put("resultFilter", a -> filterMenue());
+        /** @binding Ergebnistabelle: filtert die Spalte nach dem Wert */
         c.put("resultFilterValue", a -> {
             Tabelle t = tabelle();
             if (t == null || filterArt == null) return;
             filterSetzen(t, filterArt, a);
             filterArt = null;
         });
+        /** @binding SQL: liest die Metadaten fuer die Vervollstaendigung neu */
         c.put("sqlMetaRefresh", a -> {
             String k = konto(ed.d());
             if (k == null) return;
             meta.remove(k);
             metaLaden(k, null);
         });
+        /** @binding Ergebnistabelle: Filter der Spalte entfernen */
         c.put("resultUnfilter", a -> {
             Tabelle t = tabelle();
             if (t == null) return;

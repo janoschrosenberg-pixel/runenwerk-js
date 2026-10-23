@@ -260,79 +260,114 @@ final class FileManager {
 
     // ---------------------------------------------------------------- Befehle
     void befehle(Map<String, Editor.Cmd> c) {
+        /**
+         * @binding Oeffnet den Dateimanager (search: gleich im Suchfeld)
+         * @binding-arg search = Dateimanager, Cursor gleich im Suchfeld
+         */
         c.put("fileManager", a -> {
             if (offen) schliessen();
             else oeffnen(a.trim());
         });
+        /** @binding Dateimanager: schliessen */
         c.put("fmClose", a -> schliessen());
+        /** @binding Dateimanager: Eintrag hoch */
         c.put("fmUp", a -> bewegen(-1));
+        /** @binding Dateimanager: Eintrag runter */
         c.put("fmDown", a -> bewegen(1));
+        /** @binding Dateimanager: Seite hoch */
         c.put("fmPageUp", a -> bewegen(-zeilen()));
+        /** @binding Dateimanager: Seite runter */
         c.put("fmPageDown", a -> bewegen(zeilen()));
+        /** @binding Dateimanager: erster Eintrag */
         c.put("fmHome", a -> akt().cursor = 0);
+        /** @binding Dateimanager: letzter Eintrag */
         c.put("fmEnd", a -> akt().cursor = Math.max(0, akt().e.size() - 1));
+        /** @binding Dateimanager: anderes Fenster */
         c.put("fmSwitch", a -> {
             if (listenTitel == null) aktiv = 1 - aktiv;
         });
+        /** @binding Dateimanager: linkes Fenster bzw. Ordner hoch */
         c.put("fmLeft", a -> {
             if (listenTitel == null) aktiv = 0;
         });
+        /** @binding Dateimanager: rechtes Fenster bzw. Ordner oeffnen */
         c.put("fmRight", a -> {
             if (listenTitel == null) aktiv = 1;
         });
+        /** @binding Dateimanager: Ordner oeffnen bzw. Datei im Editor oeffnen */
         c.put("fmEnter", a -> enter());
+        /** @binding Dateimanager: Datei oeffnen */
         c.put("fmOpen", a -> enter());
+        /** @binding Dateimanager: Datei ansehen */
         c.put("fmView", a -> enter());
+        /** @binding Dateimanager: uebergeordneter Ordner */
         c.put("fmParent", a -> eltern());
+        /** @binding Dateimanager: ins Suchfeld */
         c.put("fmFind", a -> ed.modus = "fmsearch");
+        /** @binding Dateimanager-Suche: tippt das Zeichen (Name und Inhalt) */
         c.put("fmSearchChar", a -> {
             suche.append(a);
             spaeterSuchen();
         });
+        /** @binding Dateimanager-Suche: loescht das letzte Zeichen */
         c.put("fmSearchBackspace", a -> {
             if (suche.length() == 0) return;
             suche.setLength(suche.length() - 1);
             spaeterSuchen();
         });
+        /** @binding Dateimanager-Suche: leert das Suchfeld */
         c.put("fmSearchClear", a -> {
             suche.setLength(0);
             sucheGeaendert();
         });
+        /** @binding Dateimanager-Suche: zurueck in die Liste */
         c.put("fmSearchDone", a -> ed.modus = "commander");
+        /** @binding Dateimanager: waehlt den Eintrag mit dem angegebenen Namen */
         c.put("fmSelect", a -> {
             Panel p = akt();
             for (int k = 0; k < p.e.size(); k++) if (p.e.get(k).name.equals(a.trim())) p.cursor = k;
         });
+        /** @binding Dateimanager: neu lesen */
         c.put("fmRefresh", a -> {
             neuLaden();
             ed.index.neuEinlesen();
             ed.meldung = "neu eingelesen";
         });
+        /** @binding Dateimanager: Ordner als Arbeitsbereich setzen */
         c.put("fmWorkdir", a -> {
             Path p = akt().ordner;
             if (ergebnis || p == null) return;
             ed.arbeitsordnerSetzen(p);
         });
+        /** @binding Dateimanager: kopieren (fragt nach dem Ziel) */
         c.put("fmCopy", a -> {
             Eintrag e = quelle();
             if (e != null) ed.popupOpen("Kopieren: " + e.name + " nach", "fmCopyTo", zielVorgabe());
         });
+        /** @binding Dateimanager: verschieben (fragt nach dem Ziel) */
         c.put("fmMove", a -> {
             Eintrag e = quelle();
             if (e != null) ed.popupOpen("Verschieben: " + e.name + " nach", "fmMoveTo", zielVorgabe());
         });
+        /** @binding Dateimanager: umbenennen */
         c.put("fmRename", a -> {
             Eintrag e = quelle();
             if (e != null) ed.popupOpen("Umbenennen: " + e.name + " in", "fmRenameTo", e.pfad.getFileName().toString());
         });
+        /** @binding Dateimanager: neuer Ordner */
         c.put("fmMkdir", a -> ed.popupOpen("Neuer Ordner in " + hier() + ":", "fmMkdirIn", ""));
+        /** @binding Dateimanager: neue Datei */
         c.put("fmNewFile", a -> ed.popupOpen("Neue Datei in " + hier() + ":", "fmNewFileIn", ""));
+        /** @binding Dateimanager: loeschen (mit Rueckfrage) */
         c.put("fmDelete", a -> {
             Eintrag e = quelle();
             if (e != null) ed.popupOpen("Loeschen: " + e.pfad + (e.ordner ? " (mit Inhalt!)" : "") + " - ENTER loescht", "fmDeleteYes", "");
         });
+        /** @binding Dateimanager: kopiert nach dem angegebenen Ziel */
         c.put("fmCopyTo", a -> uebertragen(a, false));
+        /** @binding Dateimanager: verschiebt nach dem angegebenen Ziel */
         c.put("fmMoveTo", a -> uebertragen(a, true));
+        /** @binding Dateimanager: benennt in den angegebenen Namen um */
         c.put("fmRenameTo", a -> {
             Eintrag e = quelle();
             if (e == null || a.isBlank()) return;
@@ -345,6 +380,7 @@ final class FileManager {
                 ergebnisMelden(false, "nicht umbenannt: " + ex.getMessage());
             }
         });
+        /** @binding Dateimanager: legt den angegebenen Ordner an */
         c.put("fmMkdirIn", a -> {
             if (a.isBlank()) return;
             try {
@@ -354,6 +390,7 @@ final class FileManager {
                 ergebnisMelden(false, "nicht angelegt: " + ex.getMessage());
             }
         });
+        /** @binding Dateimanager: legt die angegebene Datei an */
         c.put("fmNewFileIn", a -> {
             if (a.isBlank()) return;
             Path z = hier().resolve(a.trim());
@@ -367,6 +404,7 @@ final class FileManager {
                 ergebnisMelden(false, "nicht angelegt: " + ex.getMessage());
             }
         });
+        /** @binding Dateimanager: loescht ohne Rueckfrage */
         c.put("fmDeleteYes", a -> {
             Eintrag e = quelle();
             if (e == null) return;
@@ -378,6 +416,7 @@ final class FileManager {
                 ergebnisMelden(false, "nicht geloescht: " + ex.getMessage());
             }
         });
+        /** @binding Dateimanager: Hilfe zu den Tasten */
         c.put("fmHelp", a -> {
             ed.konsoleAuf();
             ed.print("  Dateimanager: Pfeile/PgUp/PgDn bewegen, TAB anderer Bereich, ENTER oeffnen, BACKSPACE hoch (bei Ergebnissen: zurueck zu den Ordnern),");

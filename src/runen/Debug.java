@@ -267,23 +267,30 @@ final class Debug {
 
     // ---------------------------------------------------------------- Befehle
     void befehle(Map<String, Editor.Cmd> c, Werkzeug wz) {
+        /** @binding Haltepunkt in der Zeile an/aus */
         c.put("debugBreakpoint", a -> haltepunktUmschalten());
+        /** @binding Entfernt alle Haltepunkte */
         c.put("debugClearBreakpoints", a -> {
             punkte.clear();
             ed.meldung = "alle Haltepunkte entfernt";
         });
+        /** @binding Debugger: weiter */
         c.put("debugContinue", a -> {
             if (bereit()) backend.weiter();
         });
+        /** @binding Debugger: naechste Zeile (step over) */
         c.put("debugOver", a -> {
             if (bereit()) backend.schritt(0);
         });
+        /** @binding Debugger: hinein (step into) */
         c.put("debugInto", a -> {
             if (bereit()) backend.schritt(1);
         });
+        /** @binding Debugger: heraus (step out) */
         c.put("debugOut", a -> {
             if (bereit()) backend.schritt(2);
         });
+        /** @binding Debugger: beenden */
         c.put("debugStop", a -> {
             if (!bereit()) return;
             Backend b = backend;
@@ -293,19 +300,26 @@ final class Debug {
             status = "aus";
             if (ed.modus.equals("debug")) ed.modus = "normal";
         });
+        /** @binding Oeffnet das Debug-Panel (Aufrufstapel und Variablen) */
         c.put("debugPanel", a -> {
             offen = true;
             ed.konsoleOffen = false;
             ed.modus = "debug";
         });
+        /** @binding Debug-Panel: zurueck in den Text */
         c.put("debugBack", a -> ed.modus = "normal");
+        /** @binding Debug-Panel: schliessen */
         c.put("debugClose", a -> {
             offen = false;
             if (ed.modus.equals("debug")) ed.modus = "normal";
         });
+        /** @binding Debug-Panel: zwischen Stapel und Variablen wechseln */
         c.put("debugSwitch", a -> bereich = 1 - bereich);
+        /** @binding Debug-Panel: Eintrag runter */
         c.put("debugDown", a -> bewegen(1));
+        /** @binding Debug-Panel: Eintrag hoch */
         c.put("debugUp", a -> bewegen(-1));
+        /** @binding Debug-Panel: Stapelrahmen zeigen bzw. Variable aufklappen */
         c.put("debugEnter", a -> {
             if (bereich == 0) {
                 frameZeigen();
@@ -315,6 +329,7 @@ final class Debug {
             flach(vars, 0, l);
             if (varWahl < l.size()) aufklappen((Var) l.get(varWahl)[0]);
         });
+        /** @binding Debug-Panel: kopiert den Wert der Variable */
         c.put("debugYank", a -> {
             String w = kopierText();
             if (w != null) {

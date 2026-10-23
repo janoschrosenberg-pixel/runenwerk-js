@@ -26,6 +26,10 @@ final class Keymap {
         String eltern = "";
         final Map<String, String> bind = new HashMap<>();
         final Set<String> pre = new HashSet<>();
+        /** fuer die Uebersicht (bindings): Folge wie geschrieben (mit DIGIT) -> {Befehl, Datei}, in Dateireihenfolge */
+        final Map<String, String[]> zeigen = new java.util.LinkedHashMap<>();
+        /** Kommentar ueber "mode NAME {" */
+        String text = "";
     }
 
     static final class Layout {
@@ -33,7 +37,7 @@ final class Keymap {
         final Map<Integer, Integer> map = new HashMap<>();
     }
 
-    final Map<String, Mode> modes = new HashMap<>();
+    final Map<String, Mode> modes = new java.util.LinkedHashMap<>();
     final Map<String, Layout> layouts = new HashMap<>();
     final Map<Integer, Integer> layoutMap = new HashMap<>();
     String layout = "de_DE";
@@ -41,7 +45,8 @@ final class Keymap {
     final List<String> fehler = new ArrayList<>();
 
     private static final Set<String> NAMEN = Set.of("ESC", "ENTER", "TAB", "BACKSPACE", "DELETE", "INSERT", "UP", "DOWN", "LEFT", "RIGHT",
-            "HOME", "END", "PGUP", "PGDN", "SPACE", "ANY", "DIGIT");
+            "HOME", "END", "PGUP", "PGDN", "SPACE", "ANY", "DIGIT",
+            "MAUS-LINKS", "MAUS-RAD-HOCH", "MAUS-RAD-RUNTER");
 
     static boolean sonder(String w) {
         if (NAMEN.contains(w)) return true;
@@ -109,6 +114,24 @@ final class Keymap {
         return da || vorgabe != null;
     }
 
+    /** weitere Datei (sondertasten.config) zu den gelesenen Modes dazu: erst die Vorgabe aus der Jar, dann die Datei */
+    void dazuLesen(Path pfad, java.io.InputStream vorgabe) {
+        if (vorgabe != null) {
+            try (vorgabe) {
+                zeilenLesen(new String(vorgabe.readAllBytes(), StandardCharsets.UTF_8).lines().toList(), "Vorgabe " + pfad.getFileName());
+            } catch (IOException e) {
+                fehler.add("Vorgabe " + pfad.getFileName() + ": " + e.getMessage());
+            }
+        }
+        if (Files.exists(pfad)) {
+            try {
+                zeilenLesen(Files.readAllLines(pfad, StandardCharsets.UTF_8), pfad.getFileName().toString());
+            } catch (IOException e) {
+                fehler.add(pfad + ": " + e.getMessage());
+            }
+        }
+    }
+
     boolean lesen(Path pfad) {
         return lesen(pfad, null);
     }
@@ -116,12 +139,19 @@ final class Keymap {
     private void zeilenLesen(List<String> zeilen, String datei) {
         String modus = null, lay = null;
         int nr = 0;
+        StringBuilder kommentar = new StringBuilder();
         for (String roh : zeilen) {
             nr++;
             String z = roh.trim();
+            if (modus == null && lay == null) {
+                // Kommentar direkt ueber "mode NAME {" beschreibt den Mode
+                if (z.startsWith("#") && !z.startsWith("# = ")) kommentar.append(kommentar.length() > 0 ? " " : "").append(z.substring(1).strip());
+                else if (z.isEmpty()) kommentar.setLength(0);
+            }
             // "# = ..." belegt die Taste #, sonst ist # ein Kommentar
             if (z.isEmpty() || (z.startsWith("#") && !z.startsWith("# = ")) || z.startsWith("//")) continue;
             if (z.equals("}")) {
+                kommentar.setLength(0);
                 if (modus == null && lay == null) fehler.add(datei + ":" + nr + ": } ohne Block");
                 modus = null;
                 lay = null;
@@ -130,6 +160,7 @@ final class Keymap {
             String w0 = wort(z, 0);
             if (modus == null && lay == null) {
                 if (w0.equals("set")) {
+                    kommentar.setLength(0);
                     switch (wort(z, 1)) {
                         case "layout" -> layout = wort(z, 2);
                         case "start" -> start = wort(z, 2);
@@ -144,6 +175,8 @@ final class Keymap {
                         // zweiter Block ergaenzt den ersten
                         Mode m = modes.computeIfAbsent(name, k -> new Mode());
                         if (!eltern.isEmpty()) m.eltern = eltern;
+                        if (kommentar.length() > 0) m.text = kommentar.toString();
+                        kommentar.setLength(0);
                         modus = name;
                     } else {
                         Layout l = new Layout();
@@ -169,6 +202,12 @@ final class Keymap {
             }
             String f = folge(links);
             Mode md = modes.get(modus);
+            // gleiche Belegung wie die Vorgabe: Quelle bleibt die Vorgabe (keymap.config ist anfangs eine Kopie)
+            String[] alt = md.zeigen.get(f);
+            if (alt == null || !alt[0].equals(rechts)) {
+                md.zeigen.remove(f);
+                md.zeigen.put(f, new String[] {rechts, datei});
+            }
             if (f.contains("DIGIT")) {
                 // DIGIT steht fuer 0-9; die Ziffer kommt als letztes Argument zum Befehl
                 for (char d = '0'; d <= '9'; d++) belegen(md, f.replace("DIGIT", String.valueOf(d)), rechts + " " + d);

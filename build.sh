@@ -21,6 +21,8 @@ rm -rf out
 mkdir -p out
 javac --release 17 -encoding UTF-8 -d out $(find src -name '*.java')
 cp -R resources/. out/
+# Beschreibungen der Befehle aus den @binding-Javadocs (fuer den Befehl bindings)
+java tools/BindingDoku.java src out/vorgaben/befehle.txt
 if [ -z "$OHNE_JDTLS" ]; then
   mkdir -p out/jdtls
   for d in plugins features config_win config_mac config_mac_arm config_linux config_linux_arm; do
