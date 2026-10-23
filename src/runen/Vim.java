@@ -42,6 +42,10 @@ final class Vim {
     // Register
     final Map<Character, Reg> regs = new HashMap<>();
     char regWahl;
+    /** Speicherbaenke fuer Strg+C/Strg+V mit Ziffer; 0 ist die Systemzwischenablage */
+    private final Reg[] baenke = new Reg[10];
+    /** naechstes Schreiben bzw. Lesen eines Registers geht an diese Bank (-1: normal) */
+    int bankZiel = -1, bankQuelle = -1;
     // f/t/F/T fuer ; und ,
     private String letztesF;
     private String letztesFZeichen;
@@ -120,7 +124,29 @@ final class Vim {
     }
 
     // ================================================================ Register
+    void bankSetzen(int n, Reg g) {
+        baenke[n] = g;
+        if (n == 0) Editor.zwischenablage(g.text());
+    }
+
+    Reg bank(int n) {
+        if (n != 0) return baenke[n];
+        String t = Editor.ausZwischenablage();
+        if (t == null) return null;
+        t = t.replace("\r\n", "\n");
+        // selbst kopiert: Art (Zeilen, Block) behalten
+        if (baenke[0] != null && baenke[0].text().equals(t)) return baenke[0];
+        return new Reg(t, t.endsWith("\n") ? ZEILEN : ZEICHEN);
+    }
+
     void regSchreiben(String text, int art, boolean yank) {
+        if (bankZiel >= 0) {
+            int b = bankZiel;
+            bankZiel = -1;
+            regWahl = 0;
+            bankSetzen(b, new Reg(text, art));
+            return;
+        }
         char r = regWahl;
         regWahl = 0;
         if (r == '_') return;
@@ -151,6 +177,12 @@ final class Vim {
     }
 
     Reg regLesen() {
+        if (bankQuelle >= 0) {
+            int b = bankQuelle;
+            bankQuelle = -1;
+            regWahl = 0;
+            return bank(b);
+        }
         char r = regWahl;
         regWahl = 0;
         if (r == '+' || r == '*') {

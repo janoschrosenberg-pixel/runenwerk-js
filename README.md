@@ -165,6 +165,29 @@ Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (um
 - **Ex** `:w :q :q! :wq :x :e DATEI :N :$`, `:s/a/b/g`, `:%s/…/…/gi`, `:'<,'>s/…`, `:5,10s/…` (Vim-Muster mit `\( \) \| \< \>`, Ersatz mit `& \1 \r`)
 - **Insert-Mode**: `Strg+W` (Wort löschen), `Strg+U`, `Strg+T`/`Strg+D` (Einrückung), `Strg+H`, `Strg+C`/`Strg+[` wie ESC
 
+## Kopieren und Einfügen: 10 Speicherbänke
+
+`Strg+C Ziffer` kopiert, `Strg+V Ziffer` fügt ein (die Ziffer darf mit oder ohne gehaltenes Strg kommen).
+Bank `0` ist die Systemzwischenablage, `1`–`9` sind eigene Ablagen im Editor. Das gilt überall:
+
+| Wo | Strg+C Ziffer | Strg+V Ziffer |
+|---|---|---|
+| Normal-Mode | aktuelle Zeile | hinter dem Cursor (wie `p`) |
+| Visual-Mode (auch Block) | Auswahl | ersetzt die Auswahl |
+| Insert-Mode | aktuelle Zeile | am Cursor |
+| Terminal-Eingabe, `:`-Zeile, Fenster (Commit-Nachricht, Arbeitsordner …) | Eingabe | in die Eingabe |
+| Auswahlliste (Branch, Konto, Profil …) | gewählter Eintrag | in den Filter (z. B. neuer Branch-Name) |
+| Dateimanager | Suchtext bzw. Pfad der gewählten Datei | ins Suchfeld |
+| Ergebnistabelle | Zelle; auf der Kopfzeile die ganze Spalte | – |
+| Debug-Panel | Wert der Variable | – |
+
+Ohne Ziffer bleibt alles wie gewohnt: `Strg+V j` ist weiter die Block-Auswahl (eindeutig auch mit `Strg+Shift+V`),
+`Strg+C` beendet den Insert-Mode bzw. bricht im Terminal den Befehl ab (sofort bei der nächsten Taste, sonst nach 1 s).
+In der Ergebnistabelle kopiert auch `y` auf der Kopfzeile die ganze Spalte.
+
+In eigenen Belegungen steht `DIGIT` für eine Ziffer 0–9, die als letztes Argument an den Befehl geht
+(`Ctrl-c DIGIT = bankCopy`).
+
 ## Weitere Tasten
 
 | Taste | Befehl |

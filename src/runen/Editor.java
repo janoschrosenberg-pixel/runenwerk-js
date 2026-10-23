@@ -653,6 +653,9 @@ final class Editor {
             merken(null);
             d().einfuegen(d().cursor, s.replace("\r\n", "\n"));
         });
+        // Speicherbaenke: Strg+C/Strg+V mit Ziffer, 0 ist die Systemzwischenablage
+        reg("bankCopy", a -> bankKopieren(bankNr(a)));
+        reg("bankPaste", a -> bankEinfuegen(bankNr(a)));
         reg("openLineBelow", a -> {
             Doc d = d();
             merken(null);
@@ -1184,6 +1187,88 @@ final class Editor {
         } catch (NumberFormatException e) {
             return vorgabe;
         }
+    }
+
+    private int bankNr(String a) {
+        String t = a.strip();
+        if (t.length() == 1 && Character.isDigit(t.charAt(0))) return t.charAt(0) - '0';
+        fehler("Speicherbank 0-9 erwartet: " + a);
+        return -1;
+    }
+
+    private static String bankName(int n) {
+        return n == 0 ? "Zwischenablage" : "Ablage " + n;
+    }
+
+    /** Strg+C Ziffer: je nach Mode die Auswahl, die Zeile, das Eingabefeld, die Zelle ... */
+    private void bankKopieren(int n) {
+        if (n < 0) return;
+        Doc d = d();
+        String t = null;
+        switch (modus) {
+            case "visual" -> {
+                vim.bankZiel = n;
+                ausfuehren("visualOp y", 0);
+                boolean ok = vim.bankZiel < 0;
+                vim.bankZiel = -1;
+                if (ok) meldung = "Auswahl -> " + bankName(n);
+                return;
+            }
+            case "normal", "insert", "replace" -> {
+                vim.bankSetzen(n, new Vim.Reg(d.zeile(d.zeileVon(d.cursor)) + "\n", Vim.ZEILEN));
+                meldung = "Zeile -> " + bankName(n);
+                return;
+            }
+            case "terminal" -> t = d.term == null ? null : d.term.eingabe.toString();
+            case "console" -> t = eingabe.toString();
+            case "popup" -> t = popupEingabe.toString();
+            case "picker" -> t = wz.auswahlText();
+            case "fmsearch", "commander" -> t = fm.kopierText();
+            case "result" -> t = wz.tabellenText();
+            case "debug" -> t = wz.dbg.kopierText();
+            default -> {
+            }
+        }
+        if (t == null || t.isEmpty()) {
+            meldung = "nichts zu kopieren";
+            return;
+        }
+        vim.bankSetzen(n, new Vim.Reg(t, t.endsWith("\n") ? Vim.ZEILEN : Vim.ZEICHEN));
+        meldung = (modus.equals("result") && t.endsWith("\n") ? "Spalte" : "Text") + " -> " + bankName(n);
+    }
+
+    /** Strg+V Ziffer: einfuegen, in einzeiligen Feldern ohne Zeilenumbrueche */
+    private void bankEinfuegen(int n) {
+        if (n < 0) return;
+        Vim.Reg r = vim.bank(n);
+        if (r == null || r.text().isEmpty()) {
+            meldung = bankName(n) + " ist leer";
+            return;
+        }
+        String t = r.text(), zeile = t.replaceAll("[\\r\\n]+", " ").strip();
+        switch (modus) {
+            case "normal" -> {
+                vim.bankQuelle = n;
+                vim.paste(false);
+            }
+            case "visual" -> {
+                vim.bankQuelle = n;
+                ausfuehren("visualOp p", 0);
+            }
+            case "insert", "replace" -> {
+                merken(null);
+                d().einfuegen(d().cursor, t);
+            }
+            case "terminal" -> {
+                if (d().term != null) d().term.zeichen(zeile);
+            }
+            case "console" -> eingabe.append(zeile);
+            case "popup" -> popupEingabe.append(zeile);
+            case "picker" -> wz.auswahlEinfuegen(zeile);
+            case "fmsearch", "commander" -> fm.einfuegen(zeile);
+            default -> meldung = "hier kann nichts eingefuegt werden";
+        }
+        vim.bankQuelle = -1;
     }
 
     static void zwischenablage(String s) {

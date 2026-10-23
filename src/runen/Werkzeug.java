@@ -1190,6 +1190,29 @@ final class Werkzeug {
         t.es = Math.max(0, Math.min(t.erg.spalten().size() - 1, t.es + ds));
     }
 
+    /** Strg+C / y in der Tabelle: die Zelle, auf der Kopfzeile die ganze Spalte (gefilterte Zeilen untereinander) */
+    String tabellenText() {
+        Tabelle t = tabelle();
+        if (t == null) return null;
+        if (t.ez >= 0) return zelle();
+        if (t.es < 0 || t.es >= t.erg.spalten().size()) return null;
+        StringBuilder b = new StringBuilder();
+        for (String[] z : t.zeilen()) b.append(z[t.es] == null ? "" : z[t.es]).append('\n');
+        return b.toString();
+    }
+
+    /** Strg+C in der Auswahlliste: der gewaehlte Eintrag (bei "neu erstellen" der getippte Name) */
+    String auswahlText() {
+        if (auswahlListe.isEmpty()) return auswahlFilter.toString();
+        String w = auswahlListe.get(Math.min(auswahlWahl, auswahlListe.size() - 1));
+        return neuText != null && w.startsWith(neuText) ? w.substring(neuText.length()).strip() : w;
+    }
+
+    void auswahlEinfuegen(String s) {
+        auswahlFilter.append(s);
+        filtern();
+    }
+
     private String zelle() {
         Tabelle t = tabelle();
         if (t == null || t.ez < 0 || t.ez >= t.zeilen().size()) return null;
@@ -2246,10 +2269,10 @@ final class Werkzeug {
         c.put("resultHome", a -> ergBewegen(0, -Integer.MAX_VALUE / 2));
         c.put("resultEnd", a -> ergBewegen(0, Integer.MAX_VALUE / 2));
         c.put("resultYank", a -> {
-            String v = zelle();
+            String v = tabellenText();
             if (v == null) return;
             Editor.zwischenablage(v);
-            ed.meldung = "Zelle kopiert";
+            ed.meldung = tabelle().ez < 0 ? "Spalte kopiert (Werte untereinander)" : "Zelle kopiert";
         });
         c.put("resultYankRow", a -> {
             Tabelle t = tabelle();

@@ -85,6 +85,20 @@ final class FileManager {
         return panel(aktiv);
     }
 
+    /** Text fuer Strg+C: im Suchfeld die Suche, sonst der Pfad des gewaehlten Eintrags */
+    String kopierText() {
+        if (ed.modus.equals("fmsearch")) return suche.toString();
+        Eintrag e = auswahl();
+        return e == null || e.pfad == null ? null : e.pfad.toString();
+    }
+
+    /** Strg+V: ins Suchfeld */
+    void einfuegen(String s) {
+        ed.modus = "fmsearch";
+        suche.append(s);
+        spaeterSuchen();
+    }
+
     private Eintrag auswahl() {
         Panel p = akt();
         return p.cursor >= 0 && p.cursor < p.e.size() ? p.e.get(p.cursor) : null;

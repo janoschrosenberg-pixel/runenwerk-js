@@ -316,14 +316,19 @@ final class Debug {
             if (varWahl < l.size()) aufklappen((Var) l.get(varWahl)[0]);
         });
         c.put("debugYank", a -> {
-            List<Object[]> l = new ArrayList<>();
-            flach(vars, 0, l);
-            if (varWahl < l.size()) {
-                Var v = (Var) l.get(varWahl)[0];
-                Editor.zwischenablage(v.wert);
+            String w = kopierText();
+            if (w != null) {
+                Editor.zwischenablage(w);
                 ed.meldung = "Wert kopiert";
             }
         });
+    }
+
+    /** Wert der gewaehlten Variable (Strg+C) */
+    String kopierText() {
+        List<Object[]> l = new ArrayList<>();
+        flach(vars, 0, l);
+        return varWahl < l.size() ? ((Var) l.get(varWahl)[0]).wert : null;
     }
 
     private void bewegen(int d) {

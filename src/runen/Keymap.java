@@ -41,7 +41,7 @@ final class Keymap {
     final List<String> fehler = new ArrayList<>();
 
     private static final Set<String> NAMEN = Set.of("ESC", "ENTER", "TAB", "BACKSPACE", "DELETE", "INSERT", "UP", "DOWN", "LEFT", "RIGHT",
-            "HOME", "END", "PGUP", "PGDN", "SPACE", "ANY");
+            "HOME", "END", "PGUP", "PGDN", "SPACE", "ANY", "DIGIT");
 
     static boolean sonder(String w) {
         if (NAMEN.contains(w)) return true;
@@ -169,12 +169,21 @@ final class Keymap {
             }
             String f = folge(links);
             Mode md = modes.get(modus);
-            for (int p = 0; p < f.length(); p++) {
-                if (f.charAt(p) == ' ') md.pre.add(f.substring(0, p));
+            if (f.contains("DIGIT")) {
+                // DIGIT steht fuer 0-9; die Ziffer kommt als letztes Argument zum Befehl
+                for (char d = '0'; d <= '9'; d++) belegen(md, f.replace("DIGIT", String.valueOf(d)), rechts + " " + d);
+            } else {
+                belegen(md, f, rechts);
             }
-            md.bind.put(f, rechts);
         }
         if (modus != null || lay != null) fehler.add(datei + ":" + nr + ": } fehlt am Ende");
+    }
+
+    private static void belegen(Mode md, String f, String rechts) {
+        for (int p = 0; p < f.length(); p++) {
+            if (f.charAt(p) == ' ') md.pre.add(f.substring(0, p));
+        }
+        md.bind.put(f, rechts);
     }
 
     /** Belegung einer Folge im Mode (mit seinen Eltern) oder null */
