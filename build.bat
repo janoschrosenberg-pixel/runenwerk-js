@@ -10,6 +10,7 @@ if not defined OHNE_JDTLS if not exist vendor\jdtls\1.61.0 (
   del vendor\jdtls.tar.gz
   type nul > vendor\jdtls\1.61.0
 )
+if not defined OHNE_JDTLS if not exist vendor\lombok-1.18.48.jar curl -sSL -o vendor\lombok-1.18.48.jar https://repo1.maven.org/maven2/org/projectlombok/lombok/1.18.48/lombok-1.18.48.jar || exit /b 1
 if exist out rmdir /s /q out
 mkdir out
 dir /s /b src\*.java > out\quellen.txt
@@ -18,7 +19,8 @@ del out\quellen.txt
 xcopy /e /i /q resources out >nul
 if not defined OHNE_JDTLS (
   for %%d in (plugins features config_win config_mac config_mac_arm config_linux config_linux_arm) do if exist vendor\jdtls\%%d xcopy /e /i /q vendor\jdtls\%%d out\jdtls\%%d >nul
-  dir /b vendor\jdtls\plugins\org.eclipse.jdt.ls.core_* > out\jdtls\VERSION
+  copy /y vendor\lombok-1.18.48.jar out\jdtls\lombok.jar >nul
+  for /f %%v in ('dir /b vendor\jdtls\plugins\org.eclipse.jdt.ls.core_*') do echo %%v lombok-1.18.48> out\jdtls\VERSION
 )
 jar --create --file runenjs.jar --main-class runen.Main -C out . || exit /b 1
 echo fertig: runenjs.jar  (starten: run.bat [ARBEITSORDNER])

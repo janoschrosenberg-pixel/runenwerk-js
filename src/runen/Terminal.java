@@ -32,6 +32,9 @@ final class Terminal {
     private final List<String> verlauf = new ArrayList<>();
     private int verlaufPos;
     volatile boolean laeuft;
+    /** einmal aufgerufen, wenn der laufende Befehl fertig ist (Exit-Code, im Swing-Faden) */
+    java.util.function.IntConsumer danach;
+    private java.util.function.IntConsumer faellig;
     private int letzterCode;
 
     Terminal(Editor ed, Doc doc, Path ordner, int nr) {
@@ -101,6 +104,13 @@ final class Terminal {
                     zeile.setLength(0);
                 }
                 if (fertig.length() > 0) schreiben(fertig.toString());
+                // erst nach der Ausgabe des Befehls: Rueckmeldung
+                if (faellig != null) {
+                    java.util.function.IntConsumer f = faellig;
+                    faellig = null;
+                    int code = letzterCode;
+                    SwingUtilities.invokeLater(() -> f.accept(code));
+                }
             }
         } catch (IOException e) {
             // Shell beendet
@@ -136,6 +146,8 @@ final class Terminal {
         }
         laeuft = false;
         if (letzterCode != 0) fertig.append("[Exit-Code ").append(letzterCode).append("]\n");
+        faellig = danach;
+        danach = null;
     }
 
     /** Text ans Ende des Tabs (im Swing-Faden); folgt der Cursor dem Ende, bleibt er dort */

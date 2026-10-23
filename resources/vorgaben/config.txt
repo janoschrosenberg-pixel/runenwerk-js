@@ -19,6 +19,8 @@ ts.lsp = typescript-language-server --stdio
 # Nur fuer ein eigenes jdtls: Ordner angeben (oder java.lsp = Befehl im PATH); java.lsp = off schaltet ihn ab
 java.lsp.home =
 java.lsp = jdtls
+# Lombok fuer jdtls (-javaagent): auto = eingebaute lombok.jar, off = aus, oder Pfad zu einer lombok.jar
+java.lombok = auto
 # Java 21+ fuer jdtls (leer: wird gesucht - das laufende Java, JAVA_HOME, uebliche JDK-Ordner) und sein Speicher
 java.lsp.java =
 java.lsp.memory = 2G
@@ -45,13 +47,32 @@ db.autocommit = off
 # db.account.dev = jdbc:oracle:thin:@//localhost:1521/XEPDB1 | scott | tiger
 # db.account.test = jdbc:oracle:thin:@//testhost:1521/TEST | app | geheim
 
-# ---------------------------------------------------------------- Spring Boot (Leertaste a a / a p / a d / a x)
+# ---------------------------------------------------------------- Startkonfigurationen (Leertaste a a starten, a d debuggen, a x stoppen)
+# Wie in IntelliJ unter Run > Edit Configurations > Application; beliebig viele, NAME frei waehlbar.
+# Gestartet wird in einem Terminal-Tab: Maven baut das Modul und holt den Klassenpfad, dann startet java.
+# run.NAME.java      = C:/Program Files/Java/jdk-21          JRE (Ordner des JDK oder java.exe; leer: Java 21+ suchen)
+# run.NAME.module    = mein-modul                            -cp: Maven-Modul (artifactId wie in IntelliJ, oder Ordner)
+# run.NAME.mainClass = de.firma.MeineApplication             Main class
+# run.NAME.args      = --spring.profiles.active=dev          Program arguments
+# run.NAME.vmArgs    = -Xmx1g                                VM options
+# run.NAME.workdir   = C:/projekte/backend                   Working directory (leer: java.workspace)
+# run.NAME.env       = VAR=wert; VAR1=wert1                  Environment variables
+# run.NAME.provided  = on                                    Add dependencies with "provided" scope to classpath
+
+# ---------------------------------------------------------------- Spring Boot automatisch (ohne run.NAME.*): Leertaste a a / a p / a d / a x
 # Profil fuer Leertaste a a und den Debugger; weitere Profile fuer die Auswahl (dazu kommen application-*.yml)
 spring.profile = dev
 spring.profiles = dev
 # Modul (Ordner relativ zu java.workspace) und Klasse mit main; leer = Klasse mit @SpringBootApplication suchen
 spring.module =
 spring.mainClass =
+# Maven: java = wie IntelliJ (Modul bauen, Klassenpfad mit provided holen, Main-Klasse mit java starten);
+# maven = mvn spring-boot:run
+spring.start = java
+# Java fuer die Anwendung (leer: Java 21+ suchen, sonst java im PATH), zusaetzliche VM- und Programm-Argumente
+spring.java =
+spring.vmArgs =
+spring.args =
 # eigener Startbefehl statt mvnw/gradlew ({profile}, {port}); leer = automatisch
 spring.run =
 spring.debug =

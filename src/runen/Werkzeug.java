@@ -865,11 +865,41 @@ final class Werkzeug {
         boolean arm = System.getProperty("os.arch").contains("aarch64") || System.getProperty("os.arch").contains("arm");
         Path cfg = h.resolve("config_" + sys + (arm ? "_arm" : ""));
         if (!Files.isDirectory(cfg)) cfg = h.resolve("config_" + sys);
-        return new ArrayList<>(List.of(java, "-Declipse.application=org.eclipse.jdt.ls.core.id1", "-Dosgi.bundles.defaultStartLevel=4",
+        List<String> l = new ArrayList<>(List.of(java, "-Declipse.application=org.eclipse.jdt.ls.core.id1", "-Dosgi.bundles.defaultStartLevel=4",
                 "-Declipse.product=org.eclipse.jdt.ls.core.product", "-Dosgi.checkConfiguration=true", "-Dosgi.sharedConfiguration.area=" + cfg,
                 "-Dosgi.sharedConfiguration.area.readOnly=true", "-Dosgi.configuration.cascaded=true", "-Xms256m", "-Xmx" + ed.kf.get("java.lsp.memory", "2G"),
-                "--add-modules=ALL-SYSTEM", "--add-opens", "java.base/java.util=ALL-UNNAMED", "--add-opens", "java.base/java.lang=ALL-UNNAMED", "-jar",
-                launcher.toString(), "-configuration", konfigOrdner(launcher).toString(), "-data", datenOrdner().toString()));
+                "--add-modules=ALL-SYSTEM", "--add-opens", "java.base/java.util=ALL-UNNAMED", "--add-opens", "java.base/java.lang=ALL-UNNAMED"));
+        // Lombok als Agent, sonst meldet jdtls Fehler fuer @Getter, @Data, @Builder ...
+        Path lombok = lombokJar(h);
+        if (lombok != null) l.add("-javaagent:" + lombok);
+        l.addAll(List.of("-jar", launcher.toString(), "-configuration", konfigOrdner(launcher).toString(), "-data", datenOrdner().toString()));
+        return l;
+    }
+
+    /** lombok.jar: java.lombok aus config.txt, sonst die eingebaute (neben jdtls), sonst die neueste aus ~/.m2 */
+    private Path lombokJar(Path jdtls) {
+        String e = ed.kf.get("java.lombok", "auto");
+        if (e.equals("off")) return null;
+        if (!e.equals("auto")) {
+            Path p = ed.konfig.resolve(e).toAbsolutePath().normalize();
+            if (Files.isRegularFile(p)) return p;
+            ed.farbig("java.lombok: Datei fehlt: " + p, E_WARN);
+        }
+        Path eigen = jdtls.resolve("lombok.jar");
+        if (Files.isRegularFile(eigen)) return eigen;
+        Path repo = Path.of(System.getProperty("user.home"), ".m2", "repository", "org", "projectlombok", "lombok");
+        try (Stream<Path> st = Files.list(repo)) {
+            return st.filter(Files::isDirectory).sorted(java.util.Comparator.comparing((Path p) -> versionsSchluessel(p.getFileName().toString())).reversed())
+                    .map(v -> v.resolve("lombok-" + v.getFileName() + ".jar")).filter(Files::isRegularFile).findFirst().orElse(null);
+        } catch (IOException ex) {
+            return null;
+        }
+    }
+
+    private static String versionsSchluessel(String v) {
+        StringBuilder b = new StringBuilder();
+        for (String t : v.split("[.-]")) b.append(String.format("%08d", t.matches("\\d+") ? Integer.parseInt(t) : 0));
+        return b.toString();
     }
 
     /** rechts in der Statuszeile */
@@ -1619,6 +1649,13 @@ final class Werkzeug {
             ed.fehler("die Anwendung laeuft schon in " + springTab.name() + " (Leertaste a x stoppt sie)");
             return;
         }
+        // wie IntelliJ: Klassenpfad des Moduls von Maven holen und die Main-Klasse direkt mit java starten
+        if (Files.exists(ed.javaOrdner.resolve("pom.xml")) && ed.kf.get("spring.start", "java").equals("java") && ed.kf.get(debug ? "spring.debug" : "spring.run", null) == null
+                && bootApp != null && bootApp.klasse() != null) {
+            Map<String, String> env = Map.of();
+            javaStart(new Lauf("auto", null, bootApp.modul(), bootApp.klasse(), "", "-Dspring.profiles.active=" + profil, ed.javaOrdner, env, true), debug);
+            return;
+        }
         String b = springBefehl(profil, debug, bootApp);
         if (b == null) {
             ed.fehler("weder pom.xml noch build.gradle in " + ed.javaOrdner + " (oder spring.run in config.txt setzen)");
@@ -1639,6 +1676,204 @@ final class Werkzeug {
         ed.meldung = "Spring Boot startet mit Profil " + profil + (bootApp != null && bootApp.klasse() != null ? " (" + bootApp.klasse() + ")" : "")
                 + " - Ausgabe im Tab " + springTab.name();
         if (debug) javaVerbinden();
+    }
+
+    /**
+     * Startkonfiguration mit den Feldern von IntelliJs Application-Dialog (run.NAME.* in config.txt):
+     * JRE, Modul (-cp), Main-Klasse, Program arguments, VM options, Working directory, Environment
+     * variables, "Add dependencies with provided scope to classpath".
+     */
+    record Lauf(String name, String java, Path modul, String klasse, String args, String vmArgs, Path workdir, Map<String, String> env,
+            boolean provided) {}
+
+    private static final List<String> LAUF_FELDER = List.of("java", "module", "mainClass", "args", "vmArgs", "workdir", "env", "provided");
+    private String letzterLauf;
+
+    /** alle run.NAME.feld-Eintraege aus config.txt, in der Reihenfolge der Datei */
+    List<Lauf> laeufe() {
+        Map<String, Map<String, String>> roh = new java.util.LinkedHashMap<>();
+        for (var e : ed.kf.mitAnfang("run.").entrySet()) {
+            String k = e.getKey();
+            int p = k.lastIndexOf('.');
+            if (p <= 0 || !LAUF_FELDER.contains(k.substring(p + 1))) continue;
+            roh.computeIfAbsent(k.substring(0, p), x -> new java.util.HashMap<>()).put(k.substring(p + 1), e.getValue());
+        }
+        List<Lauf> r = new ArrayList<>();
+        for (var e : roh.entrySet()) {
+            Map<String, String> f = e.getValue();
+            if (f.get("mainClass") == null) {
+                ed.fehler("run." + e.getKey() + ".mainClass fehlt in config.txt");
+                continue;
+            }
+            Path basis = ed.javaOrdner != null ? ed.javaOrdner : ed.konfig;
+            Path modul = modulOrdner(f.get("module"));
+            if (modul == null) {
+                ed.fehler("run." + e.getKey() + ".module: Modul " + f.get("module") + " nicht gefunden (artifactId oder Ordner im java.workspace)");
+                continue;
+            }
+            Map<String, String> env = new java.util.LinkedHashMap<>();
+            for (String x : f.getOrDefault("env", "").split(";")) {
+                int g = x.indexOf('=');
+                if (g > 0) env.put(x.substring(0, g).strip(), x.substring(g + 1).strip());
+            }
+            String wd = f.get("workdir");
+            String pr = f.getOrDefault("provided", "on").toLowerCase();
+            r.add(new Lauf(e.getKey(), f.get("java"), modul, f.get("mainClass"), f.getOrDefault("args", ""), f.getOrDefault("vmArgs", ""),
+                    wd == null || wd.isBlank() ? basis : basis.resolve(wd).normalize(), env, !(pr.equals("off") || pr.equals("false") || pr.equals("nein"))));
+        }
+        return r;
+    }
+
+    /** Maven-Modul nach artifactId (wie IntelliJ es nennt) oder Ordnername; leer = java.workspace */
+    private Path modulOrdner(String modul) {
+        Path j = ed.javaOrdner;
+        if (j == null) return null;
+        if (modul == null || modul.isBlank()) return j;
+        Path direkt = j.resolve(modul.strip());
+        if (Files.exists(direkt.resolve("pom.xml"))) return direkt;
+        try (Stream<Path> st = Files.walk(j, 6)) {
+            for (Path pom : st.filter(p -> p.getFileName().toString().equals("pom.xml") && !p.toString().contains("node_modules")
+                    && !p.toString().contains(java.io.File.separator + "target" + java.io.File.separator)).toList()) {
+                String t = Files.readString(pom, StandardCharsets.UTF_8).replaceAll("(?s)<parent>.*?</parent>", "").replaceAll("(?s)<dependencies>.*", "");
+                Matcher m = Pattern.compile("<artifactId>\\s*([^<\\s]+)\\s*</artifactId>").matcher(t);
+                if ((m.find() && m.group(1).equals(modul.strip())) || pom.getParent().getFileName().toString().equals(modul.strip())) return pom.getParent();
+            }
+        } catch (IOException e) {
+            // unten gemeldet
+        }
+        return null;
+    }
+
+    /** Leertaste a a / a d: eine Startkonfiguration waehlen (zuletzt benutzte oben) und starten */
+    private void laufWaehlen(boolean debug) {
+        List<Lauf> l = laeufe();
+        if (l.isEmpty()) return;
+        if (l.size() == 1) {
+            javaStart(l.get(0), debug);
+            return;
+        }
+        List<String> namen = new ArrayList<>();
+        for (Lauf x : l) namen.add(x.name());
+        if (letzterLauf != null && namen.remove(letzterLauf)) namen.add(0, letzterLauf);
+        auswahl((debug ? "Debuggen: " : "Starten: ") + "Startkonfiguration", namen, null, n -> {
+            for (Lauf x : l) if (x.name().equals(n)) javaStart(x, debug);
+        });
+    }
+
+    /**
+     * Start wie in IntelliJ: 1. Maven baut das Modul (mit seinen Abhaengigkeiten im Projekt) und schreibt
+     * den Klassenpfad (compile mit provided bzw. nur runtime) in Dateien; 2. java startet die Main-Klasse
+     * (Klassenpfad ueber eine Argumentdatei, Windows vertraegt keine so langen Zeilen).
+     */
+    private void javaStart(Lauf lauf, boolean debug) {
+        Path j = ed.javaOrdner;
+        if (j == null) {
+            ed.fehler("kein java.workspace in config.txt");
+            return;
+        }
+        if (springLaeuft()) {
+            if (debug && appDebug) {
+                javaVerbinden();
+                return;
+            }
+            ed.aktiv = ed.tabs.indexOf(springTab);
+            ed.fehler("laeuft schon in " + springTab.name() + " (Leertaste a x stoppt)");
+            return;
+        }
+        letzterLauf = lauf.name();
+        boolean win = Lsp.WINDOWS;
+        String rel = j.relativize(lauf.modul()).toString().replace('\\', '/');
+        String mvn = Files.exists(j.resolve(win ? "mvnw.cmd" : "mvnw")) ? (win ? "mvnw.cmd" : "./mvnw") : "mvn";
+        Path ordner = ed.konfig.resolve("spring");
+        Path cpC = ordner.resolve("cp-compile.txt"), cpR = ordner.resolve("cp-runtime.txt"), argDatei = ordner.resolve("java-args.txt");
+        try {
+            Files.createDirectories(ordner);
+            Files.deleteIfExists(cpC);
+            Files.deleteIfExists(cpR);
+        } catch (IOException e) {
+            ed.fehler("Ordner " + ordner + ": " + e.getMessage());
+            return;
+        }
+        String pl = rel.isEmpty() ? "" : " -pl " + rel;
+        // Maven immer im java.workspace (das Terminal steht nach einem Start im Arbeitsordner der Konfiguration)
+        String bauen = (win ? "cd /d \"" : "cd \"") + j + "\" && " + (rel.isEmpty() ? mvn + " -B compile" : mvn + " -B install -DskipTests" + pl + " -am");
+        // compile enthaelt provided; ohne provided nur runtime (= compile + runtime ohne provided)
+        String cp = (lauf.provided() ? mvn + " -q" + pl + " dependency:build-classpath -Dmdep.includeScope=compile \"-Dmdep.outputFile=" + cpC + "\" && " : "")
+                + mvn + " -q" + pl + " dependency:build-classpath -Dmdep.includeScope=runtime \"-Dmdep.outputFile=" + cpR + "\"";
+        if (springTab != null && ed.tabs.contains(springTab) && springTab.term != null) ed.aktiv = ed.tabs.indexOf(springTab);
+        else springTab = ed.terminalOeffnen(j, "run");
+        Terminal t = springTab.term;
+        String titel = lauf.name().equals("auto") ? "spring" : lauf.name();
+        t.titel = titel + (debug ? " debug" : "");
+        appDebug = debug;
+        t.danach = code -> {
+            if (code != 0) {
+                ed.fehler("Bauen fehlgeschlagen (Exit-Code " + code + ") - Ausgabe im Tab " + springTab.name());
+                return;
+            }
+            String start = javaBefehl(lauf, debug, lauf.provided() ? List.of(cpC, cpR) : List.of(cpR), argDatei);
+            if (start == null) return;
+            t.eingabe.setLength(0);
+            t.eingabe.append(start);
+            t.ausfuehren();
+            ed.meldung = (debug ? "Debug: " : "Start: ") + lauf.klasse() + " - Ausgabe im Tab " + springTab.name();
+            if (debug) javaVerbinden();
+            ed.neuMalen.run();
+        };
+        t.eingabe.setLength(0);
+        t.eingabe.append(bauen + " && " + cp);
+        t.ausfuehren();
+        ed.modus = "normal";
+        ed.meldung = "baue " + (rel.isEmpty() ? Editor.name(j) : rel) + " und hole den Klassenpfad - danach startet " + lauf.klasse() + (debug ? " (Debug)" : "");
+    }
+
+    /** java-Befehl: Arbeitsordner, Umgebungsvariablen, JRE, Argumentdatei (-cp), VM options, Main-Klasse, Program arguments */
+    private String javaBefehl(Lauf lauf, boolean debug, List<Path> klassenpfade, Path argDatei) {
+        java.util.LinkedHashSet<String> teile = new java.util.LinkedHashSet<>();
+        teile.add(lauf.modul().resolve("target").resolve("classes").toString());
+        for (Path f : klassenpfade) {
+            try {
+                for (String x : Files.readString(f, StandardCharsets.UTF_8).strip().split(java.util.regex.Pattern.quote(java.io.File.pathSeparator))) {
+                    if (!x.isBlank()) teile.add(x.strip());
+                }
+            } catch (IOException e) {
+                ed.fehler("Klassenpfad fehlt (" + f.getFileName() + "): " + e.getMessage());
+                return null;
+            }
+        }
+        // in Argumentdateien ist \ ein Escape-Zeichen: Pfade mit /
+        String klassenpfad = String.join(java.io.File.pathSeparator, teile).replace('\\', '/');
+        try {
+            Files.writeString(argDatei, "-cp \"" + klassenpfad + "\"\n", StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            ed.fehler("Argumentdatei: " + e.getMessage());
+            return null;
+        }
+        String java = lauf.java() != null ? lauf.java() : ed.kf.get("spring.java", null);
+        if (java != null) {
+            // JRE wie in IntelliJ: Ordner des JDK oder die java(.exe) selbst
+            Path p = Path.of(java);
+            if (Files.isDirectory(p)) p = p.resolve("bin").resolve(Lsp.WINDOWS ? "java.exe" : "java");
+            java = p.toString();
+        } else {
+            Path p = Laden.javaAb(21);
+            java = p != null ? p.toString() : "java";
+        }
+        int port = ed.kf.zahl("debug.java.port", 5005);
+        StringBuilder b = new StringBuilder();
+        boolean win = Lsp.WINDOWS;
+        b.append(win ? "cd /d \"" : "cd \"").append(lauf.workdir()).append("\" && ");
+        for (var e : lauf.env().entrySet()) {
+            if (win) b.append("set \"").append(e.getKey()).append('=').append(e.getValue()).append("\" && ");
+            else b.append("export ").append(e.getKey()).append("='").append(e.getValue().replace("'", "'\\''")).append("' && ");
+        }
+        b.append('"').append(java).append("\" @\"").append(argDatei).append('"');
+        // in Anfuehrungszeichen: zsh/bash wuerden das * sonst als Dateimuster lesen
+        if (debug) b.append(" \"-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:").append(port).append('"');
+        if (!lauf.vmArgs().isBlank()) b.append(' ').append(lauf.vmArgs().strip());
+        b.append(' ').append(lauf.klasse());
+        if (!lauf.args().isBlank()) b.append(' ').append(lauf.args().strip());
+        return b.toString();
     }
 
     private void springStoppen() {
@@ -1803,8 +2038,15 @@ final class Werkzeug {
     void befehle(Map<String, Editor.Cmd> c) {
         dbg.befehle(c, this);
         c.put("installJsDebug", a -> installieren("js-debug", "js-debug", () -> ed.meldung = "js-debug ist da: Leertaste d d startet den Debugger"));
-        c.put("springRun", a -> springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), false));
-        c.put("springDebug", a -> springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), true));
+        // mit run.NAME.* in config.txt: diese Startkonfigurationen, sonst Spring Boot automatisch erkennen
+        c.put("springRun", a -> {
+            if (a.isBlank() && !laeufe().isEmpty()) laufWaehlen(false);
+            else springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), false);
+        });
+        c.put("springDebug", a -> {
+            if (a.isBlank() && !laeufe().isEmpty()) laufWaehlen(true);
+            else springStarten(a.isBlank() ? ed.kf.get("spring.profile", "dev") : a.trim(), true);
+        });
         c.put("springProfile", a -> auswahl("Spring Boot starten mit Profil", profile(), ed.kf.get("spring.profile", "dev"), p -> springStarten(p, false)));
         c.put("springStop", a -> springStoppen());
         c.put("debugStart", a -> debugStarten(false));

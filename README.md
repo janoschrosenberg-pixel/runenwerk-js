@@ -36,7 +36,8 @@ tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.
 - **Java**: Eclipse jdtls ist **in `runenjs.jar` eingebaut** (deshalb ist sie ca. 50 MB groß) und wird beim ersten Start
   daneben nach `jdtls-eingebaut/` entpackt – nichts zu installieren. jdtls braucht Java 21+: der Editor nimmt das Java,
   mit dem er läuft, wenn es 21+ ist, sonst sucht er ein JDK 21+ (JAVA_HOME, übliche Ordner) oder nimmt `java.lsp.java`.
-  Maven- und Gradle-Projekte werden importiert.
+  Maven- und Gradle-Projekte werden importiert. **Lombok** ist eingebaut (jdtls läuft mit `-javaagent:lombok.jar`), daher
+  keine falschen Fehler bei `@Getter`, `@Data`, `@Builder`, `@Slf4j` …; eigene Version mit `java.lombok`.
 
 Definition (`gd`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
 gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder `]m` / `[m`), mit Zähler.
@@ -57,6 +58,25 @@ als Liste; tippen filtert, ENTER springt hin.
 Java nutzt JDI aus dem JDK (der Editor muss also mit einem JDK laufen, nicht nur mit einer JRE) und verbindet sich per
 JDWP mit Java 21. JS/TS nutzt js-debug von Microsoft (Node und Chrome, Source Maps); beim ersten Start bietet der
 Editor an, ihn herunterzuladen (`:installJsDebug`). TypeScript läuft mit Node 22.6+ direkt, sonst `debug.node.runtime = npx tsx`.
+
+## Startkonfigurationen (wie in IntelliJ)
+
+In `config.txt` mit denselben Feldern wie IntelliJs „Run > Edit Configurations > Application“, beliebig viele:
+
+```
+run.MeineApp.java      = C:/Program Files/Java/jdk-21     JRE (Ordner oder java.exe)
+run.MeineApp.module    = mein-modul                       -cp: Maven-Modul (artifactId oder Ordner)
+run.MeineApp.mainClass = de.firma.MeineApplication        Main class
+run.MeineApp.args      = --spring.profiles.active=dev     Program arguments
+run.MeineApp.vmArgs    = -Xmx1g                           VM options
+run.MeineApp.workdir   = C:/projekte/backend              Working directory
+run.MeineApp.env       = VAR=wert; VAR1=wert1             Environment variables
+run.MeineApp.provided  = on                               Add dependencies with "provided" scope to classpath
+```
+
+`Leertaste a a` startet, `Leertaste a d` startet im Debug-Modus und hängt den Debugger an, `Leertaste a x` stoppt (bei
+mehreren Konfigurationen erst eine Auswahl, die zuletzt benutzte oben). Im Terminal-Tab sieht man beide Schritte: Maven
+baut das Modul und schreibt den Klassenpfad (mit `provided`), dann startet `java` die Main-Klasse.
 
 ## Spring Boot
 
