@@ -76,7 +76,12 @@ run.MeineApp.provided  = on                               Add dependencies with 
 
 `Leertaste a a` startet, `Leertaste a d` startet im Debug-Modus und hängt den Debugger an, `Leertaste a x` stoppt (bei
 mehreren Konfigurationen erst eine Auswahl, die zuletzt benutzte oben). Im Terminal-Tab sieht man beide Schritte: Maven
-baut das Modul und schreibt den Klassenpfad (mit `provided`), dann startet `java` die Main-Klasse.
+kompiliert das Modul samt Nachbarmodulen (`-pl modul -am`) und schreibt den Klassenpfad, wobei Nachbarmodule wie in
+IntelliJ als `target/classes` eingehen (nichts wird nach `~/.m2` installiert); dann startet `java` die Main-Klasse.
+
+`args` wird unverändert übergeben, genau wie in IntelliJ. Achtung: Spring wertet nur `--spring.profiles.active=dev`
+aus; ohne die beiden Striche ist kein Profil aktiv. Der automatische Start (ohne Startkonfiguration) setzt dagegen immer
+das Profil aus `spring.profile`. Fehlt in einem der beiden Fälle eine Bean, liegt es meist an diesem Profilunterschied.
 
 ## Spring Boot
 
@@ -94,7 +99,7 @@ Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten f
 
 | Taste | |
 |---|---|
-| Leertaste g b (oder b) | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; `g t` / `g j` für TS- bzw. Java-Repo |
+| Leertaste g b (oder b) | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; ein neuer Name bietet „+ neuen Branch erstellen“ an (`git switch -c`); `g t` / `g j` für TS- bzw. Java-Repo |
 | Leertaste g p / g P | pull / push (push legt bei neuen Branches den Upstream an) |
 | Leertaste g c | commit: Fenster für die Nachricht; ist nichts vorgemerkt, wird alles committet |
 | Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `s` vormerken, `u` zurücknehmen, `c` commit, `m` merge, ESC schließt |
@@ -169,7 +174,8 @@ Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (um
 | gd / F12, Strg+O | Definition, zurück |
 | K, gr, F2, Leertaste f | Hover, Referenzen, Umbenennen, Formatieren |
 | Strg+J / Strg+K | nächste / vorige Methode |
-| Leertaste b | Branch wechseln |
+| Leertaste b | Branch wechseln oder neuen erstellen |
+| Strg+L / Strg+H | nur die aktuelle Zeile wortweise nach rechts / links schieben; verlässt der Cursor die Zeile, steht sie wieder normal |
 | Leertaste t | Terminal-Tab |
 | Strg+H/J/K/L | wo h/j/k/l getippt werden (Suchfeld im Dateimanager, Terminal, Listen): bewegen |
 | Strg+Enter, F5, F6 | SQL: Statement, Datei, Konto |

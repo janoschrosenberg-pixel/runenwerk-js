@@ -149,7 +149,23 @@ final class FileManager {
     }
 
     // ---------------------------------------------------------------- Suche
+    /** beim Tippen erst suchen, wenn 150 ms keine Taste mehr kam (der Text erscheint sofort) */
+    private final javax.swing.Timer sucheUhr = new javax.swing.Timer(150, e -> {
+        sucheGeaendert();
+        FileManager.this.ed.neuMalen.run();
+    });
+
+    {
+        sucheUhr.setRepeats(false);
+    }
+
+    private void spaeterSuchen() {
+        sucht = !suche.toString().isBlank();
+        sucheUhr.restart();
+    }
+
     private void sucheGeaendert() {
+        sucheUhr.stop();
         String q = suche.toString().trim();
         listenTitel = null;
         if (q.isEmpty()) {
@@ -257,12 +273,12 @@ final class FileManager {
         c.put("fmFind", a -> ed.modus = "fmsearch");
         c.put("fmSearchChar", a -> {
             suche.append(a);
-            sucheGeaendert();
+            spaeterSuchen();
         });
         c.put("fmSearchBackspace", a -> {
             if (suche.length() == 0) return;
             suche.setLength(suche.length() - 1);
-            sucheGeaendert();
+            spaeterSuchen();
         });
         c.put("fmSearchClear", a -> {
             suche.setLength(0);

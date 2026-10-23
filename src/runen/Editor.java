@@ -1951,6 +1951,11 @@ final class Editor {
         int cs = vspalte(d, d.cursor);
         if (cs < d.links) d.links = cs;
         if (cs >= d.links + spalten) d.links = cs - spalten + 1;
+        // Zeile verlassen: Zusatzversatz zuruecksetzen
+        if (d.versatzZeile != cz) {
+            d.versatzZeile = -1;
+            d.zeileVersatz = 0;
+        }
         int tx = rand * cw;
         boolean visuell = modus.equals("visual") || (modus.equals("char") && vim.visArt != 0);
         // Merge-Editor (Ediff): drei Fenster statt des Textes
@@ -2002,6 +2007,7 @@ final class Editor {
                 }
                 if (z == wz.dbg.haltZeile(d)) scr.text(0, y, ">", E_WARN);
                 int a = d.anf(z), e = d.ende(z);
+                int links = z == d.versatzZeile ? d.links + d.zeileVersatz : d.links;
                 scr.clip(tx, y, W - tx, lh);
                 // Auswahl (Visual)
                 if (visuell && z >= selZ1 && z <= selZ2) {
@@ -2016,13 +2022,13 @@ final class Editor {
                         va = z == selZ1 ? vspalte(d, selLo) : 0;
                         ve = z == selZ2 ? vspalte(d, selHi) + 1 : vspalte(d, e) + 1;
                     }
-                    scr.rect(tx + (va - d.links) * cw, y, (ve - va) * cw, lh, 0x1E5A2E);
+                    scr.rect(tx + (va - links) * cw, y, (ve - va) * cw, lh, 0x1E5A2E);
                 }
                 // Suchtreffer
                 if (sucheK.length() > 0) {
                     String zl = genau ? d.t.substring(a, e) : d.t.substring(a, e).toLowerCase();
                     for (int p = zl.indexOf(sucheK); p >= 0; p = zl.indexOf(sucheK, p + 1)) {
-                        int vx = vspalte(d, a + p) - d.links;
+                        int vx = vspalte(d, a + p) - links;
                         scr.rect(tx + vx * cw, y, sucheK.length() * cw, lh, 0x2A4A10);
                     }
                 }
@@ -2030,11 +2036,11 @@ final class Editor {
                 for (int p = a; p < e; p++) {
                     char c = d.t.charAt(p);
                     int nv = c == '\t' ? (v / tabBreite + 1) * tabBreite : v + 1;
-                    if (nv > d.links && v - d.links < spalten && c != '\t') {
+                    if (nv > links && v - links < spalten && c != '\t') {
                         int farbe = d.farben != null && d.farbenVersion == d.version && p < d.farben.length ? FARBEN[d.farben[p]] : E_TEXT;
                         int cp = c;
                         if (Character.isHighSurrogate(c) && p + 1 < e) cp = Character.toCodePoint(c, d.t.charAt(p + 1));
-                        if (!Character.isLowSurrogate(c)) scr.glyph(tx + (v - d.links) * cw, y, cp, farbe);
+                        if (!Character.isLowSurrogate(c)) scr.glyph(tx + (v - links) * cw, y, cp, farbe);
                     }
                     v = nv;
                 }
@@ -2044,7 +2050,7 @@ final class Editor {
                     int sa = g.zeile() == z ? Math.min(e, a + g.spalte()) : a;
                     int se = g.endZeile() == z ? Math.min(e, a + g.endSpalte()) : e;
                     int va = vspalte(d, sa), ve = Math.max(va + 1, vspalte(d, se));
-                    scr.wave(tx + (va - d.links) * cw, y + lh - 3, (ve - va) * cw, g.schwere() == 1 ? E_FEHLER : E_WARN);
+                    scr.wave(tx + (va - links) * cw, y + lh - 3, (ve - va) * cw, g.schwere() == 1 ? E_FEHLER : E_WARN);
                 }
                 scr.noClip();
             }
@@ -2064,7 +2070,7 @@ final class Editor {
             }
             // ------------------------------------------------ Cursor
             if ((!konsoleOffen || !modus.equals("console")) && !modus.equals("terminal")) {
-                int cx = tx + (cs - d.links) * cw;
+                int cx = tx + (cs - d.links - (cz == d.versatzZeile ? d.zeileVersatz : 0)) * cw;
                 int cy = oben + (cz - d.oben) * lh;
                 if (modus.equals("insert") || modus.equals("complete")) {
                     scr.rect(cx, cy + 1, Math.max(2, cw / 5), lh - 2, E_HELL);

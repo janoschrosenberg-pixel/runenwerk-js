@@ -26,6 +26,8 @@ final class Doc {
     /** gewuenschte Spalte fuer hoch/runter (-1: aktuelle) */
     int spalteMerk = -1;
     int oben, links;
+    /** waagerechter Zusatzversatz nur fuer die Zeile versatzZeile (-1: keine) */
+    int zeileVersatz, versatzZeile = -1;
     /** Zaehler fuer Aenderungen (Hervorhebung, Language Server) */
     int version;
     int lspVersion = -1;

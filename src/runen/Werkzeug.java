@@ -116,7 +116,8 @@ final class Werkzeug {
                 if (l.isEmpty()) {
                     ed.fehler("keine Branches (git branch fehlgeschlagen) in " + r);
                 } else {
-                    auswahl("Branch in " + Editor.name(r) + " (jetzt " + aktuell + ")", l, aktuell, b -> wechseln(r, b));
+                    auswahl("Branch in " + Editor.name(r) + " (jetzt " + aktuell + ") - Name tippen fuer einen neuen", l, aktuell, b -> wechseln(r, b),
+                            "+ neuen Branch erstellen: ", b -> erstellen(r, b));
                 }
                 ed.neuMalen.run();
             });
@@ -486,6 +487,18 @@ final class Werkzeug {
         if (z > 0 && b.kurz[z].equals(b.kurz[z - 1])) return "";
         String a = b.autor[z].length() > 14 ? b.autor[z].substring(0, 13) + "~" : b.autor[z];
         return String.format("%s %-14s %s", b.kurz[z], a, b.datum[z]);
+    }
+
+    /** neuen Branch vom aktuellen Stand anlegen und dorthin wechseln (Aenderungen bleiben erhalten) */
+    private void erstellen(Path repo, String name) {
+        if (name.isBlank() || name.contains(" ")) {
+            ed.fehler("ungueltiger Branch-Name: " + name);
+            return;
+        }
+        gitLauf(repo, "switch -c", new String[] {"switch", "-c", name}, l -> {
+            if (l.code() == 0) ed.meldung = "neuer Branch " + name + " in " + Editor.name(repo) + " (vom bisherigen Stand)";
+            else ed.fehler("Branch nicht erstellt: " + letzteZeile(l.ausgabe()));
+        });
     }
 
     private static String letzteZeile(String s) {
@@ -924,7 +937,19 @@ final class Werkzeug {
     private final StringBuilder auswahlFilter = new StringBuilder();
     private Consumer<String> auswahlAktion;
 
+    /** Eintrag "neu: <getippter Text>", wenn nichts genau passt (z. B. neuen Branch erstellen) */
+    private String neuText;
+    private Consumer<String> neuAktion;
+
+    void auswahl(String titel, List<String> eintraege, String vorwahl, Consumer<String> aktion, String neuText, Consumer<String> neuAktion) {
+        auswahl(titel, eintraege, vorwahl, aktion);
+        this.neuText = neuText;
+        this.neuAktion = neuAktion;
+    }
+
     void auswahl(String titel, List<String> eintraege, String vorwahl, Consumer<String> aktion) {
+        neuText = null;
+        neuAktion = null;
         if (!auswahlOffen) auswahlVorModus = ed.modus;
         auswahlOffen = true;
         auswahlTitel = titel;
@@ -950,6 +975,11 @@ final class Werkzeug {
             }
             w.sort((x, y) -> y[0] != x[0] ? y[0] - x[0] : x[1] - y[1]);
             for (int[] x : w) l.add(auswahlAlle.get(x[1]));
+            String roh = auswahlFilter.toString().strip();
+            if (neuAktion != null && !roh.isEmpty() && !auswahlAlle.contains(roh)) {
+                // passt nichts genau: "neu erstellen" anbieten (ohne Treffer als einziger Eintrag, sonst am Ende)
+                l.add(neuText + roh);
+            }
             auswahlListe = l;
         }
         auswahlWahl = 0;
@@ -1794,12 +1824,14 @@ final class Werkzeug {
             ed.fehler("Ordner " + ordner + ": " + e.getMessage());
             return;
         }
-        String pl = rel.isEmpty() ? "" : " -pl " + rel;
-        // Maven immer im java.workspace (das Terminal steht nach einem Start im Arbeitsordner der Konfiguration)
-        String bauen = (win ? "cd /d \"" : "cd \"") + j + "\" && " + (rel.isEmpty() ? mvn + " -B compile" : mvn + " -B install -DskipTests" + pl + " -am");
+        // Reactor-Build wie IntelliJ: andere Module des Projekts kommen als target/classes in den Klassenpfad
+        // (kein install); dependency:build-classpath schreibt fuer jedes Modul, das Zielmodul kommt zuletzt.
+        String pl = rel.isEmpty() ? "" : " -pl " + rel + " -am";
+        String cd = (win ? "cd /d \"" : "cd \"") + j + "\" && ";
         // compile enthaelt provided; ohne provided nur runtime (= compile + runtime ohne provided)
-        String cp = (lauf.provided() ? mvn + " -q" + pl + " dependency:build-classpath -Dmdep.includeScope=compile \"-Dmdep.outputFile=" + cpC + "\" && " : "")
-                + mvn + " -q" + pl + " dependency:build-classpath -Dmdep.includeScope=runtime \"-Dmdep.outputFile=" + cpR + "\"";
+        String cpCompile = mvn + " -B compile dependency:build-classpath -Dmdep.includeScope=compile \"-Dmdep.outputFile=" + cpC + "\"" + pl;
+        String cpRuntime = mvn + (lauf.provided() ? " -q" : " -B") + " compile dependency:build-classpath -Dmdep.includeScope=runtime \"-Dmdep.outputFile=" + cpR + "\"" + pl;
+        String bauenUndCp = cd + (lauf.provided() ? cpCompile + " && " + cpRuntime : cpRuntime);
         if (springTab != null && ed.tabs.contains(springTab) && springTab.term != null) ed.aktiv = ed.tabs.indexOf(springTab);
         else springTab = ed.terminalOeffnen(j, "run");
         Terminal t = springTab.term;
@@ -1821,7 +1853,7 @@ final class Werkzeug {
             ed.neuMalen.run();
         };
         t.eingabe.setLength(0);
-        t.eingabe.append(bauen + " && " + cp);
+        t.eingabe.append(bauenUndCp);
         t.ausfuehren();
         ed.modus = "normal";
         ed.meldung = "baue " + (rel.isEmpty() ? Editor.name(j) : rel) + " und hole den Klassenpfad - danach startet " + lauf.klasse() + (debug ? " (Debug)" : "");
@@ -2144,9 +2176,11 @@ final class Werkzeug {
         c.put("pickerAccept", a -> {
             if (auswahlListe.isEmpty()) return;
             String w = auswahlListe.get(auswahlWahl);
-            Consumer<String> ak = auswahlAktion;
+            Consumer<String> ak = auswahlAktion, neu = neuAktion;
+            String nt = neuText;
             auswahlZu();
-            ak.accept(w);
+            if (neu != null && nt != null && w.startsWith(nt)) neu.accept(w.substring(nt.length()).strip());
+            else ak.accept(w);
         });
         // Datenbank
         c.put("sqlRun", a -> sqlLaufen(false));

@@ -31,7 +31,12 @@ final class Indexer {
 
     record Treffer(Path pfad, String rel, int zeile, int spalte, int laenge, String text) {}
 
-    private record Inhalt(long zeit, long groesse, String text) {}
+    /** zwischengespeicherter Inhalt; klein = Zeichen fuer Zeichen kleingeschrieben (gleiche Laenge) */
+    private record Inhalt(long zeit, long groesse, String text, String klein, long geprueft) {}
+
+    /** Obergrenze fuer den Zwischenspeicher (Zeichen, Text und Kleinschrift zusammen) */
+    private static final long CACHE_MAX = 128L << 20;
+    private final java.util.concurrent.atomic.AtomicLong cacheZeichen = new java.util.concurrent.atomic.AtomicLong();
 
     /**
      * Ein Arbeitsbereich: ausnahmen ohne / gelten fuer jeden Ordner dieses Namens, mit / nur
@@ -65,6 +70,7 @@ final class Indexer {
     void setWurzeln(List<Wurzel> w) {
         wurzeln = List.copyOf(w);
         inhalte.clear();
+        cacheZeichen.set(0);
         dateien = List.of();
         neuEinlesen();
     }
@@ -160,15 +166,29 @@ final class Indexer {
     }
 
     // ---------------------------------------------------------------- Inhaltssuche
-    private String inhalt(Datei d) {
+    static String klein(String t) {
+        // String.toLowerCase kann die Laenge aendern (z. B. bei I mit Punkt): dann passen Trefferpositionen nicht mehr
+        char[] c = t.toCharArray();
+        for (int i = 0; i < c.length; i++) c[i] = Character.toLowerCase(c[i]);
+        return new String(c);
+    }
+
+    /** {text, kleingeschrieben} oder null */
+    private Inhalt inhalt(Datei d) {
         String n = d.rel();
         int p = n.lastIndexOf('.');
         if (p >= 0 && BINAER.contains(n.substring(p + 1).toLowerCase())) return null;
         if (d.groesse() > maxGroesse) return null;
         try {
-            long zeit = Files.getLastModifiedTime(d.pfad()).toMillis();
+            long jetzt = System.currentTimeMillis();
             Inhalt alt = inhalte.get(d.pfad());
-            if (alt != null && alt.zeit() == zeit && alt.groesse() == d.groesse()) return alt.text();
+            // Aenderungsdatum hoechstens alle 10 s nachsehen (bei vielen Dateien teuer, besonders unter Windows)
+            if (alt != null && jetzt - alt.geprueft() < 10_000) return alt.text() == null ? null : alt;
+            long zeit = Files.getLastModifiedTime(d.pfad()).toMillis();
+            if (alt != null && alt.zeit() == zeit && alt.groesse() == d.groesse()) {
+                inhalte.put(d.pfad(), new Inhalt(alt.zeit(), alt.groesse(), alt.text(), alt.klein(), jetzt));
+                return alt.text() == null ? null : alt;
+            }
             byte[] b = Files.readAllBytes(d.pfad());
             String text = null;
             boolean binaer = false;
@@ -183,8 +203,16 @@ final class Indexer {
                         .onUnmappableCharacter(CodingErrorAction.REPLACE);
                 text = dec.decode(ByteBuffer.wrap(b)).toString();
             }
-            inhalte.put(d.pfad(), new Inhalt(zeit, d.groesse(), text));
-            return text;
+            Inhalt neu = new Inhalt(zeit, d.groesse(), text, text == null ? null : klein(text), jetzt);
+            long n2 = text == null ? 0 : 2L * text.length();
+            if (alt != null && alt.text() != null) cacheZeichen.addAndGet(-2L * alt.text().length());
+            if (cacheZeichen.get() + n2 < CACHE_MAX) {
+                inhalte.put(d.pfad(), neu);
+                cacheZeichen.addAndGet(n2);
+            } else if (alt != null) {
+                inhalte.remove(d.pfad());
+            }
+            return text == null ? null : neu;
         } catch (IOException e) {
             return null;
         }
@@ -198,15 +226,17 @@ final class Indexer {
             return;
         }
         sucher.submit(() -> {
-            boolean genau = !q.equals(q.toLowerCase());
-            String ql = genau ? q : q.toLowerCase();
+            boolean genau = !q.equals(klein(q));
+            String ql = genau ? q : klein(q);
             List<Treffer> r = new ArrayList<>();
             int seit = 0;
+            long gezeigt = System.currentTimeMillis();
             for (Datei d : dateien) {
                 if (suchNr.get() != nr) return;
-                String t = inhalt(d);
-                if (t == null) continue;
-                String such = genau ? t : t.toLowerCase();
+                Inhalt in = inhalt(d);
+                if (in == null) continue;
+                String t = in.text();
+                String such = genau ? t : in.klein();
                 int von = such.indexOf(ql);
                 int zeile = 0, zeilAnf = 0, gezaehlt = 0;
                 while (von >= 0 && r.size() < max) {
@@ -225,8 +255,9 @@ final class Indexer {
                 }
                 if (r.size() >= max) break;
                 // zwischendurch zeigen, was schon da ist
-                if (r.size() - seit > 50) {
+                if (r.size() > seit && System.currentTimeMillis() - gezeigt > 200) {
                     seit = r.size();
+                    gezeigt = System.currentTimeMillis();
                     List<Treffer> zwischen = List.copyOf(r);
                     if (suchNr.get() == nr) ergebnis.accept(zwischen, false);
                 }

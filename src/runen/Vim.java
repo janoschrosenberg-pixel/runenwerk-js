@@ -1204,6 +1204,30 @@ final class Vim {
         nichtMerken = true;
     }
 
+    /** nur die Zeile z wortweise waagerecht verschieben; verlaesst der Cursor sie, gilt wieder der normale Versatz */
+    private void zeileVerschieben(Doc d, int z, boolean rechts, int n) {
+        int a = d.anf(z), e = d.ende(z);
+        if (d.versatzZeile != z) d.zeileVersatz = 0;
+        d.versatzZeile = z;
+        for (int i = 0; i < n; i++) {
+            int jetzt = d.links + d.zeileVersatz, ziel = rechts ? -1 : 0;
+            for (int p = a; p < e; p++) {
+                char c = d.t.charAt(p);
+                if (Character.isWhitespace(c)) continue;
+                if (p > a && !Character.isWhitespace(d.t.charAt(p - 1)) && Character.isLetterOrDigit(c) == Character.isLetterOrDigit(d.t.charAt(p - 1))) continue;
+                int v = ed.vspalte(d, p);
+                if (rechts && v > jetzt) {
+                    ziel = v;
+                    break;
+                }
+                if (!rechts && v < jetzt) ziel = v;
+            }
+            if (ziel < 0) break;
+            d.zeileVersatz = Math.max(0, ziel - d.links);
+        }
+        if (d.zeileVersatz == 0) d.versatzZeile = -1;
+    }
+
     void rollen(String art) {
         Doc d = d();
         int h = ed.textZeilen();
@@ -1230,10 +1254,14 @@ final class Vim {
                 d.oben = Math.max(0, d.oben - Math.max(1, n));
                 if (z > d.oben + h - 4) d.cursor = ed.posBeiVspalte(d, Math.max(0, d.oben + h - 4), ed.vspalte(d, d.cursor));
             }
+            case "lineRight", "lineLeft" -> {
+                zeileVerschieben(d, z, art.equals("lineRight"), Math.max(1, n));
+                return;
+            }
             case "center" -> d.oben = Math.max(0, z - h / 2);
             case "top" -> d.oben = Math.max(0, z - 3);
             case "bottom" -> d.oben = Math.max(0, z - h + 4);
-            default -> ed.fehler("scroll: halfDown halfUp pageDown pageUp lineDown lineUp center top bottom");
+            default -> ed.fehler("scroll: halfDown halfUp pageDown pageUp lineDown lineUp lineRight lineLeft center top bottom");
         }
         d.spalteMerk = -1;
     }
