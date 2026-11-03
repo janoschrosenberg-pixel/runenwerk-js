@@ -208,14 +208,19 @@ final class Keymap {
                 md.zeigen.remove(f);
                 md.zeigen.put(f, new String[] {rechts, datei});
             }
-            if (f.contains("DIGIT")) {
-                // DIGIT steht fuer 0-9; die Ziffer kommt als letztes Argument zum Befehl
-                for (char d = '0'; d <= '9'; d++) belegen(md, f.replace("DIGIT", String.valueOf(d)), rechts + " " + d);
-            } else {
-                belegen(md, f, rechts);
-            }
+            ziffernBelegen(md, f, rechts);
         }
         if (modus != null || lay != null) fehler.add(datei + ":" + nr + ": } fehlt am Ende");
+    }
+
+    /** DIGIT steht fuer 0-9; jede Ziffer kommt der Reihe nach als Argument zum Befehl (auch mehrere DIGIT) */
+    private static void ziffernBelegen(Mode md, String f, String rechts) {
+        int i = f.indexOf("DIGIT");
+        if (i < 0) {
+            belegen(md, f, rechts);
+            return;
+        }
+        for (char d = '0'; d <= '9'; d++) ziffernBelegen(md, f.substring(0, i) + d + f.substring(i + 5), rechts + " " + d);
     }
 
     private static void belegen(Mode md, String f, String rechts) {

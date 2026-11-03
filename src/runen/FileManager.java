@@ -85,11 +85,15 @@ final class FileManager {
         return panel(aktiv);
     }
 
-    /** Text fuer Strg+C: im Suchfeld die Suche, sonst der Pfad des gewaehlten Eintrags */
+    /** Text fuer Strg+C ohne gewaehlte Datei: die Suche */
     String kopierText() {
-        if (ed.modus.equals("fmsearch")) return suche.toString();
+        return suche.toString();
+    }
+
+    /** Pfad des gewaehlten Eintrags (Datei oder Ordner), sonst null */
+    Path gewaehlterPfad() {
         Eintrag e = auswahl();
-        return e == null || e.pfad == null ? null : e.pfad.toString();
+        return e == null ? null : e.pfad;
     }
 
     /** Strg+V: ins Suchfeld */

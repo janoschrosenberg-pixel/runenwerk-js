@@ -706,6 +706,8 @@ final class Editor {
         // Speicherbaenke: Strg+C/Strg+V mit Ziffer; 0 Standardregister, 1 Systemzwischenablage, 2-9 eigene
         /** @binding Kopiert in Speicherbank 0-9 (1 = Systemzwischenablage, 0 = Standardregister wie p): Auswahl, Zeile, Eingabefeld oder Zelle */
         reg("bankCopy", a -> bankKopieren(bankNr(a)));
+        /** @binding Kopiert eine Speicherbank in eine andere (erste Ziffer von, zweite nach) */
+        reg("bankTransfer", this::bankUmkopieren);
         /** @binding Fuegt Speicherbank 0-9 ein (1 = Systemzwischenablage, 0 = zuletzt Geloeschtes/Kopiertes) */
         reg("bankPaste", a -> bankEinfuegen(bankNr(a)));
         /** @binding Neue Zeile unter der aktuellen, Insert-Mode */
@@ -985,7 +987,7 @@ final class Editor {
         reg("bindings", this::bindingsZeigen);
         /** @binding Laedt keymap.config, sondertasten.config und die Mapping-Funktionen neu */
         reg("keymap", a -> keymapLaden());
-        /** @binding Laedt die Datei im Tab neu von der Platte */
+        /** @binding Liest config.txt, Schrift, keymap.config und sondertasten.config neu */
         reg("reload", a -> {
             Path altTs = arbeitsordner, altJava = javaOrdner;
             konfigLesen();
@@ -1408,7 +1410,19 @@ final class Editor {
             case "console" -> t = eingabe.toString();
             case "popup" -> t = popupEingabe.toString();
             case "picker" -> t = wz.auswahlText();
-            case "fmsearch", "commander" -> t = fm.kopierText();
+            case "fmsearch", "commander" -> {
+                // gewaehlte Datei: Name in die Bank, der volle Pfad in Bank 0
+                Path p = fm.gewaehlterPfad();
+                if (p == null) {
+                    t = fm.kopierText();
+                    break;
+                }
+                String voll = p.toAbsolutePath().normalize().toString(), name = p.getFileName() == null ? voll : p.getFileName().toString();
+                if (n != Vim.BANK_REGISTER) vim.bankSetzen(n, new Vim.Reg(name, Vim.ZEICHEN));
+                vim.bankSetzen(Vim.BANK_REGISTER, new Vim.Reg(voll, Vim.ZEICHEN));
+                meldung = n == Vim.BANK_REGISTER ? "Pfad -> " + bankName(n) : name + " -> " + bankName(n) + ", Pfad -> " + bankName(Vim.BANK_REGISTER);
+                return;
+            }
             case "result" -> t = wz.tabellenText();
             case "debug" -> t = wz.dbg.kopierText();
             default -> {
@@ -1420,6 +1434,24 @@ final class Editor {
         }
         vim.bankSetzen(n, new Vim.Reg(t, t.endsWith("\n") ? Vim.ZEILEN : Vim.ZEICHEN));
         meldung = (modus.equals("result") && t.endsWith("\n") ? "Spalte" : "Text") + " -> " + bankName(n);
+    }
+
+    /** Strg+C b Ziffer Ziffer: Bank "von nach" umkopieren */
+    private void bankUmkopieren(String a) {
+        String[] t = a.strip().split("\\s+");
+        if (t.length != 2) {
+            fehler("bankTransfer VON NACH erwartet (Ziffern 0-9): " + a);
+            return;
+        }
+        int von = bankNr(t[0]), nach = bankNr(t[1]);
+        if (von < 0 || nach < 0) return;
+        Vim.Reg r = vim.bank(von);
+        if (r == null || r.text().isEmpty()) {
+            meldung = bankName(von) + " ist leer";
+            return;
+        }
+        if (von != nach) vim.bankSetzen(nach, r);
+        meldung = bankName(von) + " -> " + bankName(nach);
     }
 
     /** Strg+V Ziffer: einfuegen, in einzeiligen Feldern ohne Zeilenumbrueche */

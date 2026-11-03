@@ -198,9 +198,12 @@ das zuletzt Gelöschte oder Kopierte (wie `p`); `2`–`9` sind eigene Ablagen im
 | Insert-Mode | aktuelle Zeile | am Cursor |
 | Terminal-Eingabe, `:`-Zeile, Fenster (Commit-Nachricht, Arbeitsordner …) | Eingabe | in die Eingabe |
 | Auswahlliste (Branch, Konto, Profil …) | gewählter Eintrag | in den Filter (z. B. neuer Branch-Name) |
-| Dateimanager | Suchtext bzw. Pfad der gewählten Datei | ins Suchfeld |
+| Dateimanager | Name der gewählten Datei (der volle Pfad zusätzlich in Bank 0), ohne Auswahl der Suchtext | ins Suchfeld |
 | Ergebnistabelle | Zelle; auf der Kopfzeile die ganze Spalte | – |
 | Debug-Panel | Wert der Variable | – |
+
+Umkopieren: `Strg+C b VON NACH` kopiert eine Bank in eine andere, z. B. `Strg+C b 0 5` legt den vollen Pfad aus
+dem Dateimanager (Bank 0) in Ablage 5, `Strg+C b 3 1` bringt Ablage 3 in die Systemzwischenablage.
 
 Ohne Ziffer bleibt alles wie gewohnt: `Strg+V j` ist weiter die Block-Auswahl (eindeutig auch mit `Strg+Shift+V`),
 `Strg+C` beendet den Insert-Mode bzw. bricht im Terminal den Befehl ab (sofort bei der nächsten Taste, sonst nach 1 s).
