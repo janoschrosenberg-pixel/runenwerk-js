@@ -777,8 +777,12 @@ final class Werkzeug {
             format.put("settings", s);
         }
         Map<String, Object> konf = Json.obj("updateBuildConfiguration", "automatic");
+        Map<String, Object> maven = new java.util.LinkedHashMap<>();
         Path mvnSettings = jdtlsMavenEinstellungen();
-        if (mvnSettings != null) konf.put("maven", Json.obj("userSettings", mvnSettings.toString()));
+        if (mvnSettings != null) maven.put("userSettings", mvnSettings.toString());
+        Path mapping = lifecycleMapping();
+        if (mapping != null) maven.put("lifecycleMappings", mapping.toString());
+        if (!maven.isEmpty()) konf.put("maven", maven);
         return Json.obj("java", Json.obj("format", format, "configuration", konf,
                 "import", Json.obj("maven", Json.obj("enabled", true), "gradle", Json.obj("enabled", true)), "autobuild", Json.obj("enabled", true)));
     }
@@ -1955,6 +1959,199 @@ final class Werkzeug {
             return null;
         }
     }
+
+    // ================================================================ OpenAPI-Generator (erzeugte Quellen)
+    /** Lifecycle-Mapping fuer m2e, damit jdtls auch aeltere Generator-Plugins beim Import ausfuehrt */
+    private Path lifecycleMapping() {
+        try {
+            Path z = ed.konfig.resolve("jdtls-lifecycle-mapping.xml");
+            String t = Generator.lifecycleMapping();
+            if (!Files.isRegularFile(z) || !Files.readString(z, StandardCharsets.UTF_8).equals(t)) Files.writeString(z, t, StandardCharsets.UTF_8);
+            return z;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** Generatoren im Java-Arbeitsbereich neu suchen (Start, gespeicherte pom.xml) */
+    void generatorenSuchen() {
+        ed.generatoren = ed.javaOrdner == null ? List.of() : Generator.finden(ed.javaOrdner);
+        for (Generator.Ausgabe g : ed.generatoren) {
+            ed.print("OpenAPI-Generator " + ed.relativ(g.pom()) + " (" + g.id() + "): " + (g.spec() == null ? "Spezifikation ?" : ed.relativ(g.spec())) + " -> "
+                    + ed.relativ(g.quellen()) + (Files.isDirectory(g.quellen()) ? "" : " (noch nicht erzeugt)"));
+            if (g.ignoriert()) ed.print("  die pom.xml schaltet den Generator fuer Eclipse ab (lifecycle-mapping <ignore/>) - der Editor traegt den Ordner fuer jdtls selbst ein");
+        }
+    }
+
+    /** Ordner der erzeugten Quellen fuer den Index */
+    List<Path> generatorOrdner() {
+        List<Path> r = new ArrayList<>();
+        for (Generator.Ausgabe g : ed.generatoren) if (!r.contains(g.ausgabe())) r.add(g.ausgabe());
+        return r;
+    }
+
+    /**
+     * jdtls bereit: fehlende Quellen erzeugen, sonst pruefen, ob jdtls die Ordner kennt. Mit Verzoegerung,
+     * m2e fuehrt die Generatoren beim Import selbst aus und ist bei "bereit" oft noch nicht fertig.
+     */
+    void generatorenPruefen() {
+        if (ed.generatoren.isEmpty()) return;
+        javax.swing.Timer tm = new javax.swing.Timer(20000, e -> generatorenJetztPruefen());
+        tm.setRepeats(false);
+        tm.start();
+    }
+
+    private void generatorenJetztPruefen() {
+        if (!ed.javaLsp.an()) return;
+        List<Generator.Ausgabe> fehlen = new ArrayList<>();
+        for (Generator.Ausgabe g : ed.generatoren) if (!Files.isDirectory(g.quellen())) fehlen.add(g);
+        if (!fehlen.isEmpty()) generatorenLaufen(fehlen, "erzeugte Quellen fehlen");
+        else if (!ed.generatoren.isEmpty()) quellordnerPruefen();
+    }
+
+    private boolean erzeugtGerade, nochmalErzeugen;
+
+    /** gespeicherte Datei: Spezifikation eines Generators -> neu erzeugen, pom.xml -> Generatoren neu suchen */
+    void generatorGespeichert(Path p) {
+        if (p == null || ed.javaOrdner == null || !p.startsWith(ed.javaOrdner)) return;
+        if (Editor.name(p).equals("pom.xml")) {
+            List<Path> vorher = generatorOrdner();
+            generatorenSuchen();
+            if (!generatorOrdner().equals(vorher)) {
+                List<Indexer.Wurzel> w = new ArrayList<>();
+                for (Indexer.Wurzel x : ed.index.wurzeln) w.add(x.pfad().equals(ed.javaOrdner) ? new Indexer.Wurzel(x.pfad(), x.name(), x.ausnahmen(), generatorOrdner()) : x);
+                ed.index.setWurzeln(w);
+            }
+            return;
+        }
+        if (ed.kf.get("openapi.generate", "save").equals("off")) return;
+        List<Generator.Ausgabe> l = new ArrayList<>();
+        for (Generator.Ausgabe g : ed.generatoren) if (p.equals(g.spec())) l.add(g);
+        if (!l.isEmpty()) generatorenLaufen(l, Editor.name(p) + " gespeichert");
+    }
+
+    /**
+     * mvn generate-sources fuer die Module der Generatoren (im Hintergrund), danach jdtls die pom.xml neu
+     * einlesen lassen (m2e nimmt den Ordner als Quellordner) und den Index auffrischen.
+     */
+    void generatorenLaufen(List<Generator.Ausgabe> l, String grund) {
+        if (l.isEmpty()) return;
+        if (erzeugtGerade) {
+            nochmalErzeugen = true;
+            return;
+        }
+        Path j = ed.javaOrdner;
+        boolean win = Lsp.WINDOWS;
+        String mvn = Files.exists(j.resolve(win ? "mvnw.cmd" : "mvnw")) ? j.resolve(win ? "mvnw.cmd" : "mvnw").toString() : "mvn";
+        List<Path> poms = new ArrayList<>();
+        for (Generator.Ausgabe g : l) if (!poms.contains(g.pom())) poms.add(g.pom());
+        StringBuilder cmd = new StringBuilder();
+        for (Path pom : poms) cmd.append(cmd.length() == 0 ? "" : " && ").append('"').append(mvn).append("\" -B -q generate-sources -f \"").append(pom).append('"')
+                .append(mavenProfile(null));
+        erzeugtGerade = true;
+        ed.meldung = "OpenAPI: " + grund + " - erzeuge Quellen (mvn generate-sources) ...";
+        ed.print("OpenAPI: " + cmd);
+        Thread t = new Thread(() -> {
+            StringBuilder aus = new StringBuilder();
+            int rc;
+            try {
+                ProcessBuilder pb = new ProcessBuilder(win ? List.of("cmd", "/c", cmd.toString()) : List.of("sh", "-c", cmd.toString())).directory(j.toFile())
+                        .redirectErrorStream(true);
+                Lsp.umgebung(pb);
+                Process pr = pb.start();
+                pr.getOutputStream().close();
+                aus.append(new String(pr.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
+                rc = pr.waitFor();
+            } catch (IOException | InterruptedException e) {
+                aus.append(e.getMessage());
+                rc = -1;
+            }
+            int code = rc;
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                erzeugtGerade = false;
+                if (code != 0) {
+                    ed.fehler("OpenAPI: mvn generate-sources fehlgeschlagen (" + code + ")");
+                    String[] z = aus.toString().strip().split("\n");
+                    for (int i = Math.max(0, z.length - 25); i < z.length; i++) ed.farbig("  " + z[i], E_FEHLER);
+                } else {
+                    ed.meldung = "OpenAPI: Quellen erzeugt (" + poms.size() + (poms.size() == 1 ? " Modul" : " Module") + ")";
+                    if (ed.javaLsp.an()) {
+                        for (Path pom : poms) ed.javaLsp.meldung("java/projectConfigurationUpdate", Json.obj("uri", Lsp.uri(pom)));
+                        // m2e liest die pom.xml im Hintergrund neu, danach die Quellordner pruefen
+                        javax.swing.Timer tm = new javax.swing.Timer(15000, e -> quellordnerPruefen());
+                        tm.setRepeats(false);
+                        tm.start();
+                    }
+                    ed.index.neuEinlesen();
+                }
+                if (nochmalErzeugen) {
+                    nochmalErzeugen = false;
+                    generatorenLaufen(l, "erneut gespeichert");
+                }
+                ed.neuMalen.run();
+            });
+        }, "openapi-generator");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Quellordner, die jdtls kennt, mit den erzeugten vergleichen; fehlende melden */
+    void quellordnerPruefen() {
+        if (!ed.javaLsp.an() || ed.generatoren.isEmpty()) return;
+        ed.javaLsp.anfrage("workspace/executeCommand", Json.obj("command", "java.project.listSourcePaths", "arguments", List.of()), r -> {
+            List<Path> bekannt = new ArrayList<>();
+            Object daten = Json.get(r, "data");
+            if (daten instanceof List<?>) {
+                for (Object o : Json.list(daten)) {
+                    String p = Json.str(Json.get(o, "path"));
+                    if (p != null) bekannt.add(Path.of(p).toAbsolutePath().normalize());
+                }
+            }
+            List<Path> poms = new ArrayList<>();
+            for (Generator.Ausgabe g : ed.generatoren) {
+                if (!Files.isDirectory(g.quellen()) || bekannt.contains(g.quellen().toAbsolutePath().normalize())) continue;
+                String grund = g.ignoriert() ? " (die pom.xml schaltet den Generator fuer Eclipse ab: org.eclipse.m2e lifecycle-mapping mit <ignore/>)" : "";
+                if (!ed.kf.get("openapi.classpath", "auto").equals("off") && quellordnerEintragen(g)) {
+                    ed.print("OpenAPI: " + ed.relativ(g.quellen()) + " als Quellordner fuer jdtls eingetragen (.classpath)" + grund);
+                    if (!poms.contains(g.pom())) poms.add(g.pom());
+                } else {
+                    ed.farbig("OpenAPI: jdtls kennt " + ed.relativ(g.quellen()) + " nicht als Quellordner" + grund, E_WARN);
+                }
+            }
+            for (Path pom : poms) {
+                ed.javaLsp.meldung("workspace/didChangeWatchedFiles", Json.obj("changes", List.of(Json.obj("uri", Lsp.uri(pom.resolveSibling(".classpath")), "type", 2))));
+                ed.javaLsp.meldung("java/projectConfigurationUpdate", Json.obj("uri", Lsp.uri(pom)));
+            }
+            ed.neuMalen.run();
+        });
+    }
+
+    /**
+     * Quellordner von Hand in die .classpath des Moduls (die jdtls/m2e neben die pom.xml schreibt): m2e
+     * behaelt Eintraege ohne maven.pomderived, auch wenn die pom.xml den Generator fuer Eclipse abschaltet.
+     */
+    private boolean quellordnerEintragen(Generator.Ausgabe g) {
+        Path cp = g.modul().resolve(".classpath");
+        if (!g.quellen().startsWith(g.modul())) return false;
+        try {
+            if (!Files.isRegularFile(cp)) return false;
+            String t = Files.readString(cp, StandardCharsets.UTF_8);
+            String rel = g.modul().relativize(g.quellen()).toString().replace('\\', '/');
+            if (t.contains("path=\"" + rel + "\"")) return false;
+            Matcher out = Pattern.compile("<classpathentry kind=\"output\" path=\"([^\"]*)\"").matcher(t);
+            String ziel = out.find() ? out.group(1) : "target/classes";
+            String eintrag = "\t<classpathentry kind=\"src\" output=\"" + ziel + "\" path=\"" + rel + "\">\n\t\t<attributes>\n\t\t\t<attribute name=\"optional\" value=\"true\"/>\n"
+                    + "\t\t\t<attribute name=\"ignore_optional_problems\" value=\"true\"/>\n\t\t</attributes>\n\t</classpathentry>\n";
+            int i = t.indexOf("\t<classpathentry kind=\"output\"");
+            if (i < 0) i = t.lastIndexOf("</classpath>");
+            if (i < 0) return false;
+            Files.writeString(cp, t.substring(0, i) + eintrag + t.substring(i), StandardCharsets.UTF_8);
+            return true;
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
     private String letzterLauf;
 
     /** alle run.NAME.feld-Eintraege aus config.txt, in der Reihenfolge der Datei */
@@ -2404,6 +2601,19 @@ final class Werkzeug {
          */
         c.put("gitBranch", this::branchWaehlen);
         merge.befehle(c);
+        /** @binding Erzeugt die Quellen der OpenAPI-Generatoren neu (mvn generate-sources) und laesst jdtls die pom.xml neu einlesen */
+        c.put("openapiGenerate", a -> {
+            if (ed.javaOrdner == null) {
+                ed.fehler("kein java.workspace in config.txt");
+                return;
+            }
+            generatorenSuchen();
+            if (ed.generatoren.isEmpty()) {
+                ed.meldung = "kein openapi-generator-maven-plugin in den pom.xml von " + Editor.name(ed.javaOrdner);
+                return;
+            }
+            generatorenLaufen(ed.generatoren, "von Hand");
+        });
         /** @binding Oeffnet den Merge-Editor fuer Dateien mit Konflikten */
         c.put("gitMerge", a -> {
             Doc d = ed.d();

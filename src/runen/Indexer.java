@@ -40,9 +40,14 @@ final class Indexer {
 
     /**
      * Ein Arbeitsbereich: ausnahmen ohne / gelten fuer jeden Ordner dieses Namens, mit / nur
-     * relativ zur Wurzel (/build).
+     * relativ zur Wurzel (/build). zusatz: Ordner, die trotz Ausnahme dazugehoeren (erzeugte Quellen
+     * in target).
      */
-    record Wurzel(Path pfad, String name, List<String> ausnahmen) {}
+    record Wurzel(Path pfad, String name, List<String> ausnahmen, List<Path> zusatz) {
+        Wurzel(Path pfad, String name, List<String> ausnahmen) {
+            this(pfad, name, ausnahmen, List.of());
+        }
+    }
 
     volatile List<Wurzel> wurzeln = List.of();
     volatile List<Datei> dateien = List.of();
@@ -100,13 +105,25 @@ final class Indexer {
             if (x.startsWith("/")) pfade.add(x.substring(1).toLowerCase());
             else namen.add(x);
         }
+        List<Path> ausgelassen = new ArrayList<>();
+        ordnerLesen(w, wp, namen, pfade, mitName, neu, ausgelassen);
+        // erzeugte Quellen in einem ausgelassenen Ordner (target/generated-sources/...) trotzdem
+        for (Path z : w.zusatz()) {
+            if (z.startsWith(wp) && Files.isDirectory(z) && ausgelassen.stream().anyMatch(z::startsWith)) ordnerLesen(w, z, Set.of(".git"), Set.of(), mitName, neu, null);
+        }
+    }
+
+    private static void ordnerLesen(Wurzel w, Path start, Set<String> namen, Set<String> pfade, boolean mitName, List<Datei> neu, List<Path> ausgelassen) {
+        Path wp = w.pfad();
         try {
-            Files.walkFileTree(wp, new SimpleFileVisitor<>() {
+            Files.walkFileTree(start, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path d, BasicFileAttributes a) {
-                    if (d.equals(wp)) return FileVisitResult.CONTINUE;
-                    if (namen.contains(d.getFileName().toString())) return FileVisitResult.SKIP_SUBTREE;
-                    if (pfade.contains(wp.relativize(d).toString().replace('\\', '/').toLowerCase())) return FileVisitResult.SKIP_SUBTREE;
+                    if (d.equals(start)) return FileVisitResult.CONTINUE;
+                    if (namen.contains(d.getFileName().toString()) || pfade.contains(wp.relativize(d).toString().replace('\\', '/').toLowerCase())) {
+                        if (ausgelassen != null) ausgelassen.add(d);
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
                     return FileVisitResult.CONTINUE;
                 }
 

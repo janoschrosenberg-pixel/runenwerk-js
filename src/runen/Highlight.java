@@ -47,8 +47,70 @@ final class Highlight {
     /** nach Sprache aus {@link Doc#sprache()} */
     static byte[] faerben(CharSequence s, String sprache) {
         if (sprache.equals("sql")) return sql(s);
+        if (sprache.equals("yaml")) return yaml(s);
         if (sprache.equals("java")) return faerben(s, false, true);
         return faerben(s, sprache.endsWith("react") || sprache.equals("javascript"), false);
+    }
+
+    /** YAML: Schluessel, $ref, Zeichenketten, Zahlen, true/false/null, Kommentare, Blockwerte */
+    static byte[] yaml(CharSequence s) {
+        byte[] f = new byte[s.length()];
+        int i = 0, n = s.length();
+        int block = -1;
+        while (i < n) {
+            int e = i;
+            while (e < n && s.charAt(e) != '\n') e++;
+            String z = s.subSequence(i, e).toString();
+            int ein = Yaml.einzug(z);
+            if (block >= 0 && (z.isBlank() || ein > block)) {
+                java.util.Arrays.fill(f, i, e, STRING);
+                i = e + 1;
+                continue;
+            }
+            block = -1;
+            String o = Yaml.ohneKommentar(z);
+            if (o.length() < z.length()) java.util.Arrays.fill(f, i + o.length(), e, COMMENT);
+            int c = ein;
+            while (c < o.length() && (o.charAt(c) == '-' && (c + 1 == o.length() || o.charAt(c + 1) == ' '))) {
+                f[i + c] = PUNCT;
+                c += 2;
+                while (c < o.length() && o.charAt(c) == ' ') c++;
+            }
+            if (c >= o.length()) {
+                i = e + 1;
+                continue;
+            }
+            String rest = o.substring(c);
+            int dp = Yaml.schluesselEnde(rest);
+            int w = c;
+            if (dp >= 0) {
+                java.util.Arrays.fill(f, i + c, i + c + dp, rest.startsWith("$ref") ? KEYWORD : ATTR);
+                f[i + c + dp] = PUNCT;
+                w = c + dp + 1;
+            }
+            while (w < o.length() && o.charAt(w) == ' ') w++;
+            String wert = o.substring(w).strip();
+            byte k = TEXT;
+            if (wert.matches("[|>][-+0-9]*")) {
+                k = PUNCT;
+                block = ein;
+            } else if (wert.startsWith("'") || wert.startsWith("\"")) {
+                k = STRING;
+            } else if (wert.matches("[-+]?(\\d[\\d_]*\\.?\\d*([eE][-+]?\\d+)?|\\.inf|\\.nan)")) {
+                k = NUMBER;
+            } else if (wert.matches("(?i)true|false|null|~|yes|no")) {
+                k = CONST;
+            } else if (wert.startsWith("&") || wert.startsWith("*") || wert.startsWith("!")) {
+                k = TYPE;
+            } else if (dp >= 0 && rest.startsWith("$ref")) {
+                k = TYPE;
+            } else if (wert.startsWith("{") || wert.startsWith("[")) {
+                k = PUNCT;
+            }
+            if (k != TEXT) java.util.Arrays.fill(f, i + w, i + o.length(), k);
+            i = e + 1;
+        }
+        return f;
     }
 
     static byte[] faerben(CharSequence s, boolean jsx) {

@@ -107,6 +107,53 @@ mit angehängtem Debugger, `Leertaste a x` stoppt sie. Gestartet wird über `mvn
 `spring.module` und `spring.mainClass`, ganz eigener Befehl mit `spring.run` (`{profile}`). Gestartet wird in einem eigenen
 Terminal-Tab („spring dev“): Der Befehl steht sichtbar darin, die Ausgabe läuft mit, Strg+C oder Leertaste a x stoppt.
 
+## OpenAPI
+
+**Erzeugte Quellen**: Steht in einer `pom.xml` das `openapi-generator-maven-plugin` (oder `swagger-codegen-maven-plugin`),
+liest der Editor daraus Spezifikation (`inputSpec`), `output` und `sourceFolder` (auch aus `configOptions`,
+`pluginManagement` und Eltern-pom, `${...}` aus `properties`). Der Ordner mit den erzeugten DTOs und Interfaces kommt in
+den Index (Dateisuche, Volltextsuche), obwohl `target` sonst ausgenommen ist, und zu jdtls:
+
+- jdtls bekommt ein Lifecycle-Mapping, damit m2e die Generatoren beim Import ausführt – auch ältere Plugin-Versionen,
+  die das nicht selbst mitbringen.
+- Fehlen die Quellen, erzeugt der Editor sie mit `mvn generate-sources` (Maven-Profile wie beim Start) und lässt jdtls die
+  `pom.xml` neu einlesen; ebenso nach dem **Speichern der Spezifikation** (`openapi.generate = off` schaltet das ab).
+  `Leertaste a g` erzeugt von Hand neu.
+- Schaltet die `pom.xml` den Generator für Eclipse ab (`org.eclipse.m2e:lifecycle-mapping` mit `<ignore/>`), kennt jdtls
+  den Ordner nicht; der Editor trägt ihn dann in die `.classpath` des Moduls ein (m2e behält solche Einträge,
+  `openapi.classpath = off` meldet es nur).
+
+Die Konsole (`:`) zeigt beim Start, welche Generatoren gefunden wurden und wohin sie schreiben.
+
+**OpenAPI-Ansicht**: Eine YAML-Datei mit `openapi:` oder `swagger:` öffnet sich in einer eigenen Ansicht (OpenAPI 3 und
+Swagger 2; `openapi.view = off` öffnet sie normal). Links ein Baum: Info, Server, Pfade mit ihren Operationen (farbig nach
+Methode, mit `operationId` und `summary`), Parametern, Request-Body und Antworten, Schemas mit Feldern (`*` = Pflicht,
+`-> X` = `$ref`, „unbenutzt“/„3x benutzt“), die übrigen Komponenten, Tags und die gefundenen Probleme. Rechts der
+YAML-Text des gewählten Knotens. **`Leertaste y`** wechselt jederzeit zwischen Ansicht und normalem Puffer (gleiche Datei,
+gleicher Undo-Verlauf); `ENTER` bearbeitet den gewählten Knoten im Puffer.
+
+| Taste | |
+|---|---|
+| `j`/`k`, `gg`/`G`, `Strg+D`/`Strg+U` | wählen |
+| `l`/`h`, `TAB` | auf-/zuklappen |
+| `a` | anlegen, je nach Auswahl: Pfad (mit Methode, `operationId`, Pfadparametern, Antwort), Operation, Parameter, Antwort, Request-Body, Schema, Feld (Typ, Verweis auf ein Schema oder Liste davon, Pflichtfeld), Tag, Server |
+| `r` | umbenennen: Schema (mit allen `$ref` der Datei), Pfad, Feld (auch in `required`), `operationId`, Parameter, Tag |
+| `d d` | löschen (ein Feld auch aus `required`) |
+| `J`/`K` | unter den Geschwistern verschieben |
+| `f` | dem `$ref` folgen (auch in andere Dateien) |
+| `U` | wo wird das Schema benutzt? |
+| `p` | nächstes Problem |
+| `/` | Baum filtern (`ESC` hebt den Filter auf) |
+| `u`, `Strg+R` | rückgängig, wiederholen |
+| `c` | Quellen neu erzeugen (wie `Leertaste a g`) |
+| `ENTER`, `e`, `q` | in den Puffer, Cursor auf dem Knoten |
+
+Die Änderungen gehen in den Text selbst: Kommentare, Formatierung und Einrückung bleiben, jede Aktion ist ein Undo-Schritt.
+**Geprüft** wird bei jeder Änderung, auch im normalen Puffer (dort als Fehler/Warnung wie vom Language Server, `]d` springt):
+`$ref` ins Leere, nicht deklarierte oder überzählige Pfadparameter, doppelte `operationId`, Operation ohne `responses`,
+Pflichtfeld ohne Eintrag in `properties`, doppelte Schlüssel, fehlendes `info.title`/`info.version`. Im Puffer folgt `gd`
+dem `$ref` der Zeile, `gr` auf dem Namen eines Schemas listet seine Verwendungen.
+
 ## Git
 
 Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten für das Repo der aktuellen Datei:

@@ -48,6 +48,8 @@ final class Editor {
     final Indexer index;
     final Lsp tsLsp, javaLsp;
     final FileManager fm;
+    /** OpenAPI-Ansicht fuer YAML-Dateien */
+    final OpenApi oa;
     final Vim vim;
     final Werkzeug wz;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
@@ -69,6 +71,8 @@ final class Editor {
     final List<Doc> tabs = new ArrayList<>();
     int aktiv;
     String modus = "normal";
+    /** OpenAPI-Generatoren im Java-Arbeitsbereich (aus den pom.xml) */
+    List<Generator.Ausgabe> generatoren = List.of();
 
     // Tastenfolgen
     private String folge = "", folgeBefehl;
@@ -127,6 +131,7 @@ final class Editor {
         fm = new FileManager(this);
         vim = new Vim(this);
         wz = new Werkzeug(this);
+        oa = new OpenApi(this);
         folgeUhr = new Timer(1000, e -> {
             // angefangene Folge nach 1 s allein ausfuehren
             String alt = folgeBefehl;
@@ -143,6 +148,7 @@ final class Editor {
         fm.befehle(cmds);
         vim.befehle(cmds);
         wz.befehle(cmds);
+        oa.befehle(cmds);
         tabs.add(new Doc());
     }
 
@@ -162,6 +168,7 @@ final class Editor {
             public void bereit() {
                 print(name + " Language Server bereit");
                 lspSync();
+                if (name.equals("Java")) wz.generatorenPruefen();
                 neuMalen.run();
             }
         };
@@ -312,7 +319,8 @@ final class Editor {
             print("TypeScript-Arbeitsbereich: " + arbeitsordner);
         }
         if (javaOrdner != null) {
-            w.add(new Indexer.Wurzel(javaOrdner, name(javaOrdner), List.of(kf.get("java.ignore", "target /build .gradle /bin /out").split("\\s+"))));
+            wz.generatorenSuchen();
+            w.add(new Indexer.Wurzel(javaOrdner, name(javaOrdner), List.of(kf.get("java.ignore", "target /build .gradle /bin /out").split("\\s+")), wz.generatorOrdner()));
             print("Java-Arbeitsbereich: " + javaOrdner);
         }
         index.setWurzeln(w);
@@ -560,6 +568,8 @@ final class Editor {
         if (vim.visArt != 0 && !modus.equals("visual") && !modus.equals("char")) vim.visualEnde();
         // Tabelle gehoert zur Datei: nach einem Wechsel ohne Tabelle zurueck in den Normal-Mode
         if (modus.equals("result") && !wz.tabelleOffen()) modus = "normal";
+        // OpenAPI-Ansicht gehoert zur Datei: nach einem Tab-Wechsel normaler Puffer
+        if (modus.equals("openapi") && !oa.sichtbar()) modus = "normal";
         // schreibgeschuetzte Puffer (bindings): eigener Mode nurlesen (wie normal, q schliesst)
         if (d.nurLesen) {
             if (modus.equals("insert") || modus.equals("replace")) meldung = d.name() + " ist schreibgeschuetzt";
@@ -1425,6 +1435,7 @@ final class Editor {
             }
             case "result" -> t = wz.tabellenText();
             case "debug" -> t = wz.dbg.kopierText();
+            case "openapi" -> t = oa.kopierText();
             default -> {
             }
         }
@@ -1536,6 +1547,8 @@ final class Editor {
         else tabs.add(d);
         aktiv = tabs.indexOf(d);
         lspSync();
+        // OpenAPI-YAML: gleich in der OpenAPI-Ansicht (openapi.view = off: normaler Puffer)
+        if (OpenApi.istYaml(d) && !kf.get("openapi.view", "on").equals("off") && OpenApi.istOpenApi(d.t)) oa.starten(d);
         return d;
     }
 
@@ -1556,6 +1569,7 @@ final class Editor {
             lspSync();
             if (d.lspOffen) lspFuer(d).meldung("textDocument/didSave", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad))));
             if (neu) index.neuEinlesen();
+            wz.generatorGespeichert(d.pfad);
         } catch (IOException e) {
             fehler("nicht gespeichert: " + e.getMessage());
         }
@@ -1859,6 +1873,7 @@ final class Editor {
     }
 
     private void gotoDefinition() {
+        if (oa.definition(d())) return;
         if (!lspBereit()) return;
         Doc d = d();
         int v = d.version;
@@ -2094,6 +2109,7 @@ final class Editor {
     }
 
     private void references() {
+        if (oa.verwendungenImPuffer(d())) return;
         if (!lspBereit()) return;
         Doc d = d();
         Map<String, Object> p = position(d);
@@ -2350,6 +2366,7 @@ final class Editor {
             d.farben = Highlight.faerben(d.t, d.sprache());
             d.farbenVersion = d.version;
         }
+        oa.pruefenFalls(d);
         // ------------------------------------------------ Tab-Leiste
         int bh = lh + 8;
         scr.rect(0, 0, W, bh, E_LEISTE);
@@ -2405,6 +2422,8 @@ final class Editor {
         // Merge-Editor (Ediff): drei Fenster statt des Textes
         if (wz.merge.sichtbar()) {
             wz.merge.malen(oben - 4, scr.h - unten() - 2);
+        } else if (oa.sichtbar()) {
+            oa.malen(oben - 4, scr.h - unten() - 2);
         } else {
             grund(oben - 4, n * lh + 4);
             boolean genau = !suche.equals(suche.toLowerCase());
@@ -2598,6 +2617,7 @@ final class Editor {
             case "terminal" -> "TERMINAL";
             case "gitstatus" -> "GIT";
             case "merge" -> "MERGE";
+            case "openapi" -> "OPENAPI";
             case "picker" -> "AUSWAHL";
             default -> modus;
         };

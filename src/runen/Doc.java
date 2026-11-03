@@ -37,6 +37,9 @@ final class Doc {
     byte[] farben;
     int farbenVersion = -1;
     List<Diag> diags = new ArrayList<>();
+    /** OpenAPI-Pruefung: Stand (version) und ob diags von ihr kommen */
+    int oaVersion = -1;
+    boolean oaDiags;
 
     static Doc laden(Path p) throws IOException {
         Doc d = new Doc();
@@ -81,6 +84,7 @@ final class Doc {
         if (n.endsWith(".jsx")) return "javascriptreact";
         if (n.endsWith(".js") || n.endsWith(".mjs") || n.endsWith(".cjs")) return "javascript";
         if (n.endsWith(".java")) return "java";
+        if (n.endsWith(".yaml") || n.endsWith(".yml")) return "yaml";
         if (n.endsWith(".sql") || n.endsWith(".pks") || n.endsWith(".pkb") || n.endsWith(".pls") || n.endsWith(".prc") || n.endsWith(".fnc") || n.endsWith(".trg")) return "sql";
         return null;
     }
@@ -88,7 +92,7 @@ final class Doc {
     /** Sprache mit Language Server: typescript (auch JS) oder java */
     String lspArt() {
         String s = sprache();
-        if (s == null || s.equals("sql")) return null;
+        if (s == null || s.equals("sql") || s.equals("yaml")) return null;
         return s.equals("java") ? "java" : "ts";
     }
 

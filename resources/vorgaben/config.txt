@@ -26,6 +26,17 @@ java.lombok = auto
 java.lsp.java =
 java.lsp.memory = 2G
 
+# ---------------------------------------------------------------- OpenAPI
+# openapi-generator-maven-plugin (und swagger-codegen) in den pom.xml: die erzeugten DTOs und Interfaces
+# (target/generated-sources/...) kommen in den Index und zu jdtls (Leertaste a g erzeugt sie neu).
+# openapi.generate = save: nach dem Speichern der Spezifikation neu erzeugen (mvn generate-sources), off: nicht
+openapi.generate = save
+# auto: kennt jdtls den Ordner nicht (pom.xml mit m2e lifecycle-mapping <ignore/>), traegt ihn der Editor in die
+# .classpath des Moduls ein; off: nur melden
+openapi.classpath = auto
+# YAML mit openapi:/swagger: in der OpenAPI-Ansicht oeffnen (Leertaste y wechselt zum Puffer); off: normaler Puffer
+openapi.view = on
+
 # ---------------------------------------------------------------- Formatieren (Leertaste f)
 # TypeScript/JavaScript mit prettier ({file} = Pfad der Datei, node_modules/.bin geht vor);
 # "lsp" formatiert stattdessen mit dem Language Server
