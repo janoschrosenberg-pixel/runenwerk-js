@@ -1957,16 +1957,54 @@ final class Editor {
 
     /** Formatieren ueber den Language Server (Java mit java.format.eclipse) */
     void lspFormat() {
+        lspFormat(false);
+    }
+
+    /** zweiter: Durchlauf nach der IntelliJ-Nacharbeit (gehoert zum selben Undo-Schritt) */
+    private void lspFormat(boolean zweiter) {
         if (!lspBereit()) return;
         Doc d = d();
+        boolean java = "java".equals(d.lspArt());
+        // IntelliJ-Stil: was Eclipse nicht kann, vorher (fehlende Klammern) und nachher (siehe IntellijNacharbeit)
+        IntellijNacharbeit nach = java ? wz.intellijNacharbeit() : null;
+        boolean vorher = false;
+        if (nach != null) {
+            String t = d.t.toString(), mitKlammern = nach.vorbereiten(t);
+            if (!mitKlammern.equals(t)) {
+                if (!zweiter) d.merken();
+                zeilenweiseErsetzen(d, mitKlammern);
+                lspSync();
+                vorher = true;
+            }
+        }
+        boolean schonGemerkt = vorher || zweiter;
         int v = d.version;
         // jdtls nimmt tabSize/insertSpaces vor dem Profil: bei Java mit Profil dessen Einrueckung mitschicken
-        int[] pe = "java".equals(d.lspArt()) ? wz.profilEinzug() : null;
+        int[] pe = java ? wz.profilEinzug() : null;
         lspFuer(d()).anfrage("textDocument/formatting", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad)),
                 "options", Json.obj("tabSize", pe != null ? pe[0] : einzug, "insertSpaces", pe == null || pe[1] == 1)), r -> {
                     if (d.version != v) return;
                     List<Object> l = Json.list(r);
-                    if (l.isEmpty()) {
+                    if (nach != null) {
+                        String alt = d.t.toString(), neu;
+                        try {
+                            neu = nachgearbeitet(d, l, nach);
+                        } catch (RuntimeException e) {
+                            fehler("Nacharbeit zum IntelliJ-Stil: " + e);
+                            neu = alt;
+                        }
+                        if (neu.equals(alt) && !schonGemerkt) {
+                            meldung = "schon formatiert";
+                        } else {
+                            if (!schonGemerkt) d.merken();
+                            zeilenweiseErsetzen(d, neu);
+                            meldung = "formatiert (IntelliJ-Stil)";
+                            if (nach.nochmal && !zweiter && d == d()) {
+                                lspSync();
+                                lspFormat(true);
+                            }
+                        }
+                    } else if (l.isEmpty()) {
                         meldung = "schon formatiert";
                     } else {
                         d.merken();
@@ -1975,6 +2013,72 @@ final class Editor {
                     }
                     neuMalen.run();
                 });
+    }
+
+    /** Edits des Language Servers mit der IntelliJ-Nacharbeit zum fertigen Text */
+    private String nachgearbeitet(Doc d, List<Object> edits, IntellijNacharbeit nach) {
+        List<int[]> b = new ArrayList<>();
+        List<String> texte = new ArrayList<>();
+        for (Object e : edits) {
+            b.add(new int[] {offset(d, Json.get(e, "range", "start")), offset(d, Json.get(e, "range", "end")), texte.size()});
+            texte.add(String.valueOf(Json.get(e, "newText")).replace("\r\n", "\n"));
+        }
+        b.sort((x, y) -> x[0] != y[0] ? x[0] - y[0] : x[1] - y[1]);
+        List<int[]> bereiche = new ArrayList<>();
+        List<String> sortiert = new ArrayList<>();
+        for (int[] x : b) {
+            bereiche.add(new int[] {x[0], Math.max(x[0], x[1])});
+            sortiert.add(texte.get(x[2]));
+        }
+        return nach.anwenden(d.t.toString(), bereiche, sortiert);
+    }
+
+    /**
+     * Text durch neu ersetzen, aber nur die geaenderten Zeilen (Cursor und Marken bleiben, wo der Text gleich ist):
+     * gemeinsamer Anfang und Ende, dazwischen laengste gemeinsame Teilfolge der Zeilen.
+     */
+    static void zeilenweiseErsetzen(Doc d, String neu) {
+        String alt = d.t.toString();
+        if (alt.equals(neu)) return;
+        String[] a = alt.split("(?<=\n)", -1), n = neu.split("(?<=\n)", -1);
+        int vorne = 0, hinten = 0;
+        while (vorne < a.length && vorne < n.length && a[vorne].equals(n[vorne])) vorne++;
+        while (hinten < a.length - vorne && hinten < n.length - vorne && a[a.length - 1 - hinten].equals(n[n.length - 1 - hinten])) hinten++;
+        int la = a.length - vorne - hinten, ln = n.length - vorne - hinten;
+        int[] start = new int[a.length + 1];
+        for (int i = 0; i < a.length; i++) start[i + 1] = start[i] + a[i].length();
+        // Bloecke {Anfang alt, Ende alt, Anfang neu, Ende neu} (Zeilen)
+        List<int[]> bloecke = new ArrayList<>();
+        if ((long) la * ln > 4_000_000L) {
+            bloecke.add(new int[] {vorne, vorne + la, vorne, vorne + ln});
+        } else {
+            int[][] l = new int[la + 1][ln + 1];
+            for (int i = la - 1; i >= 0; i--)
+                for (int j = ln - 1; j >= 0; j--) l[i][j] = a[vorne + i].equals(n[vorne + j]) ? l[i + 1][j + 1] + 1 : Math.max(l[i + 1][j], l[i][j + 1]);
+            int i = 0, j = 0, bi = -1, bj = -1;
+            while (i < la || j < ln) {
+                if (i < la && j < ln && a[vorne + i].equals(n[vorne + j])) {
+                    if (bi >= 0) bloecke.add(new int[] {vorne + bi, vorne + i, vorne + bj, vorne + j});
+                    bi = -1;
+                    i++;
+                    j++;
+                    continue;
+                }
+                if (bi < 0) {
+                    bi = i;
+                    bj = j;
+                }
+                if (j < ln && (i >= la || l[i][j + 1] >= l[i + 1][j])) j++;
+                else i++;
+            }
+            if (bi >= 0) bloecke.add(new int[] {vorne + bi, vorne + la, vorne + bj, vorne + ln});
+        }
+        for (int k = bloecke.size() - 1; k >= 0; k--) {
+            int[] x = bloecke.get(k);
+            StringBuilder ein = new StringBuilder();
+            for (int j = x[2]; j < x[3]; j++) ein.append(n[j]);
+            d.ersetzen(start[x[0]], start[x[1]], ein.toString());
+        }
     }
 
     /** TextEdits von hinten nach vorne anwenden */

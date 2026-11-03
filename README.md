@@ -144,8 +144,15 @@ Zeilenprogramme (`npm test`, `git log`, `mvn …`), aber keine Vollbildprogramme
   Angabe nimmt der Editor den Projektstil aus `.idea/codeStyles/Project.xml`, wenn das Projekt einen eigenen hat. Der
   Editor übersetzt den Stil in ein Profil für den eingebauten Formatter (`jdtls-format-intellij.xml` neben der Jar):
   Einrückung, Tabs, Zeilenlänge, Klammerstil, Umbrüche (wrap/chop/align), Leerzeilen, Annotationen, Leerzeichen,
-  `@formatter:off`. Kommentare bleiben, wie sie sind; Importe sortiert der Formatter nicht. Wer doch IntelliJs eigenen
-  Formatter will: `java.format.intellij.cmd` = `format.bat`/`format.sh` (IntelliJ muss dann geschlossen sein).
+  `@formatter:off`. Was der Eclipse-Formatter anders macht als IntelliJ, arbeitet der Editor danach nach: von Hand
+  umbrochene Zeilen bleiben umbrochen, Javadoc wie bei IntelliJ (Einzeiler aufklappen, `<p>` an Leerzeilen, Leerzeile
+  vor den Tags, `@param`/`@throws` ausrichten, Umbruch am Rand mit „Wrap comments“), fehlende `{}` bei „Force braces“,
+  Leerzeilen zwischen Import-Gruppen (ohne Umsortieren), einzeilige Blöcke und `switch`-Ausdrücke. Abgeglichen mit
+  IntelliJ 2026.2: IntelliJs Standardstil und Stile mit Tabs oder im Google-Stil kommen gleich heraus. Unterschiede
+  bleiben bei „umbrechen, wenn zu lang“ (IntelliJ trennt manchmal an anderer Stelle), bei bündig ausgerichteten
+  Argumenten, in denen selbst umbrochen wird, und bei einem Zeilenkommentar, auf den eine Zeile mit `/* … */` folgt.
+  Wer doch IntelliJs eigenen Formatter will: `java.format.intellij.cmd` = `format.bat`/`format.sh` (IntelliJ muss dann
+  geschlossen sein).
 
 ## Datenbank (Oracle oder jeder JDBC-Treiber)
 

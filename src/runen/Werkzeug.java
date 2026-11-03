@@ -730,6 +730,25 @@ final class Werkzeug {
         }
     }
 
+    private IntellijNacharbeit nacharbeit;
+    private String nacharbeitSchluessel;
+
+    /** Nacharbeit nach jdtls fuer den IntelliJ-Stil (behaltene Umbrueche, Javadoc, Klammern ...), oder null */
+    IntellijNacharbeit intellijNacharbeit() {
+        Path st = intellijStil();
+        if (st == null || ed.kf.get("java.format.intellij.cmd", null) != null || ed.kf.get("java.format.eclipse", null) != null) return null;
+        try {
+            String schluessel = st + "|" + Files.getLastModifiedTime(st).toMillis();
+            if (!schluessel.equals(nacharbeitSchluessel)) {
+                nacharbeit = new IntellijNacharbeit(Files.readString(st, StandardCharsets.UTF_8));
+                nacharbeitSchluessel = schluessel;
+            }
+            return nacharbeit;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** IntelliJ-Stil als Eclipse-Profil fuer jdtls (neben der Jar), oder null */
     private Path intellijProfil() {
         Path st = intellijStil();

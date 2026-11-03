@@ -71,6 +71,7 @@ final class IntellijStil {
         String rand = String.valueOf(zahl(w, "RIGHT_MARGIN", 120));
         e.put("lineSplit", rand);
         e.put("comment.line_length", rand);
+        // KEEP_LINE_BREAKS: Eclipse zieht bei "Do not wrap" trotzdem zusammen - das verhindert die Nacharbeit
         e.put("join_wrapped_lines", an(w, "KEEP_LINE_BREAKS", true) ? "false" : "true");
         e.put("indent_empty_lines", an(w, "KEEP_INDENTS_ON_EMPTY_LINES", false) ? "true" : "false");
         // Klammern
@@ -80,11 +81,30 @@ final class IntellijStil {
         for (String k : new String[] {"method_declaration", "constructor_declaration", "record_constructor"}) e.put("brace_position_for_" + k, methode);
         for (String k : new String[] {"block", "block_in_case", "switch", "enum_constant"}) e.put("brace_position_for_" + k, block);
         e.put("brace_position_for_lambda_body", lambda);
+        e.put("brace_position_for_block_in_case_after_arrow", block);
         e.put("brace_position_for_array_initializer", "end_of_line");
         e.put("insert_new_line_before_else_in_if_statement", ja(an(w, "ELSE_ON_NEW_LINE", false)));
         e.put("insert_new_line_before_catch_in_try_statement", ja(an(w, "CATCH_ON_NEW_LINE", false)));
         e.put("insert_new_line_before_finally_in_try_statement", ja(an(w, "FINALLY_ON_NEW_LINE", false)));
         e.put("insert_new_line_before_while_in_do_statement", ja(an(w, "WHILE_ON_NEW_LINE", false)));
+        // kurze Anweisungen und Bloecke auf einer Zeile lassen
+        boolean steuer = an(w, "KEEP_CONTROL_STATEMENT_IN_ONE_LINE", true);
+        for (String k : new String[] {"keep_then_statement_on_same_line", "keep_else_statement_on_same_line", "keep_simple_for_body_on_same_line",
+                "keep_simple_while_body_on_same_line", "keep_simple_do_while_body_on_same_line", "keep_imple_if_on_one_line"}) e.put(k, String.valueOf(steuer));
+        boolean bloecke = an(w, "KEEP_SIMPLE_BLOCKS_IN_ONE_LINE", false);
+        e.put("keep_if_then_body_block_on_one_line", einZeile(bloecke));
+        e.put("keep_loop_body_block_on_one_line", einZeile(bloecke));
+        // nackte Bloecke { } kennen nur never und if_empty
+        e.put("keep_code_block_on_one_line", bloecke ? "one_line_if_empty" : "one_line_never");
+        e.put("keep_method_body_on_one_line", einZeile(an(w, "KEEP_SIMPLE_METHODS_IN_ONE_LINE", false)));
+        e.put("keep_simple_getter_setter_on_one_line", String.valueOf(an(w, "KEEP_SIMPLE_METHODS_IN_ONE_LINE", false)));
+        e.put("keep_lambda_body_block_on_one_line", einZeile(an(w, "KEEP_SIMPLE_LAMBDAS_IN_ONE_LINE", false)));
+        String klassen = einZeile(an(w, "KEEP_SIMPLE_CLASSES_IN_ONE_LINE", false));
+        for (String k : new String[] {"keep_type_declaration_on_one_line", "keep_anonymous_type_declaration_on_one_line", "keep_record_declaration_on_one_line",
+                "keep_annotation_declaration_on_one_line", "keep_enum_constant_declaration_on_one_line"}) e.put(k, klassen);
+        // enum A {X, Y} laesst IntelliJ auf einer Zeile
+        e.put("keep_enum_declaration_on_one_line", "one_line_preserve");
+        e.put("insert_new_line_after_label", "insert");
         // Leerzeilen
         e.put("blank_lines_before_package", String.valueOf(zahl(w, "BLANK_LINES_BEFORE_PACKAGE", 0)));
         e.put("blank_lines_after_package", String.valueOf(zahl(w, "BLANK_LINES_AFTER_PACKAGE", 1)));
@@ -122,7 +142,8 @@ final class IntellijStil {
         e.put("alignment_for_throws_clause_in_constructor_declaration", thr);
         e.put("alignment_for_expressions_in_array_initializer", umbruch(zahl(w, "ARRAY_INITIALIZER_WRAP", 0), an(w, "ALIGN_MULTILINE_ARRAY_INITIALIZER_EXPRESSION", false)));
         e.put("alignment_for_enum_constants", umbruch(zahl(w, "ENUM_CONSTANTS_WRAP", 0), false));
-        e.put("alignment_for_conditional_expression", umbruch(zahl(w, "TERNARY_OPERATION_WRAP", 0), an(w, "ALIGN_MULTILINE_TERNARY_OPERATION", false)));
+        // beim Ternaer ist die Bedingung der Anfang, ? und : sind die Elemente: einzeln heisst hier 48
+        e.put("alignment_for_conditional_expression", umbruch(zahl(w, "TERNARY_OPERATION_WRAP", 0), an(w, "ALIGN_MULTILINE_TERNARY_OPERATION", false), true));
         String bin = umbruch(zahl(w, "BINARY_OPERATION_WRAP", 0), an(w, "ALIGN_MULTILINE_BINARY_OPERATION", false));
         for (String k : new String[] {"binary_expression", "additive_operator", "multiplicative_operator", "logical_operator", "string_concatenation", "bitwise_operator", "relational_operator", "shift_operator"}) e.put("alignment_for_" + k, bin);
         e.put("alignment_for_assignment", umbruch(zahl(w, "ASSIGNMENT_WRAP", 0), false));
@@ -131,7 +152,13 @@ final class IntellijStil {
         for (String k : new String[] {"binary_operator", "additive_operator", "multiplicative_operator", "logical_operator", "string_concatenation", "bitwise_operator", "relational_operator", "shift_operator"}) e.put("wrap_before_" + k, String.valueOf(vorOp));
         e.put("wrap_before_conditional_operator", String.valueOf(an(w, "TERNARY_OPERATION_SIGNS_ON_NEXT_LINE", false)));
         e.put("wrap_before_assignment_operator", "false");
-        // Annotationen: 2 = eigene Zeile
+        // Annotationen: 0 nicht umbrechen, 1 wenn zu lang, 2 jede auf eigener Zeile, 4/5 einzeln wenn zu lang
+        String[][] anno = {{"type", "CLASS_ANNOTATION_WRAP", "2"}, {"method", "METHOD_ANNOTATION_WRAP", "2"}, {"field", "FIELD_ANNOTATION_WRAP", "2"},
+                {"parameter", "PARAMETER_ANNOTATION_WRAP", "0"}, {"local_variable", "VARIABLE_ANNOTATION_WRAP", "0"}, {"enum_constant", "ENUM_FIELD_ANNOTATION_WRAP", "0"}};
+        for (String[] a : anno) {
+            int z = zahl(w, a[1], Integer.parseInt(a[2]));
+            e.put("alignment_for_annotations_on_" + a[0], z == 0 ? "0" : z == 1 ? "16" : z == 2 ? "49" : "48");
+        }
         e.put("insert_new_line_after_annotation_on_type", ja(zahl(w, "CLASS_ANNOTATION_WRAP", 2) == 2));
         e.put("insert_new_line_after_annotation_on_method", ja(zahl(w, "METHOD_ANNOTATION_WRAP", 2) == 2));
         e.put("insert_new_line_after_annotation_on_field", ja(zahl(w, "FIELD_ANNOTATION_WRAP", 2) == 2));
@@ -184,6 +211,10 @@ final class IntellijStil {
      * Eclipse-Wert (Art | Einrueckung | erzwingen). Wie IntelliJ bleibt das erste Element hinter "(" stehen
      * (Eclipse 80), ausser bei "New line after '('" (Eclipse 48).
      */
+    private static String einZeile(boolean b) {
+        return b ? "one_line_preserve" : "one_line_never";
+    }
+
     private static String umbruch(int wrap, boolean ausrichten, boolean klammerZeile) {
         if (wrap == 0) return "0";
         int jedes = klammerZeile ? 48 : 80;
