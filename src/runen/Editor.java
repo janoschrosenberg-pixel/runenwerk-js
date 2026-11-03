@@ -703,10 +703,10 @@ final class Editor {
             merken(null);
             d().einfuegen(d().cursor, s.replace("\r\n", "\n"));
         });
-        // Speicherbaenke: Strg+C/Strg+V mit Ziffer, 0 ist die Systemzwischenablage
-        /** @binding Kopiert in Speicherbank 0-9 (0 = Systemzwischenablage): Auswahl, Zeile, Eingabefeld oder Zelle */
+        // Speicherbaenke: Strg+C/Strg+V mit Ziffer; 0 Standardregister, 1 Systemzwischenablage, 2-9 eigene
+        /** @binding Kopiert in Speicherbank 0-9 (1 = Systemzwischenablage, 0 = Standardregister wie p): Auswahl, Zeile, Eingabefeld oder Zelle */
         reg("bankCopy", a -> bankKopieren(bankNr(a)));
-        /** @binding Fuegt Speicherbank 0-9 ein (0 = Systemzwischenablage) */
+        /** @binding Fuegt Speicherbank 0-9 ein (1 = Systemzwischenablage, 0 = zuletzt Geloeschtes/Kopiertes) */
         reg("bankPaste", a -> bankEinfuegen(bankNr(a)));
         /** @binding Neue Zeile unter der aktuellen, Insert-Mode */
         reg("openLineBelow", a -> {
@@ -1382,7 +1382,7 @@ final class Editor {
     }
 
     private static String bankName(int n) {
-        return n == 0 ? "Zwischenablage" : "Ablage " + n;
+        return n == Vim.BANK_SYSTEM ? "Zwischenablage (Bank 1)" : n == Vim.BANK_REGISTER ? "Register (Bank 0)" : "Ablage " + n;
     }
 
     /** Strg+C Ziffer: je nach Mode die Auswahl, die Zeile, das Eingabefeld, die Zelle ... */

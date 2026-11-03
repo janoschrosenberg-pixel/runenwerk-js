@@ -1,6 +1,7 @@
 # config.txt - Einstellungen von RUNENWERK JS (liegt neben runenjs.jar)
 #
 # Zeilen "schluessel = wert", # ist ein Kommentar. Relative Pfade gelten ab diesem Ordner.
+# Pfade mit Leerzeichen duerfen in Anfuehrungszeichen stehen: java.workspace = "C:/Users/ich/Meine Projekte/backend"
 # Nach Aenderungen: Editor neu starten oder im Terminal (:) "reload" eingeben.
 
 # ---------------------------------------------------------------- Arbeitsbereiche

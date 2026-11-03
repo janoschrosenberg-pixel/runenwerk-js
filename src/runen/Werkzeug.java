@@ -1859,7 +1859,7 @@ final class Werkzeug {
             Map<String, String> env = new java.util.LinkedHashMap<>();
             for (String x : f.getOrDefault("env", "").split(";")) {
                 int g = x.indexOf('=');
-                if (g > 0) env.put(x.substring(0, g).strip(), x.substring(g + 1).strip());
+                if (g > 0) env.put(x.substring(0, g).strip(), Konfig.ohneAnfuehrung(x.substring(g + 1).strip()));
             }
             String wd = f.get("workdir");
             String pr = f.getOrDefault("provided", "on").toLowerCase();

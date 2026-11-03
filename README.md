@@ -182,7 +182,9 @@ Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (um
 ## Kopieren und Einfügen: 10 Speicherbänke
 
 `Strg+C Ziffer` kopiert, `Strg+V Ziffer` fügt ein (die Ziffer darf mit oder ohne gehaltenes Strg kommen).
-Bank `0` ist die Systemzwischenablage, `1`–`9` sind eigene Ablagen im Editor. Das gilt überall:
+Bank `1` ist die Systemzwischenablage. Löschen und Kopieren mit Vim-Befehlen (`dd`, `x`, `yy` …) überschreibt sie
+nicht mehr; nur `Strg+C 1` und Vims Register `"+` (`"+yy`) schreiben hinein. Bank `0` ist Vims Standardregister, also
+das zuletzt Gelöschte oder Kopierte (wie `p`); `2`–`9` sind eigene Ablagen im Editor. Das gilt überall:
 
 | Wo | Strg+C Ziffer | Strg+V Ziffer |
 |---|---|---|

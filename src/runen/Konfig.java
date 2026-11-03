@@ -10,7 +10,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * config.txt neben der Jar: Zeilen "schluessel = wert", # ist ein Kommentar. Ein Schluessel darf
+ * config.txt neben der Jar: Zeilen "schluessel = wert", # ist ein Kommentar; Werte duerfen in "..." stehen
+ * (Pfade mit Leerzeichen). Ein Schluessel darf
  * mehrfach vorkommen (open, db.account.NAME). {@link #setzen} schreibt einen Wert zurueck und laesst
  * den Rest der Datei, wie er ist.
  */
@@ -44,9 +45,21 @@ final class Konfig {
                 continue;
             }
             String k = z.substring(0, g).strip();
-            String v = z.substring(g + 1).strip();
+            String v = ohneAnfuehrung(z.substring(g + 1).strip());
             werte.computeIfAbsent(k, x -> new ArrayList<>()).add(v);
         }
+    }
+
+    /**
+     * "C:/Program Files/x" bzw. 'C:/Program Files/x': Anfuehrungszeichen um den ganzen Wert fallen weg (fuer Pfade mit
+     * Leerzeichen); stehen innen weitere, bleibt der Wert, wie er ist (z. B. args = "a" "b").
+     */
+    static String ohneAnfuehrung(String v) {
+        if (v.length() >= 2) {
+            char a = v.charAt(0);
+            if ((a == '"' || a == '\'') && v.charAt(v.length() - 1) == a && v.indexOf(a, 1) == v.length() - 1) return v.substring(1, v.length() - 1);
+        }
+        return v;
     }
 
     String get(String k, String vorgabe) {
@@ -82,6 +95,12 @@ final class Konfig {
         return v.equals("on") || v.equals("true") || v.equals("ja") || v.equals("yes") || v.equals("1");
     }
 
+    /** Pfade mit Leerzeichen und Werte mit Leerraum am Rand in Anfuehrungszeichen schreiben, damit sie so zurueckkommen */
+    private static String mitAnfuehrung(String v) {
+        boolean noetig = v.contains(" ") && !v.contains("\"") && (v.contains("/") || v.contains("\\"));
+        return noetig || (!v.isEmpty() && (v.strip().length() != v.length())) ? "\"" + v + "\"" : v;
+    }
+
     /** einen Wert in der Datei setzen (vorhandene Zeile ersetzen, sonst anhaengen) */
     void setzen(String k, String v) {
         try {
@@ -91,12 +110,12 @@ final class Konfig {
                 String z = zeilen.get(i).strip();
                 int g = z.indexOf('=');
                 if (!z.startsWith("#") && g > 0 && z.substring(0, g).strip().equals(k)) {
-                    zeilen.set(i, k + " = " + v);
+                    zeilen.set(i, k + " = " + mitAnfuehrung(v));
                     ersetzt = true;
                     break;
                 }
             }
-            if (!ersetzt) zeilen.add(k + " = " + v);
+            if (!ersetzt) zeilen.add(k + " = " + mitAnfuehrung(v));
             Files.write(pfad, zeilen, StandardCharsets.UTF_8);
         } catch (IOException e) {
             fehler.add(pfad + " nicht geschrieben: " + e.getMessage());

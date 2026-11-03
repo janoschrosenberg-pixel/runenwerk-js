@@ -42,7 +42,11 @@ final class Vim {
     // Register
     final Map<Character, Reg> regs = new HashMap<>();
     char regWahl;
-    /** Speicherbaenke fuer Strg+C/Strg+V mit Ziffer; 0 ist die Systemzwischenablage */
+    /**
+     * Speicherbaenke fuer Strg+C/Strg+V mit Ziffer: 0 ist das Standardregister (das zuletzt Geloeschte oder
+     * Kopierte, wie p), 1 die Systemzwischenablage (nur Strg+C 1 und "+ schreiben sie), 2-9 eigene Ablagen
+     */
+    static final int BANK_REGISTER = 0, BANK_SYSTEM = 1;
     private final Reg[] baenke = new Reg[10];
     /** naechstes Schreiben bzw. Lesen eines Registers geht an diese Bank (-1: normal) */
     int bankZiel = -1, bankQuelle = -1;
@@ -125,17 +129,26 @@ final class Vim {
 
     // ================================================================ Register
     void bankSetzen(int n, Reg g) {
+        if (n == BANK_REGISTER) {
+            regs.put('"', g);
+            return;
+        }
         baenke[n] = g;
-        if (n == 0) Editor.zwischenablage(g.text());
+        if (n == BANK_SYSTEM) Editor.zwischenablage(g.text());
     }
 
     Reg bank(int n) {
-        if (n != 0) return baenke[n];
+        if (n == BANK_REGISTER) return regs.get('"');
+        if (n != BANK_SYSTEM) return baenke[n];
+        return systemLesen();
+    }
+
+    /** Systemzwischenablage als Register; selbst kopiert: Art (Zeilen, Block) behalten */
+    private Reg systemLesen() {
         String t = Editor.ausZwischenablage();
         if (t == null) return null;
         t = t.replace("\r\n", "\n");
-        // selbst kopiert: Art (Zeilen, Block) behalten
-        if (baenke[0] != null && baenke[0].text().equals(t)) return baenke[0];
+        if (baenke[BANK_SYSTEM] != null && baenke[BANK_SYSTEM].text().equals(t)) return baenke[BANK_SYSTEM];
         return new Reg(t, t.endsWith("\n") ? ZEILEN : ZEICHEN);
     }
 
@@ -151,6 +164,12 @@ final class Vim {
         regWahl = 0;
         if (r == '_') return;
         Reg g = new Reg(text, art);
+        // "+ und "* sind die Systemzwischenablage; sonst bleibt sie unberuehrt (dd, x, yy ueberschreiben sie nicht)
+        if (r == '+' || r == '*') {
+            bankSetzen(BANK_SYSTEM, g);
+            regs.put('"', g);
+            return;
+        }
         if (r >= 'A' && r <= 'Z') {
             char k = Character.toLowerCase(r);
             Reg alt = regs.get(k);
@@ -173,7 +192,6 @@ final class Vim {
                 regs.put('-', g);
             }
         }
-        Editor.zwischenablage(text);
     }
 
     Reg regLesen() {
@@ -185,12 +203,7 @@ final class Vim {
         }
         char r = regWahl;
         regWahl = 0;
-        if (r == '+' || r == '*') {
-            String t = Editor.ausZwischenablage();
-            if (t == null) return null;
-            t = t.replace("\r\n", "\n");
-            return new Reg(t, t.endsWith("\n") ? ZEILEN : ZEICHEN);
-        }
+        if (r == '+' || r == '*') return systemLesen();
         return regs.get(r == 0 ? '"' : Character.toLowerCase(r));
     }
 
