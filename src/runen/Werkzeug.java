@@ -85,7 +85,7 @@ final class Werkzeug {
     }
 
     /** Repo zu ts, java oder (leer) dem der aktuellen Datei; null mit Meldung */
-    private Path repoFuer(String welcher) {
+    Path repoFuer(String welcher) {
         Path repo = switch (welcher.trim()) {
             case "ts" -> tsRepo;
             case "java" -> javaRepo;
@@ -297,6 +297,7 @@ final class Werkzeug {
         if (repo == null) return;
         statusRepo = repo;
         statusOffen = true;
+        ed.scm.offen = false;
         ed.konsoleOffen = false;
         ed.modus = "gitstatus";
         statusLesen();
@@ -552,7 +553,7 @@ final class Werkzeug {
         });
     }
 
-    private static String letzteZeile(String s) {
+    static String letzteZeile(String s) {
         String[] z = s.strip().split("\\R");
         return z[z.length - 1];
     }
@@ -1081,9 +1082,40 @@ final class Werkzeug {
         this.neuAktion = neuAktion;
     }
 
+    /** beim Tippen in die Auswahl: weitere Eintraege holen (Vervollstaendigung vom Server), sonst null */
+    Consumer<String> auswahlNachladen;
+    private javax.swing.Timer nachladenUhr;
+
+    /** Eintraege ergaenzen (die schon da sind, bleiben); Filter und Auswahl bleiben */
+    void auswahlDazu(List<String> neu) {
+        if (!auswahlOffen) return;
+        List<String> l = new ArrayList<>(auswahlAlle);
+        for (String x : neu) if (!l.contains(x)) l.add(x);
+        if (l.size() == auswahlAlle.size()) return;
+        String gewaehlt = auswahlWahl < auswahlListe.size() ? auswahlListe.get(auswahlWahl) : null;
+        auswahlAlle = l;
+        filtern();
+        int i = gewaehlt == null ? -1 : auswahlListe.indexOf(gewaehlt);
+        auswahlWahl = Math.max(0, i);
+        ed.neuMalen.run();
+    }
+
+    private void nachladen() {
+        if (auswahlNachladen == null) return;
+        if (nachladenUhr != null) nachladenUhr.stop();
+        String q = auswahlFilter.toString();
+        Consumer<String> n = auswahlNachladen;
+        nachladenUhr = new javax.swing.Timer(250, e -> {
+            if (auswahlOffen && auswahlNachladen == n) n.accept(q);
+        });
+        nachladenUhr.setRepeats(false);
+        nachladenUhr.start();
+    }
+
     void auswahl(String titel, List<String> eintraege, String vorwahl, Consumer<String> aktion) {
         neuText = null;
         neuAktion = null;
+        auswahlNachladen = null;
         if (!auswahlOffen) auswahlVorModus = ed.modus;
         auswahlOffen = true;
         auswahlTitel = titel;
@@ -2670,6 +2702,14 @@ final class Werkzeug {
             ed.modus = "normal";
             ed.oeffnen(p);
         });
+        /** @binding git status: Diff der Datei gegen HEAD */
+        c.put("gitStatusDiff", a -> {
+            Path p = statusDatei();
+            if (p == null || !Files.isRegularFile(p)) return;
+            Doc d = ed.oeffnen(p);
+            if (d == null) return;
+            ed.unterschied.dateiGegen(d, "HEAD", Unterschied.rel(statusRepo, p));
+        });
         /** @binding git status: Datei vormerken (add) */
         c.put("gitStatusStage", a -> {
             Path p = statusDatei();
@@ -2709,11 +2749,13 @@ final class Werkzeug {
         c.put("pickerChar", a -> {
             auswahlFilter.append(a);
             filtern();
+            nachladen();
         });
         /** @binding Auswahlliste: loescht das letzte Zeichen des Filters */
         c.put("pickerBackspace", a -> {
             if (auswahlFilter.length() > 0) auswahlFilter.setLength(auswahlFilter.length() - 1);
             filtern();
+            nachladen();
         });
         /** @binding Auswahlliste: voriger Eintrag */
         c.put("pickerUp", a -> auswahlWahl = Math.max(0, auswahlWahl - 1));

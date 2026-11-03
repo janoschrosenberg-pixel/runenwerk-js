@@ -163,7 +163,10 @@ Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten f
 | Leertaste g b (oder b) | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; ein neuer Name bietet „+ neuen Branch erstellen“ an (`git switch -c`); `g t` / `g j` für TS- bzw. Java-Repo |
 | Leertaste g p / g P | pull / push (push legt bei neuen Branches den Upstream an) |
 | Leertaste g c | commit: Fenster für die Nachricht; ist nichts vorgemerkt, wird alles committet |
-| Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `s` vormerken, `u` zurücknehmen, `x` verwerfen (gestaged und nicht gestaged, mit Rückfrage; neue Dateien werden gelöscht), `c` commit, `m` merge, ESC schließt |
+| Leertaste g d | Datei mit einem Commit vergleichen: Liste aus dem Verlauf der Datei (auch über Umbenennungen), tippen filtert, Branch/Tag/Commit eintippen geht auch; verglichen wird der Text im Editor, auch ungespeichert |
+| Leertaste g D | Datei mit HEAD vergleichen |
+| Leertaste g r / g n | Pull Requests im SCM-Manager: Liste bzw. neuer Pull Request (siehe unten) |
+| Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `d` Diff gegen HEAD, `s` vormerken, `u` zurücknehmen, `x` verwerfen (gestaged und nicht gestaged, mit Rückfrage; neue Dateien werden gelöscht), `c` commit, `m` merge, ESC schließt |
 | Leertaste g R | reset --hard (nur nach Eintippen von `ja`) |
 | Leertaste g m | Merge-Editor für Konflikte |
 | Leertaste g B (oder g a) | git blame an/aus: links neben den Zeilennummern Commit, Autor und Datum, unten die Commit-Nachricht der aktuellen Zeile; neue Zeilen erscheinen als „nicht committet“ |
@@ -172,6 +175,30 @@ Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten f
 Ergebnis (die Datei). `n`/`p` nächster/voriger Konflikt, TAB nächster offener, `a`/`b` A bzw. B übernehmen, `+` beide
 (A dann B), `*` beide (B dann A), `r` Konfliktmarken zurück, `j`/`k` blättern, `e` C von Hand bearbeiten (Leertaste g m
 kommt zurück), `q` fertig: speichert und merkt die Datei vor (`git add`), danach Leertaste g c.
+
+**Diff-Ansicht**: ein schreibgeschützter Puffer mit dem Unterschied (entfernt rot, neu grün). ENTER springt an die Zeile
+in der Datei, `]c` / `[c` zum nächsten/vorigen Abschnitt, `q` schließt.
+
+### Pull Requests (SCM-Manager)
+
+In `config.txt`: `scm.url` (z. B. `https://scm.firma.de/scm`) und `scm.apikey` (API-Schlüssel aus dem Profil im
+SCM-Manager). Das Repo kommt aus der Remote-URL (`…/repo/NAMESPACE/NAME`), sonst `scm.repo = NAMESPACE/NAME`. Angemeldet
+wird mit Basic (Benutzer aus dem Schlüssel bzw. `scm.user`, Schlüssel als Passwort); `scm.auth = bearer` schickt ihn als
+Bearer-Token.
+
+- **Leertaste g n** – neuer Pull Request: Quell-Branch (der aktuelle ist vorgewählt, wenn er gepusht ist; sonst steht
+  es dabei), Ziel-Branch (der Standard-Branch vorgewählt), Titel (Vorschlag: letzter Commit), Beschreibung, dann Reviewer
+  nacheinander aus einer Liste – tippen sucht im SCM-Manager (Vervollständigung), „fertig“ erstellt ihn.
+- **Leertaste g r** – alle Pull Requests unten wie git status: `#`, Status, Quelle -> Ziel, Titel, Autor, Freigaben,
+  offene Aufgaben. `j`/`k`, `s` Filter (offen, meine, zum Review, alle), `g` neu laden, `a` freigeben, `x` Freigabe
+  zurücknehmen, `n` neu, `w` im Browser, TAB in den Text (Liste bleibt), ESC schließt.
+- **ENTER** zeigt den Pull Request: Beschreibung, Reviewer, alle Kommentare mit Antworten und Aufgaben, die geänderten
+  Dateien und den Diff (`git diff ZIEL...QUELLE` nach einem fetch, sonst vom Server). Kommentare zu einer Codezeile –
+  auch die Befunde, die **Teamscale** als Zeilenkommentare schreibt – stehen im Diff direkt unter ihrer Zeile. **ENTER auf
+  einem Kommentar springt an seine Codestelle** (bei Kommentaren ohne Zeilenbezug an eine im Text genannte, etwa
+  `src/X.java:42`); `]k` / `[k` nächster/voriger Kommentar.
+- **m** mergen: Strategie wählen (**Squash vorgewählt**, `scm.merge.strategy` ändert die Vorgabe), Commit-Nachricht
+  (Vorschlag vom SCM-Manager), dann **Quell-Branch löschen** (vorgewählt, `scm.merge.deleteBranch = false` dreht es um).
 
 ## Terminal
 

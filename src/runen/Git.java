@@ -62,6 +62,34 @@ final class Git {
         }
     }
 
+    /** nur die Standardausgabe, unveraendert (git show REF:datei); Fehlermeldungen getrennt */
+    static Lauf inhalt(Path repo, String... args) {
+        List<String> b = new ArrayList<>();
+        b.add("git");
+        b.addAll(List.of(args));
+        ProcessBuilder pb = new ProcessBuilder().directory(repo.toFile());
+        Lsp.umgebung(pb);
+        List<String> befehl = Lsp.befehl(repo, b, pb.environment());
+        if (befehl == null) return new Lauf(-1, "git nicht gefunden (nicht im PATH)");
+        try {
+            Path fehler = Files.createTempFile("runen-git", ".txt");
+            try {
+                Process p = pb.command(befehl).redirectError(fehler.toFile()).start();
+                p.getOutputStream().close();
+                String aus = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                int code = p.waitFor();
+                return new Lauf(code, code == 0 || code == 1 && !aus.isEmpty() ? aus : Files.readString(fehler, StandardCharsets.UTF_8).strip());
+            } finally {
+                Files.deleteIfExists(fehler);
+            }
+        } catch (IOException e) {
+            return new Lauf(-1, e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Lauf(-1, "unterbrochen");
+        }
+    }
+
     /**
      * Branches, zuletzt benutzte zuerst: Reihenfolge der Wechsel aus dem Reflog, dann die
      * uebrigen lokalen nach Datum des letzten Commits, dann entfernte ohne lokales Gegenstueck.

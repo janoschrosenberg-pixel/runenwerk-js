@@ -4,7 +4,7 @@ import java.util.Set;
 
 /** Hervorhebung fuer JavaScript/TypeScript mit JSX: eine Klasse je Zeichen. */
 final class Highlight {
-    static final byte TEXT = 0, KEYWORD = 1, STRING = 2, COMMENT = 3, NUMBER = 4, TYPE = 5, TAG = 6, FUNC = 7, PUNCT = 8, ATTR = 9, CONST = 10;
+    static final byte TEXT = 0, KEYWORD = 1, STRING = 2, COMMENT = 3, NUMBER = 4, TYPE = 5, TAG = 6, FUNC = 7, PUNCT = 8, ATTR = 9, CONST = 10, WEG = 11, NEU = 12;
 
     private static final Set<String> KEYWORDS = Set.of("abstract", "as", "async", "await", "break", "case", "catch", "class", "const", "continue",
             "debugger", "declare", "default", "delete", "do", "else", "enum", "export", "extends", "finally", "for", "from", "function", "get", "if",
@@ -48,8 +48,46 @@ final class Highlight {
     static byte[] faerben(CharSequence s, String sprache) {
         if (sprache.equals("sql")) return sql(s);
         if (sprache.equals("yaml")) return yaml(s);
+        if (sprache.equals("diff")) return diff(s);
         if (sprache.equals("java")) return faerben(s, false, true);
         return faerben(s, sprache.endsWith("react") || sprache.equals("javascript"), false);
+    }
+
+    /** unified diff: entfernte/neue Zeilen, Hunk-Koepfe, Datei-Koepfe, eigene Kopfzeilen mit # */
+    static byte[] diff(CharSequence s) {
+        byte[] f = new byte[s.length()];
+        int i = 0, n = s.length();
+        boolean imHunk = false;
+        while (i < n) {
+            int e = i;
+            while (e < n && s.charAt(e) != '\n') e++;
+            char c = i < e ? s.charAt(i) : ' ';
+            String anf = s.subSequence(i, Math.min(e, i + 11)).toString();
+            byte k = TEXT;
+            if (anf.startsWith("diff --git") || anf.startsWith("index ") || anf.startsWith("new file") || anf.startsWith("deleted file") || anf.startsWith("similarity")
+                    || anf.startsWith("rename ")) {
+                k = TYPE;
+                imHunk = false;
+            } else if (!imHunk && (anf.startsWith("--- ") || anf.startsWith("+++ "))) {
+                k = TYPE;
+            } else if (anf.startsWith("@@")) {
+                k = KEYWORD;
+                imHunk = true;
+            } else if (anf.startsWith("\\ \u00bb") || anf.startsWith("\\    ") || anf.startsWith("\u00bb ") || anf.startsWith("    \u00bb ")) {
+                k = CONST;
+            } else if (imHunk && c == '+') {
+                k = NEU;
+            } else if (imHunk && c == '-') {
+                k = WEG;
+            } else if (c == '#' || c == '\\') {
+                k = COMMENT;
+            } else if (!imHunk) {
+                k = ATTR;
+            }
+            java.util.Arrays.fill(f, i, e, k);
+            i = e + 1;
+        }
+        return f;
     }
 
     /** YAML: Schluessel, $ref, Zeichenketten, Zahlen, true/false/null, Kommentare, Blockwerte */

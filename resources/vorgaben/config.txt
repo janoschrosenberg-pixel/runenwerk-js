@@ -100,6 +100,19 @@ spring.args =
 spring.run =
 spring.debug =
 
+# ---------------------------------------------------------------- Pull Requests im SCM-Manager (Leertaste g r / g n)
+# Basis-URL (z. B. https://scm.firma.de/scm) und API-Schluessel (Profil im SCM-Manager -> API-Schluessel)
+scm.url =
+scm.apikey =
+# nur falls noetig: Benutzer fuer die Anmeldung (sonst aus dem Schluessel), auth = auto | basic | bearer,
+# Repo als NAMESPACE/NAME (sonst aus der Remote-URL .../repo/NAMESPACE/NAME)
+# scm.user =
+# scm.auth = auto
+# scm.repo =
+# Mergen: Vorgabe-Strategie (SQUASH, MERGE_COMMIT, FAST_FORWARD_IF_POSSIBLE, REBASE), Quell-Branch danach loeschen
+scm.merge.strategy = SQUASH
+scm.merge.deleteBranch = true
+
 # ---------------------------------------------------------------- Debugger (Leertaste d d, gleiche Tasten fuer beide)
 # Java: Spring Boot startet mit JDWP auf diesem Port, der Debugger haengt sich an (Leertaste d a: an laufende JVM)
 debug.java.host = localhost

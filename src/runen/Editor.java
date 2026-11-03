@@ -33,7 +33,7 @@ final class Editor {
     static final int E_GRUND = 0x020702, E_RASTER = 0x061006, E_LEISTE = 0x0A2412, E_TEXT = 0x33E070, E_HELL = 0x8CFFB0, E_MATT = 0x1D7A3D,
             E_FEHLER = 0xFF3B5C, E_WARN = 0xFFB000, E_ZEILE = 0x071A0C, E_KONSOLE = 0x010401, E_INFO = 0x7FD4FF;
     /** je Klasse aus {@link Highlight} */
-    static final int[] FARBEN = {0x33E070, 0x5CFFE6, 0xFF9F43, 0x1D7A3D, 0xE8FF5C, 0x7FD4FF, 0x5CFFE6, 0x8CFFB0, 0x2FB85A, 0xE8FF5C, 0xFFB000};
+    static final int[] FARBEN = {0x33E070, 0x5CFFE6, 0xFF9F43, 0x1D7A3D, 0xE8FF5C, 0x7FD4FF, 0x5CFFE6, 0x8CFFB0, 0x2FB85A, 0xE8FF5C, 0xFFB000, 0xFF5C7A, 0xB8FF5C};
 
     interface Cmd {
         void run(String arg);
@@ -50,6 +50,10 @@ final class Editor {
     final FileManager fm;
     /** OpenAPI-Ansicht fuer YAML-Dateien */
     final OpenApi oa;
+    /** Diff-Ansicht (Datei gegen Commit, Pull Requests) */
+    final Unterschied unterschied;
+    /** Pull Requests im SCM-Manager */
+    final Scm scm;
     final Vim vim;
     final Werkzeug wz;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
@@ -132,6 +136,8 @@ final class Editor {
         vim = new Vim(this);
         wz = new Werkzeug(this);
         oa = new OpenApi(this);
+        unterschied = new Unterschied(this);
+        scm = new Scm(this);
         folgeUhr = new Timer(1000, e -> {
             // angefangene Folge nach 1 s allein ausfuehren
             String alt = folgeBefehl;
@@ -149,6 +155,8 @@ final class Editor {
         vim.befehle(cmds);
         wz.befehle(cmds);
         oa.befehle(cmds);
+        unterschied.befehle(cmds);
+        scm.befehle(cmds);
         tabs.add(new Doc());
     }
 
@@ -570,6 +578,7 @@ final class Editor {
         if (modus.equals("result") && !wz.tabelleOffen()) modus = "normal";
         // OpenAPI-Ansicht gehoert zur Datei: nach einem Tab-Wechsel normaler Puffer
         if (modus.equals("openapi") && !oa.sichtbar()) modus = "normal";
+        if (modus.equals("pullrequests") && !scm.offen) modus = "normal";
         // schreibgeschuetzte Puffer (bindings): eigener Mode nurlesen (wie normal, q schliesst)
         if (d.nurLesen) {
             if (modus.equals("insert") || modus.equals("replace")) meldung = d.name() + " ist schreibgeschuetzt";
@@ -2344,7 +2353,7 @@ final class Editor {
 
     int textZeilen() {
         int h = scr.h - oben() - unten() - 8;
-        if (konsoleOffen || wz.tabelleOffen() || wz.dbg.offen || wz.statusOffen) h = (scr.h - oben() - unten()) * 3 / 5;
+        if (konsoleOffen || wz.tabelleOffen() || wz.dbg.offen || wz.statusOffen || scm.offen) h = (scr.h - oben() - unten()) * 3 / 5;
         return Math.max(1, h / scr.lh);
     }
 
@@ -2549,6 +2558,7 @@ final class Editor {
         int panelY = oben + textZeilen() * lh + 6;
         if (konsoleOffen) konsoleMalen(panelY);
         else if (wz.statusOffen) wz.statusMalen(panelY);
+        else if (scm.offen) scm.malen(panelY);
         else if (wz.dbg.offen && (modus.equals("debug") || !wz.tabelleOffen() || !modus.equals("result"))) wz.dbg.malen(panelY);
         else if (wz.tabelleOffen()) wz.ergebnisMalen(panelY);
         if (vorschlagOffen) vorschlaegeMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben + 1) * lh);
@@ -2618,6 +2628,7 @@ final class Editor {
             case "gitstatus" -> "GIT";
             case "merge" -> "MERGE";
             case "openapi" -> "OPENAPI";
+            case "pullrequests" -> "PULL REQUESTS";
             case "picker" -> "AUSWAHL";
             default -> modus;
         };

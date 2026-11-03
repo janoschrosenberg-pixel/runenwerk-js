@@ -68,6 +68,12 @@ final class Doc {
     boolean abgewiesen;
     /** Name ohne Datei (z. B. "bindings") */
     String titel;
+    /** Sprache ohne Datei (z. B. "diff" fuer die Diff-Ansicht) */
+    String art;
+    /** Diff-Ansicht: Repo, gegen dessen Pfade (a/..., b/...) die Datei-Koepfe stehen */
+    Path diffWurzel;
+    /** Diff-Ansicht: Zeile -> Codestelle "pfad TAB zeile" (Kommentare eines Pull Requests, z. B. von Teamscale) */
+    java.util.Map<Integer, String> ziele = java.util.Map.of();
 
     String name() {
         if (titel != null) return titel;
@@ -77,6 +83,7 @@ final class Doc {
 
     /** Sprache fuer Hervorhebung und Language Server (oder null) */
     String sprache() {
+        if (art != null) return art;
         if (pfad == null) return null;
         String n = pfad.getFileName().toString().toLowerCase();
         if (n.endsWith(".tsx")) return "typescriptreact";
@@ -92,8 +99,9 @@ final class Doc {
     /** Sprache mit Language Server: typescript (auch JS) oder java */
     String lspArt() {
         String s = sprache();
-        if (s == null || s.equals("sql") || s.equals("yaml")) return null;
-        return s.equals("java") ? "java" : "ts";
+        if (s == null) return null;
+        if (s.equals("java")) return "java";
+        return s.startsWith("typescript") || s.startsWith("javascript") ? "ts" : null;
     }
 
     /** aktives Datenbankkonto (SQL-Dateien) */
