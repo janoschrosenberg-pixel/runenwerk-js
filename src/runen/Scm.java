@@ -278,7 +278,7 @@ final class Scm {
         });
     }
 
-    private static String id(Object pr) {
+    static String id(Object pr) {
         Object i = Json.get(pr, "id");
         return i instanceof Number n ? String.valueOf(n.longValue()) : String.valueOf(i);
     }
@@ -304,7 +304,7 @@ final class Scm {
         return false;
     }
 
-    private static String person(Object p) {
+    static String person(Object p) {
         String n = Json.str(Json.get(p, "displayName"));
         String i = Json.str(Json.get(p, "id"));
         return n != null ? n : i != null ? i : "?";
@@ -337,7 +337,7 @@ final class Scm {
         s.frame(4, y0, W - 8, h, fokus ? E_HELL : E_TEXT);
         s.frame(5, y0 + 1, W - 10, h - 2, E_MATT);
         String titel = " PULL REQUESTS " + (ziel == null ? "" : ziel.ns() + "/" + ziel.name()) + " (" + filterName() + ")"
-                + (fokus ? "  (j/k, ENTER Diff+Kommentare, a freigeben, x zuruecknehmen, m mergen, n neu, s Filter, g neu laden, w Browser, ESC zu) " : " ");
+                + (fokus ? "  (Tasten unten in der Statuszeile) " : "  (Leertaste g r) ");
         s.rect(3 * cw, y0 - lh / 2, s.textWidth(titel), lh, E_KONSOLE);
         s.text(3 * cw, y0 - lh / 2, titel, E_HELL);
         int n = Math.max(1, (h - lh - 8) / lh);
@@ -497,13 +497,12 @@ final class Scm {
         });
     }
 
-    // ================================================================ Freigeben, Mergen
-    private void freigeben(boolean ja) {
-        Object pr = gewaehlt();
+    // ================================================================ Freigeben, Ablehnen, Mergen
+    /** freigeben bzw. zuruecknehmen; danach (Liste neu laden oder die Ansicht) */
+    void freigeben(Object pr, boolean ja, Runnable danach) {
         if (pr == null) return;
         String l = link(pr, ja ? "approve" : "disapprove", null);
         if (l == null) {
-            String self = link(pr, "self", null);
             if (ja && link(pr, "disapprove", null) != null) {
                 ed.meldung = "#" + id(pr) + " ist schon von dir freigegeben (x nimmt es zurueck)";
                 return;
@@ -512,6 +511,7 @@ final class Scm {
                 ed.meldung = "#" + id(pr) + " ist nicht von dir freigegeben";
                 return;
             }
+            String self = link(pr, "self", null);
             l = self == null ? null : self.replaceAll("/+$", "") + (ja ? "/approve" : "/disapprove");
         }
         if (l == null) return;
@@ -525,14 +525,41 @@ final class Scm {
                     return;
                 }
                 ed.meldung = "#" + id(pr) + (ja ? " freigegeben" : ": Freigabe zurueckgenommen");
-                laden();
+                danach.run();
+            });
+        });
+    }
+
+    /** ablehnen mit Begruendung (rejectWithMessage, sonst reject) */
+    void ablehnen(Object pr, Runnable danach) {
+        if (pr == null) return;
+        if (!"OPEN".equals(Json.str(Json.get(pr, "status"))) && !"DRAFT".equals(Json.str(Json.get(pr, "status")))) {
+            ed.meldung = "#" + id(pr) + " ist nicht offen";
+            return;
+        }
+        frage("#" + id(pr) + " ABLEHNEN - Begruendung (leer geht), ENTER lehnt ab, ESC bricht ab:", "", grund -> {
+            String mit = link(pr, "rejectWithMessage", null), ohne = link(pr, "reject", null);
+            String self = link(pr, "self", null);
+            String url = mit != null ? mit : ohne != null ? ohne : self == null ? null : self.replaceAll("/+$", "") + "/reject";
+            if (url == null) return;
+            String body = Json.write(Json.obj("message", grund.strip()));
+            ed.meldung = "lehne #" + id(pr) + " ab ...";
+            hintergrund(() -> {
+                Antwort a = anfrage("POST", url, "application/json", body);
+                ui(() -> {
+                    if (a.code() / 100 != 2) {
+                        ed.fehler("Ablehnen fehlgeschlagen: " + fehlerText(a));
+                        return;
+                    }
+                    ed.meldung = "#" + id(pr) + " abgelehnt";
+                    danach.run();
+                });
             });
         });
     }
 
     /** m: Strategie (Vorgabe Squash bzw. scm.merge.strategy), Commit-Nachricht, Quell-Branch loeschen (Vorgabe ja) */
-    private void mergen() {
-        Object pr = gewaehlt();
+    void mergen(Object pr, Runnable danach) {
         if (pr == null) return;
         String st = nz(Json.str(Json.get(pr, "status")));
         if (!st.equals("OPEN")) {
@@ -564,13 +591,14 @@ final class Scm {
                     boolean loeschen = !ed.kf.get("scm.merge.deleteBranch", "true").strip().equals("false");
                     List<String> wahlen = loeschen ? List.of("Quell-Branch " + Json.str(Json.get(pr, "source")) + " loeschen  (Vorgabe)", "Quell-Branch behalten")
                             : List.of("Quell-Branch behalten  (Vorgabe)", "Quell-Branch " + Json.str(Json.get(pr, "source")) + " loeschen");
-                    ed.wz.auswahl("Nach dem Merge", wahlen, wahlen.get(0), x -> mergeSenden(pr, strategie, b.strip() + rest, x.endsWith("loeschen") || x.contains("loeschen  (")));
+                    ed.wz.auswahl("Nach dem Merge", wahlen, wahlen.get(0),
+                            x -> mergeSenden(pr, strategie, b.strip() + rest, x.endsWith("loeschen") || x.contains("loeschen  ("), danach));
                 }));
             });
         });
     }
 
-    private void mergeSenden(Object pr, String strategie, String nachricht, boolean loeschen) {
+    private void mergeSenden(Object pr, String strategie, String nachricht, boolean loeschen, Runnable danach) {
         String url = link(pr, "merge", strategie);
         if (url == null) url = link(pr, "merge", null);
         if (url == null) url = basis() + "/api/v2/merge/" + repoPfad(ziel) + "/" + id(pr);
@@ -589,14 +617,149 @@ final class Scm {
                 }
                 ed.meldung = "#" + id(pr) + " gemergt (" + strategie + ")" + (loeschen ? ", " + Json.str(Json.get(pr, "source")) + " geloescht" : "");
                 ed.print("SCM-Manager: " + ed.meldung);
-                laden();
+                danach.run();
             });
         });
     }
 
-    // ================================================================ Diff mit Kommentaren
-    /** Kommentar eines Pull Requests: Codestelle (Datei/Zeile, null ohne), Text, Antworten */
-    record Kommentar(String datei, int neu, int alt, String autor, String datum, String typ, String text, List<String[]> antworten, boolean veraltet) {}
+    // ================================================================ Kommentieren, Reviewer
+    /**
+     * Kommentar schreiben: an eine Codezeile (datei mit neu- bzw. alt-Nummer), allgemein (datei null)
+     * oder als Antwort (auf != null). \n im Text wird ein Zeilenumbruch.
+     */
+    void kommentieren(Object pr, String titel, String datei, int neu, int alt, Kommentar auf, Runnable danach) {
+        if (pr == null) return;
+        frage(titel + " (\\n = neue Zeile)", "", text -> {
+            if (text.isBlank()) {
+                ed.meldung = "leerer Kommentar - nichts geschickt";
+                return;
+            }
+            String t = text.strip().replace("\\n", "\n");
+            String url;
+            Map<String, Object> body = Json.obj("comment", t);
+            if (auf != null) {
+                url = link(auf.roh(), "reply", null);
+                if (url == null) {
+                    String self = link(auf.roh(), "self", null);
+                    url = self == null ? null : self.replaceAll("/+$", "") + "/replies/";
+                }
+            } else {
+                url = link(pr, "comments", null);
+                if (url == null && link(pr, "self", null) != null) url = link(pr, "self", null).replaceAll("/+$", "") + "/comments/";
+                if (datei != null) {
+                    Map<String, Object> loc = Json.obj("file", datei);
+                    if (neu > 0) loc.put("newLineNumber", neu);
+                    if (alt > 0) loc.put("oldLineNumber", alt);
+                    body.put("location", loc);
+                }
+            }
+            if (url == null) {
+                ed.fehler("kein Link zum Kommentieren");
+                return;
+            }
+            String u = url, b = Json.write(body);
+            ed.meldung = "schicke den Kommentar ...";
+            hintergrund(() -> {
+                Antwort a = anfrage("POST", u, "application/json", b);
+                ui(() -> {
+                    if (a.code() / 100 != 2) {
+                        ed.fehler("Kommentar nicht gespeichert: " + fehlerText(a));
+                        return;
+                    }
+                    ed.meldung = auf != null ? "Antwort gespeichert" : "Kommentar gespeichert";
+                    danach.run();
+                });
+            });
+        });
+    }
+
+    private static final String UEBERNEHMEN = "-> uebernehmen";
+
+    /** Reviewer an- und abwaehlen (tippen sucht weitere), dann den Pull Request aktualisieren */
+    void reviewerAendern(Object pr, Runnable danach) {
+        if (pr == null) return;
+        List<String> jetzt = new ArrayList<>();
+        for (Object r : Json.list(Json.get(pr, "reviewer"))) {
+            benutzerMerken(r);
+            String id = Json.str(Json.get(r, "id"));
+            if (id != null) jetzt.add(id);
+        }
+        reviewerListe(pr, jetzt, danach);
+    }
+
+    private void reviewerListe(Object pr, List<String> gewaehlt, Runnable danach) {
+        List<String> l = new ArrayList<>();
+        l.add(UEBERNEHMEN + " (" + (gewaehlt.isEmpty() ? "keine Reviewer" : String.join(", ", gewaehlt)) + ")");
+        for (String id : gewaehlt) l.add("[x] " + benutzerEintrag(id));
+        for (String id : benutzer.keySet()) if (!gewaehlt.contains(id) && !id.equals(ich)) l.add("[ ] " + benutzerEintrag(id));
+        ed.wz.auswahl("Reviewer von #" + id(pr) + ": ENTER waehlt an/ab, tippen sucht im SCM-Manager", l, null, w -> {
+            if (w.startsWith(UEBERNEHMEN)) {
+                reviewerSenden(pr, gewaehlt, danach);
+                return;
+            }
+            String e = w.substring(4);
+            String id = e.contains("  (") ? e.substring(0, e.indexOf("  (")) : e.strip();
+            if (!gewaehlt.remove(id)) gewaehlt.add(id);
+            reviewerListe(pr, gewaehlt, danach);
+        });
+        ed.wz.auswahlNachladen = q -> {
+            if (q.strip().length() < 2) return;
+            hintergrund(() -> {
+                Antwort a = anfrage("GET", "/autocomplete/users?q=" + seg(q.strip()), null, null);
+                if (a.code() != 200) return;
+                List<String> neu = new ArrayList<>();
+                try {
+                    for (Object u : Json.list(Json.parse(a.text()))) {
+                        benutzerMerken(u);
+                        String id = Json.str(Json.get(u, "id"));
+                        if (id != null && !gewaehlt.contains(id)) neu.add("[ ] " + benutzerEintrag(id));
+                    }
+                } catch (RuntimeException e) {
+                    return;
+                }
+                SwingUtilities.invokeLater(() -> ed.wz.auswahlDazu(neu));
+            });
+        };
+    }
+
+    private void reviewerSenden(Object pr, List<String> ids, Runnable danach) {
+        String url = link(pr, "update", null);
+        if (url == null) url = link(pr, "self", null);
+        if (url == null) return;
+        List<Object> rv = new ArrayList<>();
+        for (String r : ids) rv.add(Json.obj("id", r));
+        Map<String, Object> body = Json.obj("title", Json.get(pr, "title"), "description", nz(Json.str(Json.get(pr, "description"))), "source", Json.get(pr, "source"),
+                "target", Json.get(pr, "target"), "reviewer", rv);
+        if (Json.get(pr, "status") != null) body.put("status", Json.get(pr, "status"));
+        String u = url, b = Json.write(body);
+        ed.meldung = "aktualisiere die Reviewer ...";
+        hintergrund(() -> {
+            Antwort a = anfrage("PUT", u, "application/vnd.scmm-pullRequest+json;v=2", b);
+            ui(() -> {
+                if (a.code() / 100 != 2) {
+                    ed.fehler("Reviewer nicht geaendert: " + fehlerText(a));
+                    return;
+                }
+                ed.meldung = "Reviewer von #" + id(pr) + ": " + (ids.isEmpty() ? "keine" : String.join(", ", ids));
+                danach.run();
+            });
+        });
+    }
+
+    void imBrowser(Object pr) {
+        if (pr == null || ziel == null) return;
+        String u = basis() + "/repo/" + repoPfad(ziel) + "/pull-request/" + id(pr) + "/";
+        try {
+            java.awt.Desktop.getDesktop().browse(URI.create(u));
+            ed.meldung = u;
+        } catch (Exception e) {
+            ed.meldung = "Browser nicht geoeffnet: " + u;
+        }
+    }
+
+    // ================================================================ Ansicht mit Diff und Kommentaren
+    /** Kommentar eines Pull Requests: Codestelle (Datei/Zeile, null ohne), Text, Antworten; roh fuer die Links */
+    record Kommentar(String datei, int neu, int alt, String autor, String datum, String typ, String text, List<String[]> antworten, boolean veraltet, Object roh) {}
 
     static List<Kommentar> kommentareLesen(String json) {
         List<Kommentar> r = new ArrayList<>();
@@ -610,12 +773,12 @@ final class Scm {
             if (rep.isEmpty()) rep = Json.list(Json.get(c, "replies"));
             for (Object x : rep) antw.add(new String[] {person(Json.get(x, "author")), datum(Json.str(Json.get(x, "date"))), nz(Json.str(Json.get(x, "comment")))});
             r.add(new Kommentar(datei, neu, alt, person(Json.get(c, "author")), datum(Json.str(Json.get(c, "date"))), nz(Json.str(Json.get(c, "type"))),
-                    nz(Json.str(Json.get(c, "comment"))), antw, Boolean.TRUE.equals(Json.get(c, "outdated"))));
+                    nz(Json.str(Json.get(c, "comment"))), antw, Boolean.TRUE.equals(Json.get(c, "outdated")), c));
         }
         return r;
     }
 
-    private static String datum(String iso) {
+    static String datum(String iso) {
         if (iso == null) return "";
         return iso.length() >= 16 ? iso.substring(0, 10) + " " + iso.substring(11, 16) : iso;
     }
@@ -637,47 +800,27 @@ final class Scm {
         return null;
     }
 
-    private String typName(String typ) {
-        return switch (typ) {
-            case "TASK_TODO" -> "Aufgabe offen";
-            case "TASK_DONE" -> "Aufgabe erledigt";
-            default -> "";
-        };
-    }
-
-    /** Kommentar als Zeilen (vor = "" ausserhalb, "\\ " im Diff); erste Zeile mit » */
-    private void kommentarZeilen(Kommentar k, String vor, List<String> aus, List<String> ziele, String ort) {
-        String kopf = vor + "» " + k.autor() + (k.datum().isEmpty() ? "" : ", " + k.datum()) + (typName(k.typ()).isEmpty() ? "" : " [" + typName(k.typ()) + "]")
-                + (k.veraltet() ? " [veraltet]" : "") + (ort == null ? "" : "  " + ort) + ":";
-        String[] stelle = k.datei() != null ? new String[] {k.datei(), String.valueOf(Math.max(1, k.neu() > 0 ? k.neu() : k.alt()))} : stelleImText(k.text());
-        String zielText = stelle == null ? null : stelle[0] + "\t" + stelle[1];
-        aus.add(kopf);
-        ziele.add(zielText);
-        for (String z : k.text().split("\\R")) {
-            aus.add(vor + "    " + z);
-            String[] s = k.datei() == null ? stelleImText(z) : null;
-            ziele.add(s != null ? s[0] + "\t" + s[1] : zielText);
-        }
-        for (String[] a : k.antworten()) {
-            aus.add(vor + "    » " + a[0] + (a[1].isEmpty() ? "" : ", " + a[1]) + ":");
-            ziele.add(zielText);
-            for (String z : a[2].split("\\R")) {
-                aus.add(vor + "      " + z);
-                ziele.add(zielText);
-            }
-        }
-    }
-
-    private void zeigen() {
-        Object pr = gewaehlt();
-        if (pr == null) return;
+    /** Pull Request frisch holen, dazu Kommentare und Diff, dann nebeneinander zeigen */
+    void zeigen(Object alt) {
+        if (alt == null) return;
         Ziel z = ziel;
-        String quelle = Json.str(Json.get(pr, "source")), zielBranch = Json.str(Json.get(pr, "target"));
-        ed.meldung = "hole Diff und Kommentare von #" + id(pr) + " ...";
+        ed.meldung = "hole Diff und Kommentare von #" + id(alt) + " ...";
         hintergrund(() -> {
-            // Kommentare
+            Object pr = alt;
+            String self = link(alt, "self", null);
+            if (self != null) {
+                Antwort a = anfrage("GET", self, null, null);
+                if (a.code() == 200) {
+                    try {
+                        pr = Json.parse(a.text());
+                    } catch (RuntimeException e) {
+                        // der alte Stand tut es auch
+                    }
+                }
+            }
+            String quelle = Json.str(Json.get(pr, "source")), zielBranch = Json.str(Json.get(pr, "target"));
             String kl = link(pr, "comments", null);
-            if (kl == null && link(pr, "self", null) != null) kl = link(pr, "self", null).replaceAll("/+$", "") + "/comments/";
+            if (kl == null && self != null) kl = self.replaceAll("/+$", "") + "/comments/";
             List<Kommentar> kom = new ArrayList<>();
             String komFehler = null;
             if (kl != null) {
@@ -695,135 +838,30 @@ final class Scm {
             // Diff: lokal ueber git (dann springt ENTER in die eigenen Dateien), sonst vom Server
             Git.git(z.repo(), "fetch", "--quiet", z.remote());
             String rq = z.remote() + "/" + quelle, rz = z.remote() + "/" + zielBranch;
-            Git.Lauf d = Git.inhalt(z.repo(), "diff", "--no-color", "--no-ext-diff", rz + "..." + rq);
-            Git.Lauf st = Git.git(z.repo(), "diff", "--name-status", rz + "..." + rq);
+            Git.Lauf d = Git.inhalt(z.repo(), "diff", "--no-color", "--no-ext-diff", "-M", rz + "..." + rq);
             String diff = d.code() == 0 ? d.ausgabe() : null;
             String woher = "git diff " + rz + "..." + rq;
             if (diff == null) {
                 Antwort a = anfrage("GET", "/repositories/" + repoPfad(z) + "/incoming/" + seg(quelle) + "/" + seg(zielBranch) + "/diff", null, null);
-                diff = a.code() == 200 ? a.text() : "(kein Diff: " + Werkzeug.letzteZeile(d.ausgabe()) + "; Server: " + fehlerText(a) + ")\n";
-                woher = "SCM-Manager";
+                diff = a.code() == 200 ? a.text() : "";
+                woher = a.code() == 200 ? "Diff vom SCM-Manager" : "kein Diff: " + Werkzeug.letzteZeile(d.ausgabe()) + "; Server: " + fehlerText(a);
             }
+            Object frisch = pr;
             List<Kommentar> k2 = kom;
-            String kf = komFehler, df = diff, wo = woher, dateien = st.code() == 0 ? st.ausgabe() : "";
-            ui(() -> anzeigen(pr, z, k2, kf, df, wo, dateien));
+            String kf = komFehler, df = diff, wo = woher;
+            ui(() -> {
+                // frischen Stand auch in der Liste
+                for (int i = 0; i < prs.size(); i++) if (id(prs.get(i)).equals(id(frisch))) prs.set(i, frisch);
+                ed.prAnsicht.zeigen(frisch, z, k2, kf, df, wo, ich);
+            });
         });
-    }
-
-    private void anzeigen(Object pr, Ziel z, List<Kommentar> kom, String komFehler, String diff, String woher, String dateien) {
-        List<String> aus = new ArrayList<>();
-        List<String> ziele = new ArrayList<>();
-        java.util.function.BiConsumer<String, String> zeile = (t, zi) -> {
-            aus.add(t);
-            ziele.add(zi);
-        };
-        zeile.accept("PR #" + id(pr) + ": " + nz(Json.str(Json.get(pr, "title"))), null);
-        zeile.accept("Status " + nz(Json.str(Json.get(pr, "status"))) + "   " + Json.str(Json.get(pr, "source")) + " -> " + Json.str(Json.get(pr, "target")) + "   von "
-                + person(Json.get(pr, "author")) + "   erstellt " + datum(Json.str(Json.get(pr, "creationDate"))), null);
-        List<String> rv = new ArrayList<>();
-        for (Object r : Json.list(Json.get(pr, "reviewer"))) rv.add(person(r) + (Boolean.TRUE.equals(Json.get(r, "approved")) ? " [freigegeben]" : " [offen]"));
-        zeile.accept("Reviewer: " + (rv.isEmpty() ? "keine" : String.join(", ", rv)), null);
-        String beschr = nz(Json.str(Json.get(pr, "description"))).strip();
-        if (!beschr.isEmpty()) {
-            zeile.accept("", null);
-            for (String b : beschr.split("\\R")) zeile.accept("    " + b, null);
-        }
-        // Kommentare ohne Codestelle oben, die mit Codestelle unter ihre Zeile im Diff
-        Map<String, List<Kommentar>> anZeile = new HashMap<>();
-        List<Kommentar> allgemein = new ArrayList<>();
-        for (Kommentar k : kom) {
-            if (k.datei() != null && (k.neu() > 0 || k.alt() > 0) && !k.veraltet()) anZeile.computeIfAbsent(k.datei() + (k.neu() > 0 ? "\t+" + k.neu() : "\t-" + k.alt()), x -> new ArrayList<>()).add(k);
-            else allgemein.add(k);
-        }
-        zeile.accept("", null);
-        zeile.accept("Kommentare: " + kom.size() + (komFehler != null ? "  (nicht geladen: " + komFehler + ")" : "") + "   (ENTER auf einem Kommentar mit Codestelle springt hin, ]k / [k naechster/voriger)", null);
-        for (Kommentar k : allgemein) {
-            List<String> a = new ArrayList<>(), zi = new ArrayList<>();
-            kommentarZeilen(k, "", a, zi, k.datei() == null ? null : k.datei() + (k.neu() > 0 ? ":" + k.neu() : k.alt() > 0 ? ":" + k.alt() + " (alt)" : ""));
-            for (int i = 0; i < a.size(); i++) zeile.accept(a.get(i), zi.get(i));
-        }
-        if (!dateien.isBlank()) {
-            zeile.accept("", null);
-            zeile.accept("Dateien (" + dateien.split("\\R").length + "):", null);
-            for (String d : dateien.split("\\R")) {
-                String[] t = d.split("\t");
-                zeile.accept("    " + d.replace('\t', ' '), t.length > 1 && !t[0].startsWith("D") ? t[t.length - 1] + "\t1" : null);
-            }
-        }
-        zeile.accept("", null);
-        zeile.accept("# " + woher + " - ENTER springt in die Datei, ]c / [c Abschnitte, q schliesst, Leertaste g r zurueck zur Liste", null);
-        zeile.accept("", null);
-        // Diff mit eingefuegten Kommentaren: Zeilennummern je Seite mitzaehlen
-        String datei = null;
-        int alt = 0, neu = 0;
-        boolean imHunk = false;
-        Matcher hm;
-        Pattern hunk = Pattern.compile("^@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@");
-        for (String s : diff.split("\n", -1)) {
-            zeile.accept(s, null);
-            if (s.startsWith("diff --git")) {
-                imHunk = false;
-                int b = s.lastIndexOf(" b/");
-                datei = b > 0 ? s.substring(b + 3) : datei;
-                continue;
-            }
-            if (!imHunk && s.startsWith("+++ ")) {
-                String p = s.substring(4).strip();
-                if (p.startsWith("b/")) datei = p.substring(2);
-                continue;
-            }
-            if ((hm = hunk.matcher(s)).find()) {
-                alt = Integer.parseInt(hm.group(1));
-                neu = Integer.parseInt(hm.group(2));
-                imHunk = true;
-                continue;
-            }
-            if (!imHunk || datei == null) continue;
-            List<Kommentar> hier = null;
-            if (s.startsWith("+")) {
-                hier = anZeile.remove(datei + "\t+" + neu);
-                neu++;
-            } else if (s.startsWith("-")) {
-                hier = anZeile.remove(datei + "\t-" + alt);
-                alt++;
-            } else if (s.startsWith(" ") || s.isEmpty()) {
-                hier = anZeile.remove(datei + "\t+" + neu);
-                if (hier == null) hier = anZeile.remove(datei + "\t-" + alt);
-                neu++;
-                alt++;
-            }
-            if (hier != null) {
-                for (Kommentar k : hier) {
-                    List<String> a = new ArrayList<>(), zi = new ArrayList<>();
-                    kommentarZeilen(k, "\\ ", a, zi, null);
-                    for (int i = 0; i < a.size(); i++) zeile.accept(a.get(i), zi.get(i));
-                }
-            }
-        }
-        // Kommentare, deren Zeile nicht im Diff steht (z. B. ausserhalb der Abschnitte): unten anhaengen
-        if (!anZeile.isEmpty()) {
-            zeile.accept("", null);
-            zeile.accept("Kommentare ausserhalb des Diffs:", null);
-            for (List<Kommentar> l : anZeile.values()) {
-                for (Kommentar k : l) {
-                    List<String> a = new ArrayList<>(), zi = new ArrayList<>();
-                    kommentarZeilen(k, "", a, zi, k.datei() + ":" + (k.neu() > 0 ? k.neu() : k.alt()));
-                    for (int i = 0; i < a.size(); i++) zeile.accept(a.get(i), zi.get(i));
-                }
-            }
-        }
-        Map<Integer, String> zm = new HashMap<>();
-        for (int i = 0; i < ziele.size(); i++) if (ziele.get(i) != null) zm.put(i, ziele.get(i));
-        Doc d = ed.unterschied.zeigen("PR #" + id(pr), String.join("\n", aus), z.repo());
-        d.ziele = zm;
-        d.cursor = 0;
-        ed.meldung = "PR #" + id(pr) + ": " + kom.size() + " Kommentare - a freigeben und m mergen in der Liste (Leertaste g r)";
     }
 
     // ================================================================ Befehle
     void befehle(Map<String, Editor.Cmd> c) {
         /** @binding SCM-Manager: alle Pull Requests des Repos (Panel unten) */
         c.put("scmPullRequests", a -> {
+            ed.prAnsicht.aktiv = false;
             if (offen && ziel != null && !ed.modus.equals("pullrequests")) {
                 ed.modus = "pullrequests";
                 laden();
@@ -851,26 +889,20 @@ final class Scm {
             status = FILTER.get((FILTER.indexOf(status) + 1) % FILTER.size());
             laden();
         });
-        /** @binding Pull Requests: Diff mit allen Kommentaren zeigen */
-        c.put("scmShow", a -> zeigen());
+        /** @binding Pull Requests: nebeneinander mit allen Kommentaren zeigen */
+        c.put("scmShow", a -> zeigen(gewaehlt()));
         /** @binding Pull Requests: freigeben */
-        c.put("scmApprove", a -> freigeben(true));
+        c.put("scmApprove", a -> freigeben(gewaehlt(), true, this::laden));
         /** @binding Pull Requests: Freigabe zuruecknehmen */
-        c.put("scmDisapprove", a -> freigeben(false));
+        c.put("scmDisapprove", a -> freigeben(gewaehlt(), false, this::laden));
         /** @binding Pull Requests: mergen (Strategie, Vorgabe Squash; Quell-Branch danach loeschen) */
-        c.put("scmMerge", a -> mergen());
+        c.put("scmMerge", a -> mergen(gewaehlt(), this::laden));
+        /** @binding Pull Requests: ablehnen (mit Begruendung) */
+        c.put("scmReject", a -> ablehnen(gewaehlt(), this::laden));
+        /** @binding Pull Requests: Reviewer aendern */
+        c.put("scmReviewers", a -> reviewerAendern(gewaehlt(), this::laden));
         /** @binding Pull Requests: im Browser oeffnen */
-        c.put("scmBrowser", a -> {
-            Object pr = gewaehlt();
-            if (pr == null || ziel == null) return;
-            String u = basis() + "/repo/" + repoPfad(ziel) + "/pull-request/" + id(pr) + "/";
-            try {
-                java.awt.Desktop.getDesktop().browse(URI.create(u));
-                ed.meldung = u;
-            } catch (Exception e) {
-                ed.meldung = "Browser nicht geoeffnet: " + u;
-            }
-        });
+        c.put("scmBrowser", a -> imBrowser(gewaehlt()));
         /** @binding SCM-Manager: Antwort aus dem Eingabefenster (intern) */
         c.put("scmInput", a -> {
             Consumer<String> w = eingabe;
@@ -878,4 +910,9 @@ final class Scm {
             if (w != null) w.accept(a);
         });
     }
+
+    /** Statuszeile in der Liste: Tasten mit Funktion */
+    static final String[][] TASTEN = {{"ENTER", "Ansehen", "Ansehen"}, {"a", "Freigeben", "Freigabe"}, {"x", "Freigabe zurueck", "Zurueck"}, {"m", "Mergen", "Merge"},
+            {"R", "Ablehnen", "Ablehnen"}, {"e", "Reviewer", "Rev."}, {"n", "Neuer PR", "Neu"}, {"s", "Filter", "Filter"}, {"g", "neu laden", "laden"}, {"w", "Browser", "Web"},
+            {"TAB", "zum Text", "Text"}, {"ESC", "schliessen", "zu"}};
 }

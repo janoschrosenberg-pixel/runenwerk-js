@@ -54,6 +54,8 @@ final class Editor {
     final Unterschied unterschied;
     /** Pull Requests im SCM-Manager */
     final Scm scm;
+    /** Pull Request nebeneinander */
+    final PrAnsicht prAnsicht;
     final Vim vim;
     final Werkzeug wz;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
@@ -138,6 +140,7 @@ final class Editor {
         oa = new OpenApi(this);
         unterschied = new Unterschied(this);
         scm = new Scm(this);
+        prAnsicht = new PrAnsicht(this);
         folgeUhr = new Timer(1000, e -> {
             // angefangene Folge nach 1 s allein ausfuehren
             String alt = folgeBefehl;
@@ -157,6 +160,7 @@ final class Editor {
         oa.befehle(cmds);
         unterschied.befehle(cmds);
         scm.befehle(cmds);
+        prAnsicht.befehle(cmds);
         tabs.add(new Doc());
     }
 
@@ -578,7 +582,10 @@ final class Editor {
         if (modus.equals("result") && !wz.tabelleOffen()) modus = "normal";
         // OpenAPI-Ansicht gehoert zur Datei: nach einem Tab-Wechsel normaler Puffer
         if (modus.equals("openapi") && !oa.sichtbar()) modus = "normal";
+        if (oa.aktiv && !modus.equals("openapi") && !modus.equals("popup") && !modus.equals("picker")) oa.aktiv = false;
         if (modus.equals("pullrequests") && !scm.offen) modus = "normal";
+        if (modus.equals("prdiff") && !prAnsicht.aktiv) modus = scm.offen ? "pullrequests" : "normal";
+        if (prAnsicht.aktiv && !prAnsicht.sichtbar()) prAnsicht.aktiv = false;
         // schreibgeschuetzte Puffer (bindings): eigener Mode nurlesen (wie normal, q schliesst)
         if (d.nurLesen) {
             if (modus.equals("insert") || modus.equals("replace")) meldung = d.name() + " ist schreibgeschuetzt";
@@ -2431,6 +2438,8 @@ final class Editor {
         // Merge-Editor (Ediff): drei Fenster statt des Textes
         if (wz.merge.sichtbar()) {
             wz.merge.malen(oben - 4, scr.h - unten() - 2);
+        } else if (prAnsicht.sichtbar()) {
+            prAnsicht.malen(oben - 4, scr.h - unten() - 2);
         } else if (oa.sichtbar()) {
             oa.malen(oben - 4, scr.h - unten() - 2);
         } else {
@@ -2558,7 +2567,7 @@ final class Editor {
         int panelY = oben + textZeilen() * lh + 6;
         if (konsoleOffen) konsoleMalen(panelY);
         else if (wz.statusOffen) wz.statusMalen(panelY);
-        else if (scm.offen) scm.malen(panelY);
+        else if (scm.offen && !prAnsicht.sichtbar()) scm.malen(panelY);
         else if (wz.dbg.offen && (modus.equals("debug") || !wz.tabelleOffen() || !modus.equals("result"))) wz.dbg.malen(panelY);
         else if (wz.tabelleOffen()) wz.ergebnisMalen(panelY);
         if (vorschlagOffen) vorschlaegeMalen(tx + (cs - d.links) * cw, oben + (cz - d.oben + 1) * lh);
@@ -2576,6 +2585,12 @@ final class Editor {
         int my = sy + (unten() - lh) / 2;
         scr.rect(0, sy, mw, unten(), mf);
         scr.text(0, my, m, E_GRUND);
+        // Ansichten mit eigenen Tasten: statt Pfad und Position alle Tasten mit ihrer Funktion
+        String[][] tasten = prAnsicht.sichtbar() ? PrAnsicht.TASTEN : modus.equals("pullrequests") ? Scm.TASTEN : null;
+        if (tasten != null) {
+            tastenMalen(tasten, mw + cw, sy, my);
+            return;
+        }
         String pf = (d.term != null || d.titel != null ? d.name() : relativ(d.pfad)) + (d.nurLesen ? " [nur lesen]" : "") + (d.geaendert ? " [+]" : "");
         // langer Pfad: vorne kuerzen, damit rechts Platz bleibt
         int maxPf = Math.max(10, W / cw / 2);
@@ -2629,9 +2644,43 @@ final class Editor {
             case "merge" -> "MERGE";
             case "openapi" -> "OPENAPI";
             case "pullrequests" -> "PULL REQUESTS";
+            case "prdiff" -> "PULL REQUEST";
             case "picker" -> "AUSWAHL";
             default -> modus;
         };
+    }
+
+    /** Statuszeile: Taste hell, Funktion daneben; rechts die letzte Meldung */
+    private void tastenMalen(String[][] tasten, int x0, int sy, int my) {
+        int W = scr.w, cw = scr.cw;
+        int rechts = W;
+        if (meldung != null) {
+            String t = meldung.length() > W / cw / 3 ? meldung.substring(0, W / cw / 3 - 1) + "~" : meldung;
+            rechts = W - scr.textWidth(t) - 2 * cw;
+            scr.text(rechts + cw, my, t, meldungFarbe);
+        }
+        // passt nicht alles: kurze Namen, dann die hinteren (unwichtigeren) weglassen
+        int platz = rechts - x0 - cw;
+        int n = tasten.length;
+        boolean kurz = tastenBreite(tasten, n, false) > platz;
+        while (n > 1 && tastenBreite(tasten, n, kurz) > platz) n--;
+        scr.clip(x0, sy, platz, unten());
+        int x = x0;
+        for (int i = 0; i < n; i++) {
+            String[] t = tasten[i];
+            int kw = scr.textWidth(" " + t[0] + " ");
+            scr.rect(x, my, kw, scr.lh, 0x14401F);
+            scr.text(x, my, " " + t[0] + " ", E_HELL);
+            x = scr.text(x + kw + cw / 2, my, kurz && t.length > 2 ? t[2] : t[1], E_TEXT) + (kurz ? cw + cw / 2 : 2 * cw);
+        }
+        scr.noClip();
+        meldungFarbe = meldung == null ? E_WARN : meldungFarbe;
+    }
+
+    private int tastenBreite(String[][] tasten, int n, boolean kurz) {
+        int b = 0, cw = scr.cw;
+        for (int i = 0; i < n; i++) b += scr.textWidth(" " + tasten[i][0] + " ") + cw / 2 + scr.textWidth(kurz && tasten[i].length > 2 ? tasten[i][2] : tasten[i][1]) + (kurz ? cw + cw / 2 : 2 * cw);
+        return b;
     }
 
     private void konsoleMalen(int y0) {

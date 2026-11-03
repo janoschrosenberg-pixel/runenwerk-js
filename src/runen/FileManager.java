@@ -290,6 +290,11 @@ final class FileManager {
         c.put("fmSwitch", a -> {
             if (listenTitel == null) aktiv = 1 - aktiv;
         });
+        /**
+         * @binding Dateimanager: naechster Bereich (Suchfeld, linke Spalte, rechte Spalte); -1 = rueckwaerts
+         * @binding-arg -1 = voriger Bereich
+         */
+        c.put("fmFocus", a -> fokusWechseln(a.strip().equals("-1") ? -1 : 1));
         /** @binding Dateimanager: linkes Fenster bzw. Ordner hoch */
         c.put("fmLeft", a -> {
             if (listenTitel == null) aktiv = 0;
@@ -423,7 +428,7 @@ final class FileManager {
         /** @binding Dateimanager: Hilfe zu den Tasten */
         c.put("fmHelp", a -> {
             ed.konsoleAuf();
-            ed.print("  Dateimanager: Pfeile/PgUp/PgDn bewegen, TAB anderer Bereich, ENTER oeffnen, BACKSPACE hoch (bei Ergebnissen: zurueck zu den Ordnern),");
+            ed.print("  Dateimanager: Pfeile/PgUp/PgDn bewegen, TAB naechster Bereich (Suchfeld, linke, rechte Spalte), ENTER oeffnen, BACKSPACE hoch (bei Ergebnissen: zurueck zu den Ordnern),");
             ed.print("  F2 neue Datei, F3/F4 oeffnen, F5 kopieren, F6 verschieben, r umbenennen, F7 Ordner, F8 loeschen, Strg+W Arbeitsordner hierher, Strg+R neu einlesen,");
             ed.print("  / oder Strg+F ins Suchfeld: links Dateinamen (Teilfolge, z. B. apcmp -> App/Component.tsx), rechts Inhalt (klein = ohne Gross/Klein).");
             ed.print("  Im Suchfeld: ESC zu den Ergebnissen, Strg+U leeren. ESC/F10 Ende.");
@@ -579,8 +584,29 @@ final class FileManager {
         ed.index.neuEinlesen();
     }
 
+    /** TAB: Suchfeld -> linke Spalte -> rechte Spalte -> Suchfeld (Shift+TAB rueckwaerts); eine Liste hat nur eine Spalte */
+    private void fokusWechseln(int richtung) {
+        int spalten = listenTitel != null ? 1 : 2;
+        // Bereiche: 0 = Suchfeld, 1.. = Spalten
+        int jetzt = ed.modus.equals("fmsearch") ? 0 : 1 + Math.min(aktiv, spalten - 1);
+        int neu = Math.floorMod(jetzt + richtung, spalten + 1);
+        if (neu == 0) {
+            ed.modus = "fmsearch";
+        } else {
+            ed.modus = "commander";
+            aktiv = neu - 1;
+        }
+    }
+
+    /** Suchfeld (zuletzt gemalt, fuer die Maus) */
+    private int feldY, feldH;
+
     // ---------------------------------------------------------------- Maus
     void maus(int x, int y, boolean klick, int rad) {
+        if (klick && rad == 0 && y >= feldY && y < feldY + feldH) {
+            ed.modus = "fmsearch";
+            return;
+        }
         for (int k = 0; k < (listenTitel != null ? 1 : 2); k++) {
             Panel p = panel(k);
             if (x < p.x || x >= p.x + p.w || y < p.y || y >= p.y + p.h) continue;
@@ -607,6 +633,8 @@ final class FileManager {
         // ------------------------------------------------ Suchfeld
         boolean fokus = ed.modus.equals("fmsearch");
         int sy = y0 + lh / 2 + 6, sh = lh + 10;
+        feldY = sy;
+        feldH = sh;
         s.rect(6, sy, W - 12, sh, E_KONSOLE);
         s.frame(6, sy, W - 12, sh, fokus ? E_HELL : E_MATT);
         s.frame(9, sy + 3, W - 18, sh - 6, fokus ? E_TEXT : E_MATT);
@@ -621,7 +649,7 @@ final class FileManager {
         String hinweis;
         if (listenTitel != null) hinweis = listenTitel + ": " + erg[0].e.size();
         else if (ergebnis) hinweis = "Dateien " + erg[0].e.size() + "   Inhalt " + erg[1].e.size() + (sucht ? "+" : "") + "   ";
-        else hinweis = fokus ? "tippen zum Suchen   " : "/ sucht   ";
+        else hinweis = fokus ? "tippen zum Suchen, TAB in die Liste   " : "/ oder TAB sucht   ";
         hinweis += ed.index.laeuft ? "Index wird gelesen..." : "Index " + ed.index.dateien.size() + " Dateien";
         int hx = W - 12 - 2 * cw - s.textWidth(hinweis);
         s.text(hx, sy + 5, hinweis, E_MATT);

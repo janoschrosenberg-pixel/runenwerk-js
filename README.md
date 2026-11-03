@@ -191,14 +191,31 @@ Bearer-Token.
   nacheinander aus einer Liste – tippen sucht im SCM-Manager (Vervollständigung), „fertig“ erstellt ihn.
 - **Leertaste g r** – alle Pull Requests unten wie git status: `#`, Status, Quelle -> Ziel, Titel, Autor, Freigaben,
   offene Aufgaben. `j`/`k`, `s` Filter (offen, meine, zum Review, alle), `g` neu laden, `a` freigeben, `x` Freigabe
-  zurücknehmen, `n` neu, `w` im Browser, TAB in den Text (Liste bleibt), ESC schließt.
-- **ENTER** zeigt den Pull Request: Beschreibung, Reviewer, alle Kommentare mit Antworten und Aufgaben, die geänderten
-  Dateien und den Diff (`git diff ZIEL...QUELLE` nach einem fetch, sonst vom Server). Kommentare zu einer Codezeile –
-  auch die Befunde, die **Teamscale** als Zeilenkommentare schreibt – stehen im Diff direkt unter ihrer Zeile. **ENTER auf
-  einem Kommentar springt an seine Codestelle** (bei Kommentaren ohne Zeilenbezug an eine im Text genannte, etwa
-  `src/X.java:42`); `]k` / `[k` nächster/voriger Kommentar.
-- **m** mergen: Strategie wählen (**Squash vorgewählt**, `scm.merge.strategy` ändert die Vorgabe), Commit-Nachricht
-  (Vorschlag vom SCM-Manager), dann **Quell-Branch löschen** (vorgewählt, `scm.merge.deleteBranch = false` dreht es um).
+  zurücknehmen, `m` mergen, `R` ablehnen, `e` Reviewer, `n` neu, `w` im Browser, TAB in den Text (Liste bleibt), ESC schließt.
+- **ENTER** öffnet den Pull Request **nebeneinander**: links die Dateien (Status A/M/D/R, `+`/`-`, Zahl der Kommentare),
+  vorne die **Übersicht** mit Beschreibung, Reviewern, Aufgaben und allen allgemeinen Kommentaren samt Antworten. In einer
+  Datei steht links „vorher“ (Ziel-Branch), rechts „nachher“ (Quell-Branch), Zeile für Zeile ausgerichtet: entfernte
+  Zeilen rot, neue grün, in geänderten Zeilen sind die geänderten Wörter kräftiger markiert, die Syntax ist gefärbt, lange
+  Zeilen brechen um (`..` am Rand, `w` schaltet ab). Kommentare zu einer Zeile – auch die Befunde, die **Teamscale** als
+  Zeilenkommentare schreibt – stehen als Kasten direkt darunter; **ENTER auf einem Kommentar springt an seine Codestelle**
+  (bei Kommentaren ohne Zeilenbezug an eine im Text genannte, etwa `src/X.java:42`), ENTER auf einer Codezeile öffnet die
+  Datei dort. `Leertaste g r`, ENTER kommt an dieselbe Stelle zurück.
+
+  Alle Tasten stehen **unten in der Statuszeile** (bei wenig Platz kürzer, die wichtigsten zuerst):
+
+  | Taste | |
+  |---|---|
+  | `a` / `x` | freigeben / Freigabe zurücknehmen |
+  | `m` | mergen: Strategie wählen (**Squash vorgewählt**, `scm.merge.strategy` ändert die Vorgabe), Commit-Nachricht (Vorschlag vom SCM-Manager), dann **Quell-Branch löschen** (vorgewählt, `scm.merge.deleteBranch = false` dreht es um) |
+  | `R` | ablehnen, mit Begründung |
+  | `c` | Kommentar schreiben: auf einer Codezeile zu dieser Zeile, sonst zum Pull Request (`\n` = neue Zeile) |
+  | `C` | auf den Kommentar unter dem Cursor antworten |
+  | `e` | Reviewer ändern: ENTER wählt an/ab, tippen sucht im SCM-Manager, „übernehmen“ speichert |
+  | `j`/`k`, `Strg+D`/`Strg+U`, `gg`/`G` | bewegen |
+  | `TAB` / `Shift+TAB`, `0` | nächste/vorige Datei, Übersicht |
+  | `n` / `p` | nächste/vorige Änderung (auch über Dateien) |
+  | `]k` / `[k` | nächster/voriger Kommentar |
+  | `r`, `o`, `q` | neu laden, im Browser, zurück zur Liste |
 
 ## Terminal
 
@@ -335,7 +352,7 @@ c.put("scroll", this::rollen);
 | F9 / F10 | `npm run build` / `npx tsc --noEmit`, Ausgabe im Terminal |
 | F11 | Vollbild an/aus |
 
-Im Dateimanager: `/` oder Strg+F ins Suchfeld, ESC zu den Ergebnissen, TAB wechselt den Bereich,
+Im Dateimanager: `/` oder Strg+F ins Suchfeld, ESC zu den Ergebnissen, TAB reihum Suchfeld – linke Spalte – rechte Spalte (Shift+TAB zurück, Klick ins Suchfeld geht auch),
 ENTER öffnet (bei Inhaltstreffern an der Zeile), F2 neue Datei, F5 kopieren, F6 verschieben,
 r umbenennen, F7 Ordner, F8 löschen, Strg+W macht den Ordner zum Arbeitsordner.
 

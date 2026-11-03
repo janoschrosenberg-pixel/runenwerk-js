@@ -81,7 +81,8 @@ final class OpenApi {
     }
 
     boolean sichtbar() {
-        return aktiv && ed.d() == doc && ed.modus.equals("openapi");
+        // auch hinter einem Eingabefenster oder einer Auswahlliste der Ansicht
+        return aktiv && ed.d() == doc && (ed.modus.equals("openapi") || ed.modus.equals("popup") || ed.modus.equals("picker"));
     }
 
     // ================================================================ Erkennen und Pruefen

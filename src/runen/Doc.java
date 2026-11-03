@@ -85,7 +85,12 @@ final class Doc {
     String sprache() {
         if (art != null) return art;
         if (pfad == null) return null;
-        String n = pfad.getFileName().toString().toLowerCase();
+        return spracheVon(pfad.getFileName().toString());
+    }
+
+    /** Sprache nach dem Dateinamen (oder null) */
+    static String spracheVon(String name) {
+        String n = name.toLowerCase();
         if (n.endsWith(".tsx")) return "typescriptreact";
         if (n.endsWith(".ts") || n.endsWith(".mts") || n.endsWith(".cts")) return "typescript";
         if (n.endsWith(".jsx")) return "javascriptreact";
