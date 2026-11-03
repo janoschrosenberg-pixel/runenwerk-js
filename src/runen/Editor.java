@@ -1928,8 +1928,10 @@ final class Editor {
         if (!lspBereit()) return;
         Doc d = d();
         int v = d.version;
+        // jdtls nimmt tabSize/insertSpaces vor dem Profil: bei Java mit Profil dessen Einrueckung mitschicken
+        int[] pe = "java".equals(d.lspArt()) ? wz.profilEinzug() : null;
         lspFuer(d()).anfrage("textDocument/formatting", Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad)),
-                "options", Json.obj("tabSize", einzug, "insertSpaces", true)), r -> {
+                "options", Json.obj("tabSize", pe != null ? pe[0] : einzug, "insertSpaces", pe == null || pe[1] == 1)), r -> {
                     if (d.version != v) return;
                     List<Object> l = Json.list(r);
                     if (l.isEmpty()) {

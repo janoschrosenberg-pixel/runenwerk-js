@@ -320,6 +320,57 @@ final class Werkzeug {
         });
     }
 
+    /** Zeile aus git status, deren Aenderungen nach der Rueckfrage verworfen werden */
+    private String verwerfenZeile;
+
+    /** x im git status: Aenderungen der gewaehlten Datei verwerfen (gestaged und nicht gestaged), mit Rueckfrage */
+    private void verwerfenStarten() {
+        if (statusDatei() == null) {
+            ed.meldung = "keine Datei gewaehlt";
+            return;
+        }
+        verwerfenZeile = statusZeilen.get(statusWahl);
+        String xy = verwerfenZeile.substring(0, 2), pfad = verwerfenZeile.substring(3).replace("\"", "");
+        String was = xy.equals("??") ? pfad + " ist nicht versioniert und wird GELOESCHT"
+                : xy.charAt(0) == 'A' ? pfad + " ist neu und wird GELOESCHT"
+                : "Aenderungen an " + pfad + " verwerfen (gestaged und nicht gestaged, zurueck auf den letzten Commit)";
+        ed.popupOpen(was + ". ja eintippen und ENTER:", "gitStatusDiscardDo", "");
+    }
+
+    private void verwerfen(String antwort) {
+        String z = verwerfenZeile;
+        verwerfenZeile = null;
+        Path repo = statusRepo;
+        if (z == null || repo == null || !antwort.strip().equalsIgnoreCase("ja")) {
+            ed.meldung = "verwerfen abgebrochen";
+            return;
+        }
+        String xy = z.substring(0, 2), rest = z.substring(3).replace("\"", "");
+        String alt = rest, neu = rest;
+        if (rest.contains(" -> ")) {
+            alt = rest.substring(0, rest.indexOf(" -> "));
+            neu = rest.substring(rest.indexOf(" -> ") + 4);
+        }
+        // offene Texte der Datei gelten danach als unveraendert und werden neu gelesen
+        for (Doc t : ed.tabs) if (t.pfad != null && (t.pfad.equals(repo.resolve(alt)) || t.pfad.equals(repo.resolve(neu)))) t.geaendert = false;
+        java.util.function.Consumer<Git.Lauf> danach = l -> {
+            neuLaden(repo);
+            ed.index.neuEinlesen();
+            if (l.code() == 0) ed.meldung = "verworfen: " + rest;
+            else ed.fehler("verwerfen fehlgeschlagen: " + letzteZeile(l.ausgabe()));
+        };
+        if (xy.equals("??")) {
+            gitLauf(repo, "clean", new String[] {"clean", "-f", "-d", "--", neu}, danach);
+        } else if (xy.charAt(0) == 'A') {
+            gitLauf(repo, "rm", new String[] {"rm", "-f", "-q", "--", neu}, danach);
+        } else if (xy.charAt(0) == 'R' || xy.charAt(0) == 'C') {
+            // umbenannt/kopiert: beide Pfade auf den Commit, die neue Datei verschwindet dabei
+            gitLauf(repo, "restore", new String[] {"restore", "--source=HEAD", "--staged", "--worktree", "--", alt, neu}, danach);
+        } else {
+            gitLauf(repo, "restore", new String[] {"restore", "--source=HEAD", "--staged", "--worktree", "--", neu}, danach);
+        }
+    }
+
     /** Datei der gewaehlten Zeile (" M src/a.ts" -> Pfad), oder null */
     private Path statusDatei() {
         if (statusWahl <= 0 || statusWahl >= statusZeilen.size()) return null;
@@ -340,7 +391,7 @@ final class Werkzeug {
         s.frame(4, y0, W - 8, h, fokus ? E_HELL : E_TEXT);
         s.frame(5, y0 + 1, W - 10, h - 2, E_MATT);
         String titel = " GIT STATUS " + Editor.name(statusRepo) + ":" + Git.branch(statusRepo)
-                + (fokus ? "  (j/k, ENTER oeffnen, s vormerken, u zuruecknehmen, c commit, m merge, g neu, ESC zu) " : " ");
+                + (fokus ? "  (j/k, ENTER oeffnen, s vormerken, u zuruecknehmen, x verwerfen, c commit, m merge, g neu, ESC zu) " : " ");
         s.rect(3 * cw, y0 - lh / 2, s.textWidth(titel), lh, E_KONSOLE);
         s.text(3 * cw, y0 - lh / 2, titel, E_HELL);
         int n = Math.max(1, (h - lh - 8) / lh);
@@ -557,7 +608,9 @@ final class Werkzeug {
                 return;
             }
         }
-        if ("java".equals(art) && ed.kf.get("java.format.intellij", null) != null) {
+        // IntelliJs eigener Formatter nur, wenn ausdruecklich eingestellt; sonst uebersetzt der Editor den
+        // IntelliJ-Stil in ein Profil fuer den Java Language Server (siehe javaEinstellungen)
+        if ("java".equals(art) && ed.kf.get("java.format.intellij", null) != null && ed.kf.get("java.format.intellij.cmd", null) != null) {
             intellij(d);
             return;
         }
@@ -642,14 +695,65 @@ final class Werkzeug {
     }
 
     // ================================================================ Java Language Server (jdtls)
+    /**
+     * IntelliJ-Code-Style fuer Java: java.format.intellij, sonst der Projektstil aus .idea/codeStyles (wenn das
+     * Projekt in IntelliJ seinen eigenen Stil nutzt und kein Eclipse-Profil eingestellt ist); null = keiner
+     */
+    Path intellijStil() {
+        String eigen = ed.kf.get("java.format.intellij", null);
+        if (eigen != null) return ed.konfig.resolve(eigen).toAbsolutePath().normalize();
+        if (ed.kf.get("java.format.eclipse", null) != null || ed.javaOrdner == null) return null;
+        Path cs = ed.javaOrdner.resolve(".idea").resolve("codeStyles");
+        try {
+            if (Files.isRegularFile(cs.resolve("Project.xml"))
+                    && Files.readString(cs.resolve("codeStyleConfig.xml"), StandardCharsets.UTF_8).matches("(?s).*USE_PER_PROJECT_SETTINGS\"\\s+value=\"true\".*")) return cs.resolve("Project.xml");
+        } catch (IOException e) {
+            // kein Projektstil
+        }
+        return null;
+    }
+
+    /** Einrueckung des Java-Formatter-Profils {Breite, 1 = Leerzeichen / 0 = Tab}, oder null ohne Profil */
+    int[] profilEinzug() {
+        String xml = ed.kf.get("java.format.eclipse", null);
+        Path p = xml != null ? ed.konfig.resolve(xml).toAbsolutePath().normalize() : intellijStil() != null ? ed.konfig.resolve("jdtls-format-intellij.xml") : null;
+        if (p == null) return null;
+        try {
+            String t = Files.readString(p, StandardCharsets.UTF_8);
+            Matcher ch = Pattern.compile("formatter\\.tabulation\\.char\"\\s+value=\"(\\w+)\"").matcher(t);
+            Matcher gr = Pattern.compile("formatter\\.(?:tabulation|indentation)\\.size\"\\s+value=\"(\\d+)\"").matcher(t);
+            boolean tab = ch.find() && ch.group(1).equals("tab");
+            int n = gr.find() ? Integer.parseInt(gr.group(1)) : 4;
+            return new int[] {n, tab ? 0 : 1};
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** IntelliJ-Stil als Eclipse-Profil fuer jdtls (neben der Jar), oder null */
+    private Path intellijProfil() {
+        Path st = intellijStil();
+        if (st == null || ed.kf.get("java.format.intellij.cmd", null) != null) return null;
+        try {
+            String profil = IntellijStil.eclipseProfil(Files.readString(st, StandardCharsets.UTF_8), "IntelliJ");
+            Path z = ed.konfig.resolve("jdtls-format-intellij.xml");
+            if (!Files.isRegularFile(z) || !Files.readString(z, StandardCharsets.UTF_8).equals(profil)) Files.writeString(z, profil, StandardCharsets.UTF_8);
+            return z;
+        } catch (Exception e) {
+            ed.fehler("IntelliJ-Code-Style " + st + " nicht lesbar: " + e.getMessage());
+            return null;
+        }
+    }
+
     Map<String, Object> javaEinstellungen() {
         Map<String, Object> format = Json.obj("enabled", true);
         String xml = ed.kf.get("java.format.eclipse", null);
-        if (xml != null) {
-            Path p = ed.konfig.resolve(xml).toAbsolutePath().normalize();
+        Path ij = xml == null ? intellijProfil() : null;
+        if (xml != null || ij != null) {
+            Path p = ij != null ? ij : ed.konfig.resolve(xml).toAbsolutePath().normalize();
             if (!Files.isRegularFile(p)) ed.fehler("java.format.eclipse: Datei fehlt: " + p);
             Map<String, Object> s = Json.obj("url", p.toUri().toString());
-            String profil = ed.kf.get("java.format.profile", null);
+            String profil = ij != null ? "IntelliJ" : ed.kf.get("java.format.profile", null);
             if (profil != null) s.put("profile", profil);
             format.put("settings", s);
         }
@@ -2347,6 +2451,10 @@ final class Werkzeug {
             Path p = statusDatei();
             if (p != null) gitLauf(statusRepo, "restore --staged", new String[] {"restore", "--staged", "--", statusRepo.relativize(p).toString()}, l -> {});
         });
+        /** @binding git status: Aenderungen der Datei verwerfen, gestaged und nicht gestaged (mit Rueckfrage; neue Dateien werden geloescht) */
+        c.put("gitStatusDiscard", a -> verwerfenStarten());
+        /** @binding git status: verwirft nach der Antwort ja (Rueckfrage von gitStatusDiscard) */
+        c.put("gitStatusDiscardDo", this::verwerfen);
         /** @binding Liest Repo und Branch neu */
         c.put("gitRefresh", a -> gitLesen());
         /** @binding Setzt den Java-Arbeitsbereich */

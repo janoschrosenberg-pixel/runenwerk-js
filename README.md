@@ -116,7 +116,7 @@ Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten f
 | Leertaste g b (oder b) | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; ein neuer Name bietet „+ neuen Branch erstellen“ an (`git switch -c`); `g t` / `g j` für TS- bzw. Java-Repo |
 | Leertaste g p / g P | pull / push (push legt bei neuen Branches den Upstream an) |
 | Leertaste g c | commit: Fenster für die Nachricht; ist nichts vorgemerkt, wird alles committet |
-| Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `s` vormerken, `u` zurücknehmen, `c` commit, `m` merge, ESC schließt |
+| Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `s` vormerken, `u` zurücknehmen, `x` verwerfen (gestaged und nicht gestaged, mit Rückfrage; neue Dateien werden gelöscht), `c` commit, `m` merge, ESC schließt |
 | Leertaste g R | reset --hard (nur nach Eintippen von `ja`) |
 | Leertaste g m | Merge-Editor für Konflikte |
 | Leertaste g B (oder g a) | git blame an/aus: links neben den Zeilennummern Commit, Autor und Datum, unten die Commit-Nachricht der aktuellen Zeile; neue Zeilen erscheinen als „nicht committet“ |
@@ -139,8 +139,13 @@ Zeilenprogramme (`npm test`, `git log`, `mvn …`), aber keine Vollbildprogramme
 - TypeScript/JavaScript mit **prettier** (`ts.format`, Vorgabe `prettier --stdin-filepath {file}`; installieren mit
   `npm install -D prettier` im Projekt).
 - Java mit einem **Eclipse-Formatter-Profil** (`java.format.eclipse = formatter.xml`, optional `java.format.profile`) über
-  jdtls – IntelliJ kann seinen Code-Style als „Eclipse XML“ exportieren – oder mit einem **IntelliJ-Code-Style**
-  (`java.format.intellij` + `java.format.intellij.cmd` = `format.bat`/`format.sh` von IntelliJ; IntelliJ muss dafür geschlossen sein).
+  jdtls – oder mit einem **IntelliJ-Code-Style**, ohne dass IntelliJ installiert sein muss: `java.format.intellij =
+  stil.xml` (Export aus IntelliJ: Settings › Code Style › Java › Zahnrad › Export › „IntelliJ IDEA code style XML“). Ohne
+  Angabe nimmt der Editor den Projektstil aus `.idea/codeStyles/Project.xml`, wenn das Projekt einen eigenen hat. Der
+  Editor übersetzt den Stil in ein Profil für den eingebauten Formatter (`jdtls-format-intellij.xml` neben der Jar):
+  Einrückung, Tabs, Zeilenlänge, Klammerstil, Umbrüche (wrap/chop/align), Leerzeilen, Annotationen, Leerzeichen,
+  `@formatter:off`. Kommentare bleiben, wie sie sind; Importe sortiert der Formatter nicht. Wer doch IntelliJs eigenen
+  Formatter will: `java.format.intellij.cmd` = `format.bat`/`format.sh` (IntelliJ muss dann geschlossen sein).
 
 ## Datenbank (Oracle oder jeder JDBC-Treiber)
 

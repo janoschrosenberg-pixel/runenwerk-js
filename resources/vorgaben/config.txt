@@ -33,8 +33,11 @@ ts.format = prettier --stdin-filepath {file}
 # Java mit einem Eclipse-Formatter-Profil (XML-Export aus Eclipse oder IntelliJ "Eclipse XML") ...
 java.format.eclipse =
 java.format.profile =
-# ... oder mit einem IntelliJ-Code-Style (XML) ueber den IntelliJ-Formatter (IntelliJ muss dafuer zu sein)
+# ... oder mit einem IntelliJ-Code-Style (XML-Export aus IntelliJ: Settings > Code Style > Java > Zahnrad > Export >
+# IntelliJ IDEA code style XML). IntelliJ wird nicht gebraucht: der Editor uebersetzt den Stil fuer den eingebauten
+# Formatter. Leer: der Projektstil aus .idea/codeStyles, wenn das Projekt einen eigenen hat.
 java.format.intellij =
+# nur wenn doch IntelliJs eigener Formatter laufen soll (IntelliJ muss dann zu sein), z. B. .../bin/format.bat
 java.format.intellij.cmd =
 
 # ---------------------------------------------------------------- Datenbank (SQL-Dateien)
