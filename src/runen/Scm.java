@@ -468,6 +468,103 @@ final class Scm {
         });
     }
 
+    /** 1 = alle Benutzer vom Server (Benutzerliste), 2 = gesammelt (Vorschlaege, Pull Requests), 0 = noch nicht */
+    private volatile int alleStand;
+    private volatile boolean alleLaeuft;
+
+    private String alleHinweis() {
+        return alleStand == 1 ? "alle Benutzer, tippen filtert" : alleStand == 2 ? "tippen filtert und sucht weitere im SCM-Manager" : "lade die Benutzer ..., tippen sucht im SCM-Manager";
+    }
+
+    /** Benutzer nach Anzeigename */
+    private List<String> sortiert() {
+        List<String> l = new ArrayList<>(benutzer.keySet());
+        l.sort((a, b) -> benutzer.get(a).compareToIgnoreCase(benutzer.get(b)));
+        return l;
+    }
+
+    /**
+     * Alle Benutzer fuer die Reviewer-Auswahl, einmal je Sitzung: die Benutzerliste des SCM-Managers (braucht das
+     * Recht, Benutzer zu lesen); sonst gesammelt aus den Vorschlaegen (viele Suchen mit zwei Buchstaben) und
+     * aus Autoren und Reviewern aller Pull Requests im Repo. Danach kommen sie in die offene Auswahl.
+     */
+    private void alleLaden(Ziel z, java.util.function.Supplier<List<String>> eintraege) {
+        if (alleStand != 0 || alleLaeuft) return;
+        alleLaeuft = true;
+        hintergrund(() -> {
+            int stand = 2;
+            Antwort a = anfrage("GET", "/users?pageSize=10000&sortBy=displayName", null, null);
+            List<Object> gefunden = new ArrayList<>();
+            // seitenweise (_links.next), falls der Server die Seitengroesse begrenzt
+            for (int seite = 0; a.code() == 200 && seite < 100; seite++) {
+                try {
+                    Object o = Json.parse(a.text());
+                    for (Object u : eingebettet(o)) if (!Boolean.FALSE.equals(Json.get(u, "active"))) gefunden.add(u);
+                    stand = 1;
+                    String weiter = link(o, "next", null);
+                    if (weiter == null) break;
+                    a = anfrage("GET", weiter, null, null);
+                } catch (RuntimeException e) {
+                    break;
+                }
+            }
+            if (stand == 2) {
+                String[] suchen = {"a", "e", "i", "o", "u", "y"};
+                List<Thread> th = new ArrayList<>();
+                List<Object> sync = java.util.Collections.synchronizedList(gefunden);
+                for (String v : suchen) {
+                    for (String k : "bcdfghjklmnprstvwz".split("")) {
+                        for (String q : new String[] {v + k, k + v}) {
+                            Thread t = new Thread(() -> {
+                                Antwort r = anfrage("GET", "/autocomplete/users?q=" + q + "&limit=100", null, null);
+                                if (r.code() == 400) r = anfrage("GET", "/autocomplete/users?q=" + q, null, null);
+                                if (r.code() != 200) return;
+                                try {
+                                    sync.addAll(Json.list(Json.parse(r.text())));
+                                } catch (RuntimeException e) {
+                                    // naechste Suche
+                                }
+                            }, "scm-benutzer");
+                            t.setDaemon(true);
+                            th.add(t);
+                        }
+                    }
+                }
+                // in Gruppen, damit der Server nicht 200 Anfragen auf einmal bekommt
+                for (int i = 0; i < th.size(); i += 12) {
+                    for (int j = i; j < Math.min(th.size(), i + 12); j++) th.get(j).start();
+                    for (int j = i; j < Math.min(th.size(), i + 12); j++) {
+                        try {
+                            th.get(j).join(30_000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                }
+                Antwort p = anfrage("GET", "/pull-requests/" + repoPfad(z) + "?status=ALL&pageSize=500", null, null);
+                if (p.code() == 400) p = anfrage("GET", "/pull-requests/" + repoPfad(z), null, null);
+                if (p.code() == 200) {
+                    try {
+                        for (Object pr : eingebettet(Json.parse(p.text()))) {
+                            gefunden.add(Json.get(pr, "author"));
+                            gefunden.addAll(Json.list(Json.get(pr, "reviewer")));
+                        }
+                    } catch (RuntimeException e) {
+                        // ohne
+                    }
+                }
+            }
+            int st = stand;
+            ui(() -> {
+                for (Object u : gefunden) if (u != null) benutzerMerken(u);
+                alleStand = st;
+                alleLaeuft = false;
+                ed.wz.auswahlSetzen(eintraege.get());
+                ed.meldung = benutzer.size() + " Benutzer" + (st == 1 ? "" : " (aus Vorschlaegen und Pull Requests; tippen sucht weitere)");
+            });
+        });
+    }
+
     private static final String FERTIG = "-> fertig, Pull Request erstellen";
 
     private String benutzerEintrag(String id) {
@@ -475,12 +572,17 @@ final class Scm {
         return n == null || n.equals(id) ? id : id + "  (" + n + ")";
     }
 
-    /** Reviewer nacheinander waehlen; beim Tippen schlaegt der SCM-Manager weitere Benutzer vor */
-    private void reviewerWaehlen(Ziel z, String quelle, String zielBranch, String titel, String beschr, List<String> gewaehlt) {
+    private List<String> reviewerEintraege(List<String> gewaehlt) {
         List<String> l = new ArrayList<>();
         l.add(FERTIG + (gewaehlt.isEmpty() ? " (ohne Reviewer)" : " (Reviewer: " + String.join(", ", gewaehlt) + ")"));
-        for (String id : benutzer.keySet()) if (!gewaehlt.contains(id) && !id.equals(ich)) l.add(benutzerEintrag(id));
-        ed.wz.auswahl("Reviewer hinzufuegen (tippen sucht im SCM-Manager)", l, null, w -> {
+        for (String id : sortiert()) if (!gewaehlt.contains(id) && !id.equals(ich)) l.add(benutzerEintrag(id));
+        return l;
+    }
+
+    /** Reviewer nacheinander waehlen; beim Tippen schlaegt der SCM-Manager weitere Benutzer vor */
+    private void reviewerWaehlen(Ziel z, String quelle, String zielBranch, String titel, String beschr, List<String> gewaehlt) {
+        List<String> l = reviewerEintraege(gewaehlt);
+        ed.wz.auswahl("Reviewer hinzufuegen (" + alleHinweis() + ")", l, null, w -> {
             if (w.startsWith(FERTIG)) {
                 anlegen(z, quelle, zielBranch, titel, beschr, gewaehlt);
                 return;
@@ -489,6 +591,7 @@ final class Scm {
             gewaehlt.add(id);
             reviewerWaehlen(z, quelle, zielBranch, titel, beschr, gewaehlt);
         });
+        alleLaden(z, () -> reviewerEintraege(gewaehlt));
         ed.wz.auswahlNachladen = q -> {
             if (q.strip().length() < 2) return;
             hintergrund(() -> {
@@ -723,12 +826,17 @@ final class Scm {
         reviewerListe(pr, jetzt, danach);
     }
 
-    private void reviewerListe(Object pr, List<String> gewaehlt, Runnable danach) {
+    private List<String> aendernEintraege(Object pr, List<String> gewaehlt) {
         List<String> l = new ArrayList<>();
         l.add(UEBERNEHMEN + " (" + (gewaehlt.isEmpty() ? "keine Reviewer" : String.join(", ", gewaehlt)) + ")");
         for (String id : gewaehlt) l.add("[x] " + benutzerEintrag(id));
-        for (String id : benutzer.keySet()) if (!gewaehlt.contains(id) && !id.equals(ich)) l.add("[ ] " + benutzerEintrag(id));
-        ed.wz.auswahl("Reviewer von #" + id(pr) + ": ENTER waehlt an/ab, tippen sucht im SCM-Manager", l, null, w -> {
+        for (String id : sortiert()) if (!gewaehlt.contains(id) && !id.equals(ich)) l.add("[ ] " + benutzerEintrag(id));
+        return l;
+    }
+
+    private void reviewerListe(Object pr, List<String> gewaehlt, Runnable danach) {
+        List<String> l = aendernEintraege(pr, gewaehlt);
+        ed.wz.auswahl("Reviewer von #" + id(pr) + ": ENTER waehlt an/ab (" + alleHinweis() + ")", l, null, w -> {
             if (w.startsWith(UEBERNEHMEN)) {
                 reviewerSenden(pr, gewaehlt, danach);
                 return;
@@ -738,6 +846,7 @@ final class Scm {
             if (!gewaehlt.remove(id)) gewaehlt.add(id);
             reviewerListe(pr, gewaehlt, danach);
         });
+        if (ziel != null) alleLaden(ziel, () -> aendernEintraege(pr, gewaehlt));
         ed.wz.auswahlNachladen = q -> {
             if (q.strip().length() < 2) return;
             hintergrund(() -> {

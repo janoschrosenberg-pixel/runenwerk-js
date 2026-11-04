@@ -1087,6 +1087,17 @@ final class Werkzeug {
     private javax.swing.Timer nachladenUhr;
 
     /** Eintraege ergaenzen (die schon da sind, bleiben); Filter und Auswahl bleiben */
+    /** Eintraege der offenen Auswahl ersetzen (Filter und gewaehlter Eintrag bleiben) */
+    void auswahlSetzen(List<String> alle) {
+        if (!auswahlOffen) return;
+        String gewaehlt = auswahlWahl < auswahlListe.size() ? auswahlListe.get(auswahlWahl) : null;
+        auswahlAlle = new ArrayList<>(alle);
+        filtern();
+        int i = gewaehlt == null ? -1 : auswahlListe.indexOf(gewaehlt);
+        auswahlWahl = Math.max(0, i);
+        ed.neuMalen.run();
+    }
+
     void auswahlDazu(List<String> neu) {
         if (!auswahlOffen) return;
         List<String> l = new ArrayList<>(auswahlAlle);

@@ -192,7 +192,9 @@ Bearer-Token.
 
 - **Leertaste g n** – neuer Pull Request: Quell-Branch (der aktuelle ist vorgewählt, wenn er gepusht ist; sonst steht
   es dabei), Ziel-Branch (der Standard-Branch vorgewählt), Titel (Vorschlag: letzter Commit), Beschreibung, dann Reviewer
-  nacheinander aus einer Liste – tippen sucht im SCM-Manager (Vervollständigung), „fertig“ erstellt ihn.
+  nacheinander aus der Liste aller Benutzer (nach Namen sortiert, tippen filtert), „fertig“ erstellt ihn. Die Liste
+  kommt aus der Benutzerverwaltung des SCM-Managers; fehlt dafür das Recht, sammelt der Editor die Benutzer aus der
+  Vervollständigung und aus Autoren und Reviewern der Pull Requests im Repo – tippen sucht dann weitere.
 - **Leertaste g r** – alle Pull Requests unten wie git status: `#`, Status, Quelle -> Ziel, Titel, Autor, Freigaben,
   offene Aufgaben. `j`/`k`, `s` Filter (offen, meine, zum Review, alle), `g` neu laden, `a` freigeben, `x` Freigabe
   zurücknehmen, `m` mergen, `R` ablehnen, `e` Reviewer, `n` neu, `w` im Browser, TAB in den Text (Liste bleibt), ESC schließt.
@@ -214,7 +216,7 @@ Bearer-Token.
   | `R` | ablehnen, mit Begründung |
   | `c` | Kommentar schreiben: auf einer Codezeile zu dieser Zeile, sonst zum Pull Request (`\n` = neue Zeile) |
   | `C` | auf den Kommentar unter dem Cursor antworten |
-  | `e` | Reviewer ändern: ENTER wählt an/ab, tippen sucht im SCM-Manager, „übernehmen“ speichert |
+  | `e` | Reviewer ändern: Liste aller Benutzer, ENTER wählt an/ab, tippen filtert/sucht, „übernehmen“ speichert |
   | `j`/`k`, `Strg+D`/`Strg+U`, `gg`/`G` | bewegen |
   | `TAB` / `Shift+TAB`, `0` | nächste/vorige Datei, Übersicht |
   | `n` / `p` | nächste/vorige Änderung (auch über Dateien) |
