@@ -109,9 +109,12 @@ spring.debug =
 scm.url =
 scm.apikey =
 # nur falls noetig: Benutzer fuer die Anmeldung (sonst aus dem Schluessel), auth = auto | basic | bearer,
-# Repo als NAMESPACE/NAME (sonst aus der Remote-URL .../repo/NAMESPACE/NAME)
+# Das Repo ist das der aktuellen Datei; sein Name im SCM-Manager kommt aus der Remote-URL (.../repo/NAMESPACE/NAME,
+# sonst die letzten zwei Teile). Nur falls das nicht passt: scm.repo.ORDNER = NAMESPACE/NAME (ORDNER = Name des
+# Repo-Ordners), scm.repo = NAMESPACE/NAME gilt nur fuer Repos, deren URL gar nicht erkannt wird
 # scm.user =
 # scm.auth = auto
+# scm.repo.ORDNER =
 # scm.repo =
 # Mergen: Vorgabe-Strategie (SQUASH, MERGE_COMMIT, FAST_FORWARD_IF_POSSIBLE, REBASE), Quell-Branch danach loeschen
 scm.merge.strategy = SQUASH

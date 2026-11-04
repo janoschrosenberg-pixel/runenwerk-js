@@ -186,7 +186,7 @@ stehen in der Statuszeile. `diff.view = text` in config.txt zeigt gleich den Tex
 ### Pull Requests (SCM-Manager)
 
 In `config.txt`: `scm.url` (z. B. `https://scm.firma.de/scm`) und `scm.apikey` (API-Schlüssel aus dem Profil im
-SCM-Manager). Das Repo kommt aus der Remote-URL (`…/repo/NAMESPACE/NAME`), sonst `scm.repo = NAMESPACE/NAME`. Angemeldet
+SCM-Manager). Das Repo ist das der aktuellen Datei (Java- oder TypeScript-Projekt), sein Name kommt aus der Remote-URL (`…/repo/NAMESPACE/NAME`, sonst die letzten zwei Teile der URL); passt das nicht, `scm.repo.ORDNER = NAMESPACE/NAME` (ORDNER = Name des Repo-Ordners), `scm.repo` gilt nur für Repos ohne erkennbare URL. Angemeldet
 wird mit Basic (Benutzer aus dem Schlüssel bzw. `scm.user`, Schlüssel als Passwort); `scm.auth = bearer` schickt ihn als
 Bearer-Token.
 

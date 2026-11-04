@@ -178,22 +178,53 @@ final class Scm {
 
     // ================================================================ Repo
     /** SCM-Manager-Repo zum git-Repo der aktuellen Datei: scm.repo, sonst aus der Remote-URL (.../repo/NS/NAME) */
+    /**
+     * Repo der aktuellen Datei (ohne Datei: das zuletzt benutzte, sonst das des Arbeitsbereichs); der Name im
+     * SCM-Manager kommt aus seiner Remote-URL, sonst aus scm.repo.ORDNER bzw. scm.repo
+     */
     private Ziel zielFinden() {
-        Path repo = ed.wz.repoFuer("");
+        Doc d = ed.d();
+        Path eigen = d.pfad != null ? Git.wurzel(d.pfad) : d.term != null ? Git.wurzel(d.term.ordner()) : null;
+        Path repo = eigen != null ? eigen : ziel != null ? ziel.repo() : ed.wz.repoFuer("");
         if (repo == null) return null;
         Git.Lauf rl = Git.git(repo, "remote");
         List<String> remotes = new ArrayList<>();
         if (rl.code() == 0) for (String x : rl.ausgabe().split("\\R")) if (!x.isBlank()) remotes.add(x.strip());
         String remote = remotes.contains("origin") ? "origin" : remotes.isEmpty() ? "origin" : remotes.get(0);
-        String fest = ed.kf.get("scm.repo", "").strip();
+        String ordner = repo.getFileName() == null ? "" : repo.getFileName().toString();
+        String fest = ed.kf.get("scm.repo." + ordner, "").strip();
         if (fest.contains("/")) return new Ziel(repo, remote, fest.substring(0, fest.indexOf('/')), fest.substring(fest.indexOf('/') + 1));
         Git.Lauf u = Git.git(repo, "remote", "get-url", remote);
-        Matcher m = Pattern.compile("(?:^|/)repo/([^/]+)/([^/]+?)(?:\\.git)?/?$").matcher(u.ausgabe().strip());
-        if (u.code() != 0 || !m.find()) {
-            ed.fehler("SCM-Manager: Repo nicht aus der Remote-URL " + u.ausgabe().strip() + " erkannt (erwartet .../repo/NAMESPACE/NAME) - scm.repo = NAMESPACE/NAME in config.txt");
-            return null;
+        String[] ns = u.code() == 0 ? repoAusUrl(u.ausgabe().strip()) : null;
+        if (ns != null) return new Ziel(repo, remote, ns[0], ns[1]);
+        fest = ed.kf.get("scm.repo", "").strip();
+        if (fest.contains("/")) return new Ziel(repo, remote, fest.substring(0, fest.indexOf('/')), fest.substring(fest.indexOf('/') + 1));
+        ed.fehler("SCM-Manager: Repo nicht aus der Remote-URL von " + repo + " erkannt (" + u.ausgabe().strip() + ") - scm.repo." + ordner
+                + " = NAMESPACE/NAME in config.txt");
+        return null;
+    }
+
+    /** NAMESPACE und NAME aus einer Remote-URL: .../repo/NS/NAME, sonst die letzten zwei Teile (https, ssh, host:ns/name) */
+    static String[] repoAusUrl(String url) {
+        String u = url.strip().replace('\\', '/');
+        int q = u.indexOf('?');
+        if (q >= 0) u = u.substring(0, q);
+        while (u.endsWith("/")) u = u.substring(0, u.length() - 1);
+        if (u.endsWith(".git")) u = u.substring(0, u.length() - 4);
+        Matcher m = Pattern.compile("(?:^|/)repo/([^/]+)/([^/]+)$").matcher(u);
+        if (m.find()) return new String[] {m.group(1), m.group(2)};
+        // scp-Form user@host:ns/name
+        if (!u.contains("://")) {
+            int c = u.indexOf(':');
+            if (c >= 0) u = u.substring(c + 1);
+        } else {
+            u = u.substring(u.indexOf("://") + 3);
+            int sl = u.indexOf('/');
+            u = sl < 0 ? "" : u.substring(sl + 1);
         }
-        return new Ziel(repo, remote, m.group(1), m.group(2));
+        String[] t = u.split("/");
+        if (t.length < 2 || t[t.length - 2].isEmpty() || t[t.length - 1].isEmpty()) return null;
+        return new String[] {t[t.length - 2], t[t.length - 1]};
     }
 
     private String ichHolen() {
@@ -221,6 +252,11 @@ final class Scm {
         if (!eingerichtet()) return;
         Ziel z = zielFinden();
         if (z == null) return;
+        // anderes Repo: alte Liste nicht stehen lassen
+        if (ziel == null || !ziel.repo().equals(z.repo()) || !repoPfad(ziel).equals(repoPfad(z))) {
+            prs = List.of();
+            wahl = 0;
+        }
         ziel = z;
         offen = true;
         ed.konsoleOffen = false;
@@ -232,7 +268,7 @@ final class Scm {
     private void laden() {
         Ziel z = ziel;
         String st = status;
-        zustand = "lade Pull Requests von " + basis() + " ...";
+        zustand = "lade Pull Requests von " + z.ns() + "/" + z.name() + " (" + z.repo().getFileName() + ") ...";
         hintergrund(() -> {
             ichHolen();
             Antwort a = anfrage("GET", "/pull-requests/" + repoPfad(z) + "?status=" + st + "&pageSize=200", null, null);
