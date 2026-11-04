@@ -176,8 +176,12 @@ Ergebnis (die Datei). `n`/`p` nächster/voriger Konflikt, TAB nächster offener,
 (A dann B), `*` beide (B dann A), `r` Konfliktmarken zurück, `j`/`k` blättern, `e` C von Hand bearbeiten (Leertaste g m
 kommt zurück), `q` fertig: speichert und merkt die Datei vor (`git add`), danach Leertaste g c.
 
-**Diff-Ansicht**: ein schreibgeschützter Puffer mit dem Unterschied (entfernt rot, neu grün). ENTER springt an die Zeile
-in der Datei, `]c` / `[c` zum nächsten/vorigen Abschnitt, `q` schließt.
+**Diff-Ansicht** (Leertaste g d, g D, `d` im git status): nebeneinander wie beim Pull Request, links vorher (der
+Commit), rechts nachher (der Text im Editor, auch ungespeichert), Zeile für Zeile ausgerichtet, ähnliche Zeilen
+gegenübergestellt und die geänderten Wörter markiert. Die Übersicht zeigt den Commit (Hash, Datum, Autor, Nachricht).
+ENTER springt an die Zeile in der Datei, `n`/`p` nächste/vorige Änderung, `r` vergleicht neu (nach Änderungen im
+Editor), `w` Umbruch, `t` als Text (unified diff im Puffer, dort `]c` / `[c` Abschnitte), `q` schließt; alle Tasten
+stehen in der Statuszeile. `diff.view = text` in config.txt zeigt gleich den Text.
 
 ### Pull Requests (SCM-Manager)
 

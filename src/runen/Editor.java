@@ -2586,7 +2586,7 @@ final class Editor {
         scr.rect(0, sy, mw, unten(), mf);
         scr.text(0, my, m, E_GRUND);
         // Ansichten mit eigenen Tasten: statt Pfad und Position alle Tasten mit ihrer Funktion
-        String[][] tasten = prAnsicht.sichtbar() ? PrAnsicht.TASTEN : modus.equals("pullrequests") ? Scm.TASTEN : null;
+        String[][] tasten = prAnsicht.sichtbar() ? prAnsicht.tastenJetzt() : modus.equals("pullrequests") ? Scm.TASTEN : null;
         if (tasten != null) {
             tastenMalen(tasten, mw + cw, sy, my);
             return;
@@ -2644,7 +2644,7 @@ final class Editor {
             case "merge" -> "MERGE";
             case "openapi" -> "OPENAPI";
             case "pullrequests" -> "PULL REQUESTS";
-            case "prdiff" -> "PULL REQUEST";
+            case "prdiff" -> prAnsicht.lokal ? "DIFF" : "PULL REQUEST";
             case "picker" -> "AUSWAHL";
             default -> modus;
         };

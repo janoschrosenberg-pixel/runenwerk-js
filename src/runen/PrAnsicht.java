@@ -10,6 +10,7 @@ import static runen.Editor.E_MATT;
 import static runen.Editor.E_TEXT;
 import static runen.Editor.E_WARN;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -22,7 +23,8 @@ import java.util.regex.Pattern;
  * Zeile fuer Zeile ausgerichtet. Geaenderte Zeilen sind getoent, innerhalb einer Zeile sind die
  * geaenderten Woerter kraeftiger markiert; lange Zeilen brechen um, Syntax ist gefaerbt. Kommentare
  * (auch Befunde von Teamscale) stehen als Kasten unter ihrer Zeile; ENTER springt an die Codestelle.
- * Die Statuszeile zeigt alle Tasten.
+ * Die Statuszeile zeigt alle Tasten. Auch fuer den Vergleich einer Datei mit einem Commit (lokal:
+ * ohne Pull Request, ohne die SCM-Tasten).
  */
 final class PrAnsicht {
     static final int HUNK = 1, GLEICH = 2, WEG = 3, NEU = 4, PAAR = 5, KOMMENTAR = 6, TEXT = 7, LEER = 8;
@@ -69,6 +71,11 @@ final class PrAnsicht {
     private int wahl, zeile, oben;
     private boolean umbruch = true;
     private String woher = "";
+    /** lokaler Vergleich (Leertaste g d): Titel, Namen der Seiten, Repo, unified diff, neu rechnen */
+    boolean lokal;
+    private String lokTitel = "", lokAlt = "", lokNeu = "", lokDiff = "";
+    private Path lokWurzel;
+    private Runnable lokNeuLaden;
 
     PrAnsicht(Editor ed) {
         this.ed = ed;
@@ -90,7 +97,8 @@ final class PrAnsicht {
     // ================================================================ Aufbau
     /** neu fuellen; bei gleichem Pull Request bleiben Datei und Zeile */
     void zeigen(Object pr, Scm.Ziel z, List<Scm.Kommentar> kom, String komFehler, String diff, String woher, String ich) {
-        boolean gleich = this.pr != null && Scm.id(this.pr).equals(Scm.id(pr));
+        boolean gleich = !lokal && this.pr != null && Scm.id(this.pr).equals(Scm.id(pr));
+        lokal = false;
         String altePfad = gleich && !dateien.isEmpty() ? datei().pfad() : null;
         int alteZeile = zeile;
         this.pr = pr;
@@ -124,6 +132,44 @@ final class PrAnsicht {
                     zeile = Math.min(alteZeile, Math.max(0, dateien.get(i).zeilen.size() - 1));
                 }
             }
+        }
+        ed.meldung = null;
+    }
+
+    /**
+     * Datei gegen einen Commit nebeneinander: links alt (Commit), rechts neu (Editor); die Uebersicht zeigt
+     * info. Gleicher Titel (neu laden): Zeile bleibt.
+     */
+    void zeigenLokal(String titel, String links, String rechts, List<String> info, String diff, Path wurzel, Runnable neu) {
+        boolean gleich = lokal && aktiv && titel.equals(lokTitel);
+        int alteWahl = wahl, alteZeile = zeile, altesOben = oben;
+        lokal = true;
+        pr = null;
+        ziel = null;
+        lokTitel = titel;
+        lokAlt = links;
+        lokNeu = rechts;
+        lokDiff = diff;
+        lokWurzel = wurzel;
+        lokNeuLaden = neu;
+        dateien.clear();
+        Datei ueb = new Datei();
+        ueb.status = "";
+        dateien.add(ueb);
+        dateien.addAll(parsen(diff));
+        for (String t : info) text(ueb, t, t.equals(info.get(0)) ? E_HELL : t.endsWith(":") && t.equals(t.toUpperCase()) ? E_INFO : E_TEXT, 0, null);
+        aktiv = true;
+        ed.modus = "prdiff";
+        if (gleich && alteWahl < dateien.size()) {
+            wahl = alteWahl;
+            zeile = Math.min(alteZeile, Math.max(0, datei().zeilen.size() - 1));
+            oben = Math.min(altesOben, zeile);
+        } else {
+            // gleich auf die erste Aenderung der (ersten) Datei
+            wahl = dateien.size() > 1 ? 1 : 0;
+            zeile = 0;
+            oben = 0;
+            if (wahl > 0) naechste(z -> z.aenderung(), 1, false);
         }
         ed.meldung = null;
     }
@@ -215,29 +261,82 @@ final class PrAnsicht {
         return s.startsWith("a/") || s.startsWith("b/") ? s.substring(2) : s;
     }
 
-    /** entfernte und neue Zeilen nebeneinander: Paare, der Rest allein */
+    /**
+     * entfernte und neue Zeilen nebeneinander: gleich viele der Reihe nach als Paare; sonst werden aehnliche
+     * Zeilen Paare (in Reihenfolge, beste Gesamtaehnlichkeit), der Rest steht allein
+     */
     private static void paareSetzen(Datei d, List<String> weg, List<String> dazu, int altAb, int neuAb) {
-        int n = Math.max(weg.size(), dazu.size());
-        for (int i = 0; i < n; i++) {
+        int n = weg.size(), m = dazu.size();
+        boolean[][] paar = null;
+        if (n > 0 && m > 0 && n != m && (long) n * m <= 40_000) {
+            double[][] best = new double[n + 1][m + 1];
+            double[][] sim = new double[n][m];
+            for (int i = 0; i < n; i++) for (int j = 0; j < m; j++) sim[i][j] = aehnlich(weg.get(i), dazu.get(j));
+            for (int i = n - 1; i >= 0; i--) {
+                for (int j = m - 1; j >= 0; j--) {
+                    double v = Math.max(best[i + 1][j], best[i][j + 1]);
+                    if (sim[i][j] >= 0.3) v = Math.max(v, best[i + 1][j + 1] + sim[i][j]);
+                    best[i][j] = v;
+                }
+            }
+            paar = new boolean[n][m];
+            int i = 0, j = 0;
+            while (i < n && j < m) {
+                if (sim[i][j] >= 0.3 && best[i][j] == best[i + 1][j + 1] + sim[i][j]) paar[i++][j++] = true;
+                else if (best[i][j] == best[i + 1][j]) i++;
+                else j++;
+            }
+        }
+        int i = 0, j = 0;
+        while (i < n || j < m) {
             Zeile z;
-            if (i < weg.size() && i < dazu.size()) {
+            boolean p = paar == null ? i < n && j < m : i < n && j < m && paar[i][j];
+            if (p) {
                 z = new Zeile(PAAR);
                 z.alt = altAb + i;
-                z.neu = neuAb + i;
-                z.links = weg.get(i);
-                z.rechts = dazu.get(i);
+                z.neu = neuAb + j;
+                z.links = weg.get(i++);
+                z.rechts = dazu.get(j++);
                 woerter(z);
-            } else if (i < weg.size()) {
+            } else if (i < n && (paar == null || j >= m || !naechstesPaarIn(paar, i, j))) {
                 z = new Zeile(WEG);
                 z.alt = altAb + i;
-                z.links = weg.get(i);
+                z.links = weg.get(i++);
             } else {
                 z = new Zeile(NEU);
-                z.neu = neuAb + i;
-                z.rechts = dazu.get(i);
+                z.neu = neuAb + j;
+                z.rechts = dazu.get(j++);
             }
             d.zeilen.add(z);
         }
+    }
+
+    /** liegt das naechste Paar ab (i, j) in Zeile i (entfernte Seite)? dann erst die neuen Zeilen davor */
+    private static boolean naechstesPaarIn(boolean[][] paar, int i, int j) {
+        for (int k = j; k < paar[i].length; k++) if (paar[i][k]) return true;
+        return false;
+    }
+
+    /** Aehnlichkeit zweier Zeilen 0..1 (gemeinsame Zeichen nach Woertern, ohne Einrueckung) */
+    static double aehnlich(String a, String b) {
+        a = a.strip();
+        b = b.strip();
+        if (a.equals(b)) return 1;
+        if (a.isEmpty() || b.isEmpty()) return 0;
+        Map<String, Integer> h = new HashMap<>();
+        Matcher m = WORT.matcher(a);
+        while (m.find()) if (!m.group().isBlank()) h.merge(m.group(), 1, Integer::sum);
+        int gemein = 0;
+        m = WORT.matcher(b);
+        while (m.find()) {
+            String t = m.group();
+            Integer c = h.get(t);
+            if (c != null && c > 0) {
+                h.put(t, c - 1);
+                gemein += t.length();
+            }
+        }
+        return 2.0 * gemein / (a.replaceAll("\\s", "").length() + b.replaceAll("\\s", "").length());
     }
 
     private static final Pattern WORT = Pattern.compile("\\w+|\\s+|[^\\w\\s]");
@@ -382,6 +481,11 @@ final class PrAnsicht {
             {"n/p", "Aenderung", "Aend."}, {"]k/[k", "Kommentar", "Komm."}, {"q", "Liste", "Liste"}, {"w", "Umbruch", "Umbr."}, {"r", "neu laden", "neu"},
             {"o", "Browser", "Web"}};
 
+    /** Tasten beim lokalen Vergleich */
+    static final String[][] TASTEN_LOKAL = {{"ENTER", "zur Codestelle", "Code"}, {"n/p", "naechste/vorige Aenderung", "Aend."}, {"j/k", "Zeile", "Zeile"},
+            {"Strg+d/u", "Seite", "Seite"}, {"w", "Umbruch", "Umbr."}, {"r", "neu vergleichen", "neu"}, {"t", "als Text (unified)", "Text"}, {"TAB", "Uebersicht/Datei", "Datei"},
+            {"q", "schliessen", "zu"}};
+
     void befehle(Map<String, Editor.Cmd> c) {
         /** @binding Pull Request: Zeile runter/hoch (Zahl), auch seitenweise (page, -page) */
         c.put("prMove", a -> bewegen(a.strip()));
@@ -407,30 +511,53 @@ final class PrAnsicht {
         /** @binding Pull Request: zurueck zur Liste */
         c.put("prClose", a -> {
             aktiv = false;
-            ed.modus = ed.scm.offen ? "pullrequests" : "normal";
+            ed.modus = ed.scm.offen && !lokal ? "pullrequests" : "normal";
         });
         /** @binding Pull Request: freigeben */
-        c.put("prApprove", a -> ed.scm.freigeben(pr, true, this::neuLaden));
+        c.put("prApprove", a -> nurPr(() -> ed.scm.freigeben(pr, true, this::neuLaden)));
         /** @binding Pull Request: Freigabe zuruecknehmen */
-        c.put("prDisapprove", a -> ed.scm.freigeben(pr, false, this::neuLaden));
+        c.put("prDisapprove", a -> nurPr(() -> ed.scm.freigeben(pr, false, this::neuLaden)));
         /** @binding Pull Request: mergen (Strategie, Vorgabe Squash; Quell-Branch danach loeschen) */
-        c.put("prMerge", a -> ed.scm.mergen(pr, this::neuLaden));
+        c.put("prMerge", a -> nurPr(() -> ed.scm.mergen(pr, this::neuLaden)));
         /** @binding Pull Request: ablehnen (mit Begruendung) */
-        c.put("prReject", a -> ed.scm.ablehnen(pr, this::neuLaden));
+        c.put("prReject", a -> nurPr(() -> ed.scm.ablehnen(pr, this::neuLaden)));
         /** @binding Pull Request: Kommentar schreiben (auf einer Codezeile zu dieser Zeile, sonst allgemein) */
-        c.put("prCommentNew", a -> kommentieren(false));
+        c.put("prCommentNew", a -> nurPr(() -> kommentieren(false)));
         /** @binding Pull Request: auf den Kommentar unter dem Cursor antworten */
-        c.put("prReply", a -> kommentieren(true));
+        c.put("prReply", a -> nurPr(() -> kommentieren(true)));
         /** @binding Pull Request: Reviewer aendern (an/abwaehlen, tippen sucht) */
-        c.put("prReviewers", a -> ed.scm.reviewerAendern(pr, this::neuLaden));
+        c.put("prReviewers", a -> nurPr(() -> ed.scm.reviewerAendern(pr, this::neuLaden)));
+        /** @binding Vergleich mit einem Commit: als Text (unified diff, schreibgeschuetzter Puffer) */
+        c.put("prText", a -> {
+            if (!lokal) {
+                ed.meldung = "t: nur beim Vergleich mit einem Commit (Leertaste g d)";
+                return;
+            }
+            aktiv = false;
+            ed.unterschied.zeigen(lokTitel, "# " + lokAlt + "  ->  " + lokNeu + "\n# ENTER springt in die Datei, ]c / [c naechster/voriger Abschnitt\n\n" + lokDiff, lokWurzel);
+        });
         /** @binding Pull Request: neu laden */
         c.put("prRefresh", a -> neuLaden());
         /** @binding Pull Request: im Browser oeffnen */
-        c.put("prBrowser", a -> ed.scm.imBrowser(pr));
+        c.put("prBrowser", a -> nurPr(() -> ed.scm.imBrowser(pr)));
     }
 
     void neuLaden() {
-        if (pr != null) ed.scm.zeigen(pr);
+        if (lokal) {
+            if (lokNeuLaden != null) lokNeuLaden.run();
+        } else if (pr != null) {
+            ed.scm.zeigen(pr);
+        }
+    }
+
+    private void nurPr(Runnable r) {
+        if (lokal) ed.meldung = "nur im Pull Request (Leertaste g r)";
+        else r.run();
+    }
+
+    /** Tasten fuer die Statuszeile */
+    String[][] tastenJetzt() {
+        return lokal ? TASTEN_LOKAL : TASTEN;
     }
 
     private void bewegen(String a) {
@@ -488,8 +615,8 @@ final class PrAnsicht {
     private void stelle(String pfad, int nr) {
         aktiv = false;
         ed.modus = "normal";
-        ed.unterschied.stelleOeffnen(ziel.repo(), pfad, nr);
-        ed.meldung = (ed.meldung == null ? "" : ed.meldung + "   ") + "(Leertaste g r, ENTER: zurueck zum Pull Request)";
+        ed.unterschied.stelleOeffnen(lokal ? lokWurzel : ziel.repo(), pfad, nr);
+        ed.meldung = (ed.meldung == null ? "" : ed.meldung + "   ") + (lokal ? "(Leertaste g d: wieder vergleichen)" : "(Leertaste g r, ENTER: zurueck zum Pull Request)");
     }
 
     private void oeffnen() {
@@ -614,10 +741,37 @@ final class PrAnsicht {
 
     void malen(int y0, int y1) {
         Screen s = ed.scr;
-        int W = s.w, cw = s.cw, lh = s.lh;
-        s.rect(0, y0, W, y1 - y0, E_GRUND);
+        s.rect(0, y0, s.w, y1 - y0, E_GRUND);
         if (dateien.isEmpty()) return;
         // ---------------------------------------- Kopf: Titel, Branches, Freigaben
+        int top = lokal ? lokalKopf(s, y0) : prKopf(s, y0);
+        // ---------------------------------------- Dateiliste links
+        dateiListe(s, top, y1);
+        // ---------------------------------------- Hauptbereich
+        hauptbereich(s, top, y1);
+    }
+
+    private int lokalKopf(Screen s, int y0) {
+        int W = s.w, cw = s.cw, lh = s.lh;
+        s.rect(0, y0, W, 2 * lh + 6, E_LEISTE);
+        int x = s.text(cw, y0 + 2, "DIFF  ", E_HELL);
+        s.text(x, y0 + 2, dateien.size() > 1 ? dateien.get(1).pfad() : lokTitel, E_HELL);
+        int plus = 0, minus = 0;
+        for (Datei d : dateien) {
+            plus += d.plus;
+            minus += d.minus;
+        }
+        x = s.text(cw, y0 + lh + 4, "vorher ", E_MATT);
+        x = s.text(x, y0 + lh + 4, lokAlt, E_TEXT);
+        x = s.text(x, y0 + lh + 4, "   ->   nachher ", E_MATT);
+        x = s.text(x, y0 + lh + 4, lokNeu, E_TEXT);
+        x = s.text(x + 3 * cw, y0 + lh + 4, "+" + plus, 0x8CFFB0);
+        s.text(x + cw, y0 + lh + 4, "-" + minus, E_FEHLER);
+        return y0 + 2 * lh + 8;
+    }
+
+    private int prKopf(Screen s, int y0) {
+        int W = s.w, cw = s.cw, lh = s.lh;
         int frei = 0, rev = 0;
         for (Object r : Json.list(Json.get(pr, "reviewer"))) {
             rev++;
@@ -636,9 +790,12 @@ final class PrAnsicht {
         String zeile2 = Json.str(Json.get(pr, "source")) + "  ->  " + Json.str(Json.get(pr, "target")) + "      von " + Scm.person(Json.get(pr, "author")) + "      Freigaben "
                 + frei + "/" + rev + "      " + (dateien.size() - 1) + " Dateien";
         s.text(cw, y0 + lh + 4, zeile2, E_TEXT);
-        int top = y0 + 2 * lh + 8;
-        // ---------------------------------------- Dateiliste links
-        sw = Math.max(28 * cw, Math.min(W / 5, 46 * cw));
+        return y0 + 2 * lh + 8;
+    }
+
+    private void dateiListe(Screen s, int top, int y1) {
+        int cw = s.cw, lh = s.lh;
+        sw = Math.max(28 * cw, Math.min(s.w / 5, 46 * cw));
         s.rect(0, top, sw, y1 - top, E_KONSOLE);
         s.text(cw, top + 2, "DATEIEN", E_MATT);
         int fy = top + lh + 4;
@@ -673,7 +830,10 @@ final class PrAnsicht {
         }
         s.noClip();
         s.rect(sw - 2, top, 2, y1 - top, E_MATT);
-        // ---------------------------------------- Hauptbereich
+    }
+
+    private void hauptbereich(Screen s, int top, int y1) {
+        int W = s.w, cw = s.cw, lh = s.lh;
         mx = sw + cw;
         mw = W - mx - cw;
         Datei d = datei();
@@ -693,8 +853,9 @@ final class PrAnsicht {
             String z = "+" + d.plus + "  -" + d.minus;
             s.text(mx + mw - s.textWidth(z), ky + 2, z, E_MATT);
             ky += lh + 4;
-            s.text(mx, ky, d.status.equals("A") ? "(neu)" : "vorher (" + Json.str(Json.get(pr, "target")) + ")", E_MATT);
-            s.text(mx + pw + cw, ky, d.status.equals("D") ? "(geloescht)" : "nachher (" + Json.str(Json.get(pr, "source")) + ")", E_MATT);
+            String la = lokal ? lokAlt : Json.str(Json.get(pr, "target")), ln = lokal ? lokNeu : Json.str(Json.get(pr, "source"));
+            s.text(mx, ky, d.status.equals("A") ? "(neu)" : "vorher (" + la + ")", E_MATT);
+            s.text(mx + pw + cw, ky, d.status.equals("D") ? "(geloescht)" : "nachher (" + ln + ")", E_MATT);
             ky += lh;
         }
         int hy = ky + 2;

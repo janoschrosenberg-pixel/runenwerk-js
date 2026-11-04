@@ -96,7 +96,7 @@ final class Unterschied {
         return repo.relativize(p.toAbsolutePath().normalize()).toString().replace('\\', '/');
     }
 
-    /** Text im Editor gegen ref:alterPfad (git diff --no-index ueber zwei Zwischendateien) */
+    /** Text im Editor gegen ref:alterPfad (git diff --no-index ueber zwei Zwischendateien); nebeneinander oder als Text (diff.view) */
     void dateiGegen(Doc d, String ref, String alterPfad) {
         Path repo = Git.wurzel(d.pfad);
         if (repo == null) return;
@@ -112,18 +112,48 @@ final class Unterschied {
             } else {
                 text = diff(repo, alt.ausgabe(), jetzt, alterPfad, rel);
             }
+            Git.Lauf c = Git.inhalt(repo, "log", "-1", "--date=short", "--format=%h%x09%ad%x09%an%x09%s", ref, "--");
             SwingUtilities.invokeLater(() -> {
                 if (text == null) {
                     ed.fehler("git show " + ref + ":" + alterPfad + ": " + Werkzeug.letzteZeile(alt.ausgabe()));
                     return;
                 }
-                String kopf = "# " + rel + ": " + ref + (alterPfad.equals(rel) ? "" : ":" + alterPfad) + " -> Editor" + (ungespeichert ? " (ungespeichert)" : "")
-                        + "\n# ENTER springt in die Datei, ]c / [c naechster/voriger Abschnitt, q schliesst\n\n";
+                String titel = "diff " + Editor.name(d.pfad) + " " + ref;
+                String links = ref + (alterPfad.equals(rel) ? "" : ":" + alterPfad), rechts = "Editor" + (ungespeichert ? ", ungespeichert" : "");
                 if (text.isBlank()) {
                     ed.meldung = rel + " ist gleich wie in " + ref;
+                    // neu verglichen und nichts mehr anders: Ansicht zu
+                    if (ed.prAnsicht.lokal && ed.prAnsicht.aktiv) {
+                        ed.prAnsicht.aktiv = false;
+                        ed.modus = "normal";
+                    }
+                    ed.neuMalen.run();
                     return;
                 }
-                zeigen("diff " + Editor.name(d.pfad) + " " + ref, kopf + text, repo);
+                if (ed.kf.get("diff.view", "nebeneinander").equals("text")) {
+                    String kopf = "# " + rel + ": " + links + " -> " + rechts + "\n# ENTER springt in die Datei, ]c / [c naechster/voriger Abschnitt, q schliesst\n\n";
+                    zeigen(titel, kopf + text, repo);
+                } else {
+                    List<String> info = new ArrayList<>();
+                    info.add(rel);
+                    info.add("");
+                    info.add("VORHER:");
+                    String[] f = c.code() == 0 ? c.ausgabe().strip().split("\t", 4) : new String[0];
+                    info.add("  " + links + (f.length == 4 && !f[0].startsWith(ref) ? "   (" + f[0] + ")" : ""));
+                    if (f.length == 4) {
+                        info.add("  " + f[1] + "  " + f[2]);
+                        info.add("  " + f[3]);
+                    }
+                    info.add("");
+                    info.add("NACHHER:");
+                    info.add("  " + rechts + "   " + rel);
+                    info.add("");
+                    info.add("TAB: zur Datei   t: als Text   r: neu vergleichen (nach Aenderungen im Editor)");
+                    ed.prAnsicht.zeigenLokal(titel, links, rechts, info, text, repo, () -> {
+                        if (ed.tabs.contains(d)) dateiGegen(d, ref, alterPfad);
+                        else ed.meldung = Editor.name(d.pfad) + " ist nicht mehr offen";
+                    });
+                }
                 ed.meldung = rel + " gegen " + ref;
                 ed.neuMalen.run();
             });
