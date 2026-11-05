@@ -26,6 +26,11 @@ final class Lsp {
         void meldung(String text, boolean fehler);
 
         void bereit();
+
+        /** workspace/applyEdit des Servers (z. B. nach executeCommand); true = angewendet */
+        default boolean bearbeiten(Object edit) {
+            return false;
+        }
     }
 
     static final boolean WINDOWS = System.getProperty("os.name").toLowerCase().contains("win");
@@ -192,8 +197,10 @@ final class Lsp {
                         "references", Json.obj(),
                         "formatting", Json.obj(),
                         "rename", Json.obj("prepareSupport", false),
+                        "codeAction", Json.obj("codeActionLiteralSupport", Json.obj("codeActionKind", Json.obj("valueSet", List.of("", "quickfix", "refactor",
+                                "refactor.extract", "refactor.inline", "refactor.rewrite", "source", "source.organizeImports")))),
                         "publishDiagnostics", Json.obj("relatedInformation", false)),
-                "workspace", Json.obj("workspaceFolders", true, "configuration", true, "applyEdit", false),
+                "workspace", Json.obj("workspaceFolders", true, "configuration", true, "applyEdit", true, "workspaceEdit", Json.obj("documentChanges", true)),
                 "window", Json.obj("workDoneProgress", false));
         Map<String, Object> init = Json.obj(
                 "processId", ProcessHandle.current().pid(),
@@ -344,6 +351,8 @@ final class Lsp {
                     l.add(sektion == null ? einstellungen : Json.get(einstellungen, sektion.split("\\.")));
                 }
                 ergebnis = l;
+            } else if (methode.equals("workspace/applyEdit")) {
+                ergebnis = Json.obj("applied", hoerer.bearbeiten(Json.get(m, "params", "edit")));
             }
             senden(Json.obj("jsonrpc", "2.0", "id", id, "result", ergebnis), false);
             return;

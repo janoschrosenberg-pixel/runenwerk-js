@@ -264,6 +264,7 @@ public final class Main {
         };
         if (c >= KeyEvent.VK_F1 && c <= KeyEvent.VK_F12) n = "F" + (c - KeyEvent.VK_F1 + 1);
         if ("ENTER".equals(n) && strg(e)) n = "Ctrl-ENTER";
+        else if ("ENTER".equals(n) && e.isAltDown()) n = "Alt-ENTER";
         if (n != null && n.startsWith("F") && e.isShiftDown()) n = "Shift-" + n;
         if (n == null && strg(e)) {
             if (c >= KeyEvent.VK_A && c <= KeyEvent.VK_Z) n = "Ctrl-" + (char) ((e.isShiftDown() ? 'A' : 'a') + c - KeyEvent.VK_A);

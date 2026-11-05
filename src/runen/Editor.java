@@ -56,6 +56,7 @@ final class Editor {
     final Scm scm;
     /** Pull Request nebeneinander */
     final PrAnsicht prAnsicht;
+    final CodeAktion codeAktion = new CodeAktion(this);
     final Vim vim;
     final Werkzeug wz;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
@@ -161,6 +162,7 @@ final class Editor {
         unterschied.befehle(cmds);
         scm.befehle(cmds);
         prAnsicht.befehle(cmds);
+        codeAktion.befehle(cmds);
         tabs.add(new Doc());
     }
 
@@ -175,6 +177,12 @@ final class Editor {
                 if (fehler) fehler(text);
                 else print(text);
                 neuMalen.run();
+            }
+
+            public boolean bearbeiten(Object edit) {
+                int n = editAnwenden(edit);
+                neuMalen.run();
+                return n >= 0;
             }
 
             public void bereit() {
@@ -1842,6 +1850,16 @@ final class Editor {
         }
     }
 
+    /** Diagnosen wie vom Server (fuer textDocument/codeAction) */
+    private final Map<String, List<Object>> rohDiagnosen = new HashMap<>();
+
+    /** zaehlt jede neue Diagnosen-Meldung eines Servers (zum Warten auf frische Diagnosen) */
+    int diagnosenStand;
+
+    List<Object> rohDiagnosen(Doc d) {
+        return d.pfad == null ? List.of() : rohDiagnosen.getOrDefault(schluessel(d.pfad), List.of());
+    }
+
     private void diagnosenSetzen(String uri, List<Object> l) {
         Path p = ausUri(uri);
         if (p == null) return;
@@ -1854,6 +1872,8 @@ final class Editor {
         r.sort(Comparator.comparingInt(Doc.Diag::zeile).thenComparingInt(Doc.Diag::spalte));
         String k = schluessel(p);
         diagnosen.put(k, r);
+        rohDiagnosen.put(k, List.copyOf(l));
+        diagnosenStand++;
         for (Doc t : tabs) if (t.pfad != null && schluessel(t.pfad).equals(k)) t.diags = r;
     }
 
@@ -1880,12 +1900,12 @@ final class Editor {
         d.lspOffen = false;
     }
 
-    private Map<String, Object> position(Doc d) {
+    Map<String, Object> position(Doc d) {
         int z = d.zeileVon(d.cursor);
         return Json.obj("textDocument", Json.obj("uri", Lsp.uri(d.pfad)), "position", Json.obj("line", z, "character", d.cursor - d.anf(z)));
     }
 
-    private boolean lspBereit() {
+    boolean lspBereit() {
         Doc d = d();
         Lsp lsp = lspFuer(d);
         if (d.pfad == null || lsp == null) {
@@ -1900,7 +1920,7 @@ final class Editor {
         return true;
     }
 
-    private int offset(Doc d, Object pos) {
+    int offset(Doc d, Object pos) {
         return d.stelle(Json.num(Json.get(pos, "line"), 0), Json.num(Json.get(pos, "character"), 0));
     }
 
@@ -2129,7 +2149,40 @@ final class Editor {
     }
 
     /** TextEdits von hinten nach vorne anwenden */
-    private void anwenden(Doc d, List<Object> edits) {
+    private int editDateien;
+
+    /**
+     * WorkspaceEdit anwenden (changes und documentChanges); betroffene Dateien werden geoeffnet, der aktive Tab
+     * bleibt. Ergebnis: Zahl der Aenderungen (editDateien: Zahl der Dateien)
+     */
+    int editAnwenden(Object r) {
+        Map<String, List<Object>> je = new java.util.LinkedHashMap<>();
+        Object ch = Json.get(r, "changes");
+        if (ch instanceof Map<?, ?> m) {
+            for (var e : m.entrySet()) je.put((String) e.getKey(), Json.list(e.getValue()));
+        }
+        for (Object dc : Json.list(Json.get(r, "documentChanges"))) {
+            String u = Json.str(Json.get(dc, "textDocument", "uri"));
+            if (u != null) je.computeIfAbsent(u, k -> new ArrayList<>()).addAll(Json.list(Json.get(dc, "edits")));
+        }
+        int a = aktiv, stellen = 0;
+        for (var e : je.entrySet()) {
+            Path pf = ausUri(e.getKey());
+            Doc t = null;
+            if (pf != null) for (Doc x : tabs) if (pf.equals(x.pfad)) t = x;
+            if (t == null && pf != null) t = oeffnen(pf);
+            if (t == null) continue;
+            t.merken();
+            anwenden(t, e.getValue());
+            stellen += e.getValue().size();
+        }
+        aktiv = Math.max(0, Math.min(a, tabs.size() - 1));
+        editDateien = je.size();
+        lspSync();
+        return stellen;
+    }
+
+    void anwenden(Doc d, List<Object> edits) {
         List<int[]> b = new ArrayList<>();
         List<String> texte = new ArrayList<>();
         for (Object e : edits) {
@@ -2173,38 +2226,39 @@ final class Editor {
         }
     }
 
-    private void renameTo(String neu) {
+    void renameTo(String neu) {
+        renameTo(neu, null);
+    }
+
+    /** umbenennen; danach != null: diese Meldung statt "umbenannt: ..." (und bis zu zwei weitere Versuche, falls der Server noch rechnet) */
+    void renameTo(String neu, String danach) {
+        renameTo(neu, danach, danach == null ? 0 : 2);
+    }
+
+    private void renameTo(String neu, String danach, int nochmal) {
         if (neu.isBlank() || !lspBereit()) return;
         Doc d = d();
         Map<String, Object> p = position(d);
         p.put("newName", neu.trim());
         lspFuer(d()).anfrage("textDocument/rename", p, r -> {
+            if (r == null && nochmal > 0 && d() == d) {
+                int c = d.cursor;
+                Timer t = new Timer(1500, ev -> {
+                    if (d() != d) return;
+                    d.cursor = c;
+                    renameTo(neu, danach, nochmal - 1);
+                });
+                t.setRepeats(false);
+                t.start();
+                return;
+            }
             if (r == null) {
                 meldung = "nicht umbenannt";
                 neuMalen.run();
                 return;
             }
-            Map<String, List<Object>> je = new HashMap<>();
-            Object ch = Json.get(r, "changes");
-            if (ch instanceof Map<?, ?> m) {
-                for (var e : m.entrySet()) je.put((String) e.getKey(), Json.list(e.getValue()));
-            }
-            for (Object dc : Json.list(Json.get(r, "documentChanges"))) {
-                String u = Json.str(Json.get(dc, "textDocument", "uri"));
-                if (u != null) je.computeIfAbsent(u, k -> new ArrayList<>()).addAll(Json.list(Json.get(dc, "edits")));
-            }
-            int a = aktiv, stellen = 0;
-            for (var e : je.entrySet()) {
-                Path pf = ausUri(e.getKey());
-                Doc t = pf == null ? null : oeffnen(pf);
-                if (t == null) continue;
-                t.merken();
-                anwenden(t, e.getValue());
-                stellen += e.getValue().size();
-            }
-            aktiv = Math.min(a, tabs.size() - 1);
-            meldung = "umbenannt: " + stellen + " Stellen in " + je.size() + " Dateien (noch nicht gespeichert)";
-            lspSync();
+            int stellen = editAnwenden(r);
+            meldung = danach != null ? danach : "umbenannt: " + stellen + " Stellen in " + editDateien + " Dateien (noch nicht gespeichert)";
             neuMalen.run();
         });
     }

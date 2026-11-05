@@ -56,6 +56,15 @@ gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder 
 **Call Hierarchy**: `Leertaste c` (oder `gh`) zeigt alle Stellen, die die Methode/Funktion unter dem Cursor aufrufen,
 als Liste; tippen filtert, ENTER springt hin.
 
+**Methode extrahieren**: Codeblock markieren (`v` oder `V`), `Leertaste m`, Namen eintippen – der Block wird eine
+neue Methode (Java) bzw. Funktion (TypeScript), an seiner Stelle steht der Aufruf; Parameter und Rückgabewert
+bestimmt der Language Server. Bietet er mehrere Ziele an (TypeScript: Modul, innere Funktion, Methode der Klasse),
+wählt man aus einer Liste; leerer Name behält seinen Vorschlag.
+**Auto-Import**: `Leertaste i` importiert alles, was in der Datei fehlt (Fehler „cannot be resolved“ bzw. „Cannot
+find name“). Gibt es nur einen Kandidaten, wird er genommen; bei mehreren (z. B. `List`: `java.util`, `java.awt` …)
+wählt man aus einer Liste (Java: `java.util` oben, interne JDK-Pakete unten), „nicht importieren“ überspringt.
+**Alle Aktionen an der Stelle** (Quickfixes, Importe, Refactorings des Servers): `Alt+ENTER`, auch mit Auswahl.
+
 ## Debugger (Java und JS/TS, gleiche Bedienung)
 
 | Taste | |
@@ -361,6 +370,8 @@ c.put("scroll", this::rollen);
 | `:` | Terminal (`open`, `w`, `q`, `workdir`, `run npm test`, `help`, Zeilennummer …) |
 | gd / F12, Strg+O | Definition, zurück |
 | K, gr, F2, Leertaste f | Hover, Referenzen, Umbenennen, Formatieren |
+| v/V … Leertaste m | markierten Block in eine neue Methode auslagern |
+| Leertaste i, Alt+ENTER | fehlende Importe (Auswahl bei mehreren Kandidaten), alle Code Actions an der Stelle |
 | Strg+J / Strg+K | nächste / vorige Methode |
 | Leertaste b | Branch wechseln oder neuen erstellen |
 | Strg+L / Strg+H | nur die aktuelle Zeile wortweise nach rechts / links schieben; verlässt der Cursor die Zeile, steht sie wieder normal |
