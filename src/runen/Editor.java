@@ -460,13 +460,29 @@ final class Editor {
         if (km.vorsilbe(modus, f)) {
             folge = f;
             folgeBefehl = b;
-            folgeUhr.restart();
+            // Menue (keymap.config: menu ... { }): bleibt offen bis zu einem Befehl oder ESC
+            if (km.menu(modus, f) != null) folgeUhr.stop();
+            else folgeUhr.restart();
             return;
         }
         if (b != null) {
             folge = "";
             folgeUhr.stop();
             ausfuehrenMitZaehler(b);
+            return;
+        }
+        if (!folge.isEmpty() && km.menu(modus, folge) != null) {
+            if (name.equals("ESC")) {
+                folge = "";
+                folgeBefehl = null;
+            } else if (name.equals("BACKSPACE")) {
+                // eine Ebene hoeher (oder zu, wenn darueber kein Menue ist)
+                int l = folge.lastIndexOf(' ');
+                folge = l < 0 || km.menu(modus, folge.substring(0, l)) == null ? "" : folge.substring(0, l);
+                folgeBefehl = null;
+            } else {
+                meldung = name + " gibt es in diesem Menue nicht (ESC schliesst, BACKSPACE zurueck)";
+            }
             return;
         }
         if (!folge.isEmpty()) {
@@ -2585,6 +2601,11 @@ final class Editor {
         int my = sy + (unten() - lh) / 2;
         scr.rect(0, sy, mw, unten(), mf);
         scr.text(0, my, m, E_GRUND);
+        // offenes Menue (SPACE g ...): alle Tasten mit ihrer Funktion, passt es nicht, Zeilen darueber
+        if (!folge.isEmpty() && km.menu(modus, folge) != null) {
+            menuMalen(mw + cw, sy, my);
+            return;
+        }
         // Ansichten mit eigenen Tasten: statt Pfad und Position alle Tasten mit ihrer Funktion
         String[][] tasten = prAnsicht.sichtbar() ? prAnsicht.tastenJetzt() : modus.equals("pullrequests") ? Scm.TASTEN : null;
         if (tasten != null) {
@@ -2651,6 +2672,71 @@ final class Editor {
     }
 
     /** Statuszeile: Taste hell, Funktion daneben; rechts die letzte Meldung */
+    /** Titel des offenen Menues mit den Titeln darueber ("Git > Branch") */
+    private String menuTitel() {
+        StringBuilder t = new StringBuilder();
+        String[] teile = folge.split(" ");
+        String f = "";
+        for (String x : teile) {
+            f = f.isEmpty() ? x : f + " " + x;
+            Keymap.Menu m = km.menu(modus, f);
+            if (m != null) t.append(t.length() > 0 ? " > " : "").append(m.titel.isEmpty() ? f : m.titel);
+        }
+        return t.toString();
+    }
+
+    /**
+     * Menue in der Statuszeile: Titel, dann Taste und Text; was nicht in die Zeile passt, steht in Zeilen
+     * darueber (unterste zuerst gefuellt). Rechts ESC und BACKSPACE.
+     */
+    private void menuMalen(int x0, int sy, int my) {
+        int W = scr.w, cw = scr.cw, lh = scr.lh;
+        List<String[]> e = km.menuEintraege(modus, folge);
+        String titel = menuTitel();
+        int x = scr.text(x0, my, titel, E_HELL) + 2 * cw;
+        String hilfe = folge.contains(" ") && km.menu(modus, folge.substring(0, folge.lastIndexOf(' '))) != null ? "ESC zu  BACKSPACE zurueck" : "ESC zu";
+        int rechts = W - scr.textWidth(hilfe) - cw;
+        scr.text(rechts, my, hilfe, E_MATT);
+        if (meldung != null) {
+            int mb = scr.textWidth(meldung);
+            if (rechts - mb - 2 * cw > x + 20 * cw) {
+                rechts -= mb + 2 * cw;
+                scr.text(rechts, my, meldung, meldungFarbe);
+            }
+        }
+        // Zeilen bilden: erste in der Statuszeile ab x, weitere ueber volle Breite
+        List<List<String[]>> zeilen = new ArrayList<>();
+        List<String[]> z = new ArrayList<>();
+        int frei = rechts - x - cw, start = x;
+        for (String[] t : e) {
+            int b = scr.textWidth(" " + t[0] + " ") + cw / 2 + scr.textWidth(t[1]) + 2 * cw;
+            if (!z.isEmpty() && b > frei) {
+                zeilen.add(z);
+                z = new ArrayList<>();
+                frei = W - 2 * cw;
+            }
+            z.add(t);
+            frei -= b;
+        }
+        if (!z.isEmpty()) zeilen.add(z);
+        int hz = unten();
+        for (int i = 0; i < zeilen.size(); i++) {
+            int yy = i == 0 ? my : sy - i * hz + (hz - lh) / 2;
+            int xx = i == 0 ? start : cw;
+            if (i > 0) {
+                scr.rect(0, sy - i * hz, W, hz, E_LEISTE);
+                scr.rect(0, sy - i * hz, W, 1, E_MATT);
+            }
+            for (String[] t : zeilen.get(i)) {
+                int kw = scr.textWidth(" " + t[0] + " ");
+                boolean menue = t[2].equals("menu");
+                scr.rect(xx, yy, kw, lh, menue ? 0x1E3A5A : 0x14401F);
+                scr.text(xx, yy, " " + t[0] + " ", E_HELL);
+                xx = scr.text(xx + kw + cw / 2, yy, t[1], menue ? E_INFO : E_TEXT) + 2 * cw;
+            }
+        }
+    }
+
     private void tastenMalen(String[][] tasten, int x0, int sy, int my) {
         int W = scr.w, cw = scr.cw;
         int rechts = W;

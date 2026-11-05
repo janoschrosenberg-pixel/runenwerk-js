@@ -19,6 +19,18 @@ Beim ersten Start legt der Editor neben `runenjs.jar` an (ist der Ordner nicht b
   Datenbank-Treiber und -Konten, Schrift, F9/F10. Jede Einstellung ist dort kommentiert; `:reload` liest sie neu.
 - `keymap.config` – Tastenbelegung. Die Vorgabe steckt in der Jar, diese Datei ergänzt und überschreibt sie
   (neue Tasten aus einer neuen Jar kommen so automatisch dazu).
+  Menüs mit Untermenüs (in der Statuszeile, bleiben offen bis zu einem Befehl oder ESC):
+  ```
+  mode normal {
+    menu SPACE g = Git {
+      s = gitStatus        # Status          (Text hinter # steht im Menü)
+      menu b = Branch {                     (Untermenü: SPACE g b ...)
+        t = gitBranch ts   # TypeScript
+      }
+    }
+  }
+  ```
+  Eine einfache Belegung auf einer Menü-Folge (z. B. `SPACE g b = …` aus einer alten Kopie) gilt nicht; der Editor meldet sie.
 - `mapping/*.map` – eigene Befehle als Folge von Editor-Befehlen.
 - `start.log`, `jdtls-daten/`, `jdtls-config/` – Log und Arbeitsdaten des Java Language Servers.
 
@@ -156,20 +168,21 @@ dem `$ref` der Zeile, `gr` auf dem Namen eines Schemas listet seine Verwendungen
 
 ## Git
 
-Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten für das Repo der aktuellen Datei:
+Oben rechts stehen Repo und Branch beider Arbeitsbereiche. Alle Befehle gelten für das Repo der aktuellen Datei `Leertaste g` öffnet das Git-Menü in der Statuszeile (Taste → Funktion); es bleibt offen, bis ein Befehl
+läuft oder ESC kommt, BACKSPACE geht aus einem Untermenü (`b` Branch, `r` Pull Requests) eine Ebene höher:
 
 | Taste | |
 |---|---|
-| Leertaste g b (oder b) | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; ein neuer Name bietet „+ neuen Branch erstellen“ an (`git switch -c`); `g t` / `g j` für TS- bzw. Java-Repo |
+| Leertaste b (oder g b b) | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; ein neuer Name bietet „+ neuen Branch erstellen“ an (`git switch -c`); `g b t` / `g b j` für TS- bzw. Java-Repo |
 | Leertaste g p / g P | pull / push (push legt bei neuen Branches den Upstream an) |
 | Leertaste g c | commit: Fenster für die Nachricht; ist nichts vorgemerkt, wird alles committet |
 | Leertaste g d | Datei mit einem Commit vergleichen: Liste aus dem Verlauf der Datei (auch über Umbenennungen), tippen filtert, Branch/Tag/Commit eintippen geht auch; verglichen wird der Text im Editor, auch ungespeichert |
 | Leertaste g D | Datei mit HEAD vergleichen |
-| Leertaste g r / g n | Pull Requests im SCM-Manager: Liste bzw. neuer Pull Request (siehe unten) |
+| Leertaste g r r / g r n | Pull Requests im SCM-Manager: Liste bzw. neuer Pull Request (siehe unten) |
 | Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `d` Diff gegen HEAD, `s` vormerken, `u` zurücknehmen, `x` verwerfen (gestaged und nicht gestaged, mit Rückfrage; neue Dateien werden gelöscht), `c` commit, `m` merge, ESC schließt |
 | Leertaste g R | reset --hard (nur nach Eintippen von `ja`) |
 | Leertaste g m | Merge-Editor für Konflikte |
-| Leertaste g B (oder g a) | git blame an/aus: links neben den Zeilennummern Commit, Autor und Datum, unten die Commit-Nachricht der aktuellen Zeile; neue Zeilen erscheinen als „nicht committet“ |
+| Leertaste g B | git blame an/aus: links neben den Zeilennummern Commit, Autor und Datum, unten die Commit-Nachricht der aktuellen Zeile; neue Zeilen erscheinen als „nicht committet“ |
 
 **Merge-Editor** nach dem Vorbild von Emacs Ediff: oben **A** (deine Seite) und **B** (ihre Seite), unten **C**, das
 Ergebnis (die Datei). `n`/`p` nächster/voriger Konflikt, TAB nächster offener, `a`/`b` A bzw. B übernehmen, `+` beide
@@ -190,12 +203,12 @@ SCM-Manager). Das Repo ist das der aktuellen Datei (Java- oder TypeScript-Projek
 wird mit Basic (Benutzer aus dem Schlüssel bzw. `scm.user`, Schlüssel als Passwort); `scm.auth = bearer` schickt ihn als
 Bearer-Token.
 
-- **Leertaste g n** – neuer Pull Request: Quell-Branch (der aktuelle ist vorgewählt, wenn er gepusht ist; sonst steht
+- **Leertaste g r n** – neuer Pull Request: Quell-Branch (der aktuelle ist vorgewählt, wenn er gepusht ist; sonst steht
   es dabei), Ziel-Branch (der Standard-Branch vorgewählt), Titel (Vorschlag: letzter Commit), Beschreibung, dann Reviewer
   nacheinander aus der Liste aller Benutzer (nach Namen sortiert, tippen filtert), „fertig“ erstellt ihn. Die Liste
   kommt aus der Benutzerverwaltung des SCM-Managers; fehlt dafür das Recht, sammelt der Editor die Benutzer aus der
   Vervollständigung und aus Autoren und Reviewern der Pull Requests im Repo – tippen sucht dann weitere.
-- **Leertaste g r** – alle Pull Requests unten wie git status: `#`, Status, Quelle -> Ziel, Titel, Autor, Freigaben,
+- **Leertaste g r r** – alle Pull Requests unten wie git status: `#`, Status, Quelle -> Ziel, Titel, Autor, Freigaben,
   offene Aufgaben. `j`/`k`, `s` Filter (offen, meine, zum Review, alle), `g` neu laden, `a` freigeben, `x` Freigabe
   zurücknehmen, `m` mergen, `R` ablehnen, `e` Reviewer, `n` neu, `w` im Browser, TAB in den Text (Liste bleibt), ESC schließt.
 - **ENTER** öffnet den Pull Request **nebeneinander**: links die Dateien (Status A/M/D/R, `+`/`-`, Zahl der Kommentare),
@@ -205,7 +218,7 @@ Bearer-Token.
   Zeilen brechen um (`..` am Rand, `w` schaltet ab). Kommentare zu einer Zeile – auch die Befunde, die **Teamscale** als
   Zeilenkommentare schreibt – stehen als Kasten direkt darunter; **ENTER auf einem Kommentar springt an seine Codestelle**
   (bei Kommentaren ohne Zeilenbezug an eine im Text genannte, etwa `src/X.java:42`), ENTER auf einer Codezeile öffnet die
-  Datei dort. `Leertaste g r`, ENTER kommt an dieselbe Stelle zurück.
+  Datei dort. `Leertaste g r r`, ENTER kommt an dieselbe Stelle zurück.
 
   Alle Tasten stehen **unten in der Statuszeile** (bei wenig Platz kürzer, die wichtigsten zuerst):
 

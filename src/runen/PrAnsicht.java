@@ -560,7 +560,7 @@ final class PrAnsicht {
     }
 
     private void nurPr(Runnable r) {
-        if (lokal) ed.meldung = "nur im Pull Request (Leertaste g r)";
+        if (lokal) ed.meldung = "nur im Pull Request (Leertaste g r r)";
         else r.run();
     }
 
@@ -620,12 +620,12 @@ final class PrAnsicht {
         ed.meldung = "kein " + was;
     }
 
-    /** an eine Codestelle: die Ansicht schliesst (Leertaste g r, ENTER kommt an dieselbe Stelle zurueck) */
+    /** an eine Codestelle: die Ansicht schliesst (Leertaste g r r, ENTER kommt an dieselbe Stelle zurueck) */
     private void stelle(String pfad, int nr) {
         aktiv = false;
         ed.modus = "normal";
         ed.unterschied.stelleOeffnen(lokal ? lokWurzel : ziel.repo(), pfad, nr);
-        ed.meldung = (ed.meldung == null ? "" : ed.meldung + "   ") + (lokal ? "(Leertaste g d: wieder vergleichen)" : "(Leertaste g r, ENTER: zurueck zum Pull Request)");
+        ed.meldung = (ed.meldung == null ? "" : ed.meldung + "   ") + (lokal ? "(Leertaste g d: wieder vergleichen)" : "(Leertaste g r r, ENTER: zurueck zum Pull Request)");
     }
 
     private void oeffnen() {

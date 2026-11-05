@@ -19,7 +19,17 @@ import java.util.Set;
  *   set start normal              # Mode beim Start (Standard: normal)
  *   layout custom extends de_DE { z = y ... }
  *   mode normal extends base { dd = deleteLine  Ctrl-s = save  ANY = insertChar }
+ *   mode normal {
+ *     menu SPACE g = Git {                 # SPACE g zeigt das Menue in der Statuszeile
+ *       s = gitStatus        # Status      # Text hinter # steht im Menue
+ *       menu b = Branch {                  # Untermenue: SPACE g b ...
+ *         t = gitBranch ts   # TypeScript
+ *       }
+ *     }
+ *   }
  * </pre>
+ *
+ * Ein Menue bleibt offen, bis ein Befehl laeuft oder ESC kommt (BACKSPACE: eine Ebene hoeher).
  */
 final class Keymap {
     static final class Mode {
@@ -30,6 +40,15 @@ final class Keymap {
         final Map<String, String[]> zeigen = new java.util.LinkedHashMap<>();
         /** Kommentar ueber "mode NAME {" */
         String text = "";
+        /** Menues: Folge (z. B. "SPACE g") -> Menue */
+        final Map<String, Menu> menus = new HashMap<>();
+    }
+
+    /** Menue einer Tastenfolge: Titel, Tasten in der Reihenfolge der Datei, Texte */
+    static final class Menu {
+        String titel = "";
+        final List<String> reihe = new ArrayList<>();
+        final Map<String, String> namen = new HashMap<>();
     }
 
     static final class Layout {
@@ -138,6 +157,8 @@ final class Keymap {
 
     private void zeilenLesen(List<String> zeilen, String datei) {
         String modus = null, lay = null;
+        // offene Menues im Mode (innerstes zuletzt): ihre Folgen
+        List<String> menuPfad = new ArrayList<>();
         int nr = 0;
         StringBuilder kommentar = new StringBuilder();
         for (String roh : zeilen) {
@@ -150,6 +171,10 @@ final class Keymap {
             }
             // "# = ..." belegt die Taste #, sonst ist # ein Kommentar
             if (z.isEmpty() || (z.startsWith("#") && !z.startsWith("# = ")) || z.startsWith("//")) continue;
+            if (z.equals("}") && !menuPfad.isEmpty()) {
+                menuPfad.remove(menuPfad.size() - 1);
+                continue;
+            }
             if (z.equals("}")) {
                 kommentar.setLength(0);
                 if (modus == null && lay == null) fehler.add(datei + ":" + nr + ": } ohne Block");
@@ -200,8 +225,36 @@ final class Keymap {
                 layouts.get(lay).map.put(zeichenVon(links), zeichenVon(rechts));
                 continue;
             }
-            String f = folge(links);
             Mode md = modes.get(modus);
+            String vor = menuPfad.isEmpty() ? "" : menuPfad.get(menuPfad.size() - 1) + " ";
+            if (w0.equals("menu") && rechts.endsWith("{")) {
+                // menu TASTEN = Titel {
+                String mf = vor + folge(links.substring(4).trim());
+                Menu m = md.menus.computeIfAbsent(mf, k -> new Menu());
+                m.titel = rechts.substring(0, rechts.length() - 1).trim();
+                // eine einfache Belegung derselben Folge wuerde das Menue verdecken
+                if (md.bind.remove(mf) != null) md.zeigen.remove(mf);
+                for (int p = 0; p < mf.length(); p++) if (mf.charAt(p) == ' ') md.pre.add(mf.substring(0, p));
+                md.pre.add(mf);
+                if (!menuPfad.isEmpty()) eintragen(md.menus.get(menuPfad.get(menuPfad.size() - 1)), folge(links.substring(4).trim()), null);
+                menuPfad.add(mf);
+                continue;
+            }
+            String name = null;
+            if (!menuPfad.isEmpty()) {
+                // Text fuer das Menue hinter " # "
+                int h = rechts.indexOf(" # ");
+                if (h >= 0) {
+                    name = rechts.substring(h + 3).trim();
+                    rechts = rechts.substring(0, h).trim();
+                }
+                eintragen(md.menus.get(menuPfad.get(menuPfad.size() - 1)), folge(links), name);
+            }
+            String f = vor + folge(links);
+            if (md.menus.containsKey(f)) {
+                fehler.add(datei + ":" + nr + ": " + f + " ist ein Menue - " + links + " = " + rechts + " gilt nicht (Zeile loeschen oder eine andere Taste nehmen)");
+                continue;
+            }
             // gleiche Belegung wie die Vorgabe: Quelle bleibt die Vorgabe (keymap.config ist anfangs eine Kopie)
             String[] alt = md.zeigen.get(f);
             if (alt == null || !alt[0].equals(rechts)) {
@@ -211,6 +264,53 @@ final class Keymap {
             ziffernBelegen(md, f, rechts);
         }
         if (modus != null || lay != null) fehler.add(datei + ":" + nr + ": } fehlt am Ende");
+    }
+
+    private static void eintragen(Menu m, String taste, String name) {
+        if (!m.reihe.contains(taste)) m.reihe.add(taste);
+        if (name != null) m.namen.put(taste, name);
+    }
+
+    /** Menue der Folge im Mode (mit seinen Eltern) oder null */
+    Menu menu(String mode, String folge) {
+        for (int tiefe = 0; !mode.isEmpty() && tiefe < 32; tiefe++) {
+            Mode m = modes.get(mode);
+            if (m == null) return null;
+            Menu r = m.menus.get(folge);
+            if (r != null) return r;
+            mode = m.eltern;
+        }
+        return null;
+    }
+
+    /**
+     * Eintraege eines Menues: {Taste, Text, "menu" oder "befehl"}; erst die Tasten aus dem Menue-Block, dann
+     * andere Belegungen mit derselben Vorsilbe (alphabetisch)
+     */
+    List<String[]> menuEintraege(String mode, String folge) {
+        Menu m = menu(mode, folge);
+        List<String> tasten = new ArrayList<>(m == null ? List.of() : m.reihe);
+        List<String> weitere = new ArrayList<>();
+        String vor = folge + " ";
+        for (String md = mode; !md.isEmpty() && modes.containsKey(md); md = modes.get(md).eltern) {
+            Mode x = modes.get(md);
+            for (String k : x.bind.keySet()) if (k.startsWith(vor)) weitere.add(k.substring(vor.length()).split(" ")[0]);
+            for (String k : x.pre) if (k.startsWith(vor)) weitere.add(k.substring(vor.length()).split(" ")[0]);
+            if (weitere.size() > 500) break;
+        }
+        weitere.sort(String::compareTo);
+        for (String t : weitere) if (!tasten.contains(t)) tasten.add(t);
+        List<String[]> r = new ArrayList<>();
+        for (String t : tasten) {
+            String n = vor + t;
+            Menu u = menu(mode, n);
+            String b = befehl(mode, n);
+            String text = m == null ? null : m.namen.get(t);
+            if (u != null) r.add(new String[] {t, (text != null ? text : u.titel) + " \u00bb", "menu"});
+            else if (b == null && vorsilbe(mode, n)) r.add(new String[] {t, (text != null ? text : "...") + " \u00bb", "menu"});
+            else if (b != null) r.add(new String[] {t, text != null ? text : b, "befehl"});
+        }
+        return r;
     }
 
     /** DIGIT steht fuer 0-9; jede Ziffer kommt der Reihe nach als Argument zum Befehl (auch mehrere DIGIT) */

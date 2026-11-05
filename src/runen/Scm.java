@@ -373,7 +373,7 @@ final class Scm {
         s.frame(4, y0, W - 8, h, fokus ? E_HELL : E_TEXT);
         s.frame(5, y0 + 1, W - 10, h - 2, E_MATT);
         String titel = " PULL REQUESTS " + (ziel == null ? "" : ziel.ns() + "/" + ziel.name()) + " (" + filterName() + ")"
-                + (fokus ? "  (Tasten unten in der Statuszeile) " : "  (Leertaste g r) ");
+                + (fokus ? "  (Tasten unten in der Statuszeile) " : "  (Leertaste g r r) ");
         s.rect(3 * cw, y0 - lh / 2, s.textWidth(titel), lh, E_KONSOLE);
         s.text(3 * cw, y0 - lh / 2, titel, E_HELL);
         int n = Math.max(1, (h - lh - 8) / lh);
@@ -400,7 +400,7 @@ final class Scm {
     }
 
     // ================================================================ Erstellen
-    /** Leertaste g n: Quell-Branch (aktueller vorgewaehlt, wenn gepusht), Ziel, Titel, Beschreibung, Reviewer */
+    /** Leertaste g r n: Quell-Branch (aktueller vorgewaehlt, wenn gepusht), Ziel, Titel, Beschreibung, Reviewer */
     void erstellen() {
         if (!eingerichtet()) return;
         Ziel z = zielFinden();
@@ -840,7 +840,7 @@ final class Scm {
             String lokal = Git.branch(repo);
             String fehler = null;
             if (!quelle.equals(lokal)) {
-                fehler = "lokal ist " + lokal + " ausgecheckt, der Pull Request kommt aus " + quelle + " - erst auf " + quelle + " wechseln (Leertaste g b)";
+                fehler = "lokal ist " + lokal + " ausgecheckt, der Pull Request kommt aus " + quelle + " - erst auf " + quelle + " wechseln (Leertaste b)";
             } else if (Git.git(repo, "rev-parse", "--verify", "-q", rq).code() != 0) {
                 fehler = rq + " gibt es nicht (git fetch fehlgeschlagen?)";
             } else {
