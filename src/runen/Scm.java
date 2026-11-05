@@ -812,6 +812,136 @@ final class Scm {
         });
     }
 
+    /**
+     * Eine Datei des Pull Requests zuruecknehmen: nur wenn der lokale Branch der Quell-Branch ist und die Datei
+     * dort (Commit und Arbeitsverzeichnis) denselben Stand hat wie im Pull Request. Dann kommt die Datei aus dem
+     * Ziel-Branch (gibt es sie dort nicht, wird sie entfernt; bei Umbenennungen beide Pfade) und wird committet.
+     */
+    void dateiZuruecksetzen(Object pr, Ziel z, String alt, String neu, Runnable danach) {
+        if (pr == null || z == null) return;
+        String quelle = Json.str(Json.get(pr, "source")), zielBranch = Json.str(Json.get(pr, "target"));
+        List<String> pfade = new ArrayList<>();
+        for (String x : new String[] {alt, neu}) if (x != null && !x.equals("/dev/null") && !pfade.contains(x)) pfade.add(x);
+        if (pfade.isEmpty() || quelle == null || zielBranch == null) return;
+        String name = String.join(" / ", pfade);
+        for (Doc t : ed.tabs) {
+            for (String x : pfade) {
+                if (t.pfad != null && t.geaendert && t.pfad.equals(z.repo().resolve(x).normalize())) {
+                    ed.fehler(x + " ist im Editor geaendert und nicht gespeichert - erst speichern oder verwerfen");
+                    return;
+                }
+            }
+        }
+        ed.meldung = "pruefe " + name + " ...";
+        hintergrund(() -> {
+            Path repo = z.repo();
+            Git.git(repo, "fetch", "--quiet", z.remote());
+            String rq = z.remote() + "/" + quelle, rz = z.remote() + "/" + zielBranch;
+            String lokal = Git.branch(repo);
+            String fehler = null;
+            if (!quelle.equals(lokal)) {
+                fehler = "lokal ist " + lokal + " ausgecheckt, der Pull Request kommt aus " + quelle + " - erst auf " + quelle + " wechseln (Leertaste g b)";
+            } else if (Git.git(repo, "rev-parse", "--verify", "-q", rq).code() != 0) {
+                fehler = rq + " gibt es nicht (git fetch fehlgeschlagen?)";
+            } else {
+                List<String> sa = new ArrayList<>(List.of("status", "--porcelain", "--"));
+                sa.addAll(pfade);
+                Git.Lauf st = Git.git(repo, sa.toArray(new String[0]));
+                if (!st.ausgabe().isBlank()) fehler = name + " hat nicht committete Aenderungen:\n" + st.ausgabe().strip();
+                for (String x : pfade) {
+                    if (fehler != null) break;
+                    String h = blob(repo, "HEAD", x), q = blob(repo, rq, x);
+                    if (!h.equals(q)) fehler = x + " ist lokal anders als im Pull Request (" + (h.isEmpty() ? "lokal nicht da" : q.isEmpty() ? "im Pull Request nicht da" : "anderer Inhalt")
+                            + ") - erst pull/push, damit beide gleich sind";
+                }
+            }
+            String f = fehler;
+            List<String> plan = new ArrayList<>();
+            if (f == null) {
+                for (String x : pfade) {
+                    String zb = blob(repo, rz, x), hb = blob(repo, "HEAD", x);
+                    if (zb.equals(hb)) continue;
+                    boolean imZiel = !zb.isEmpty(), lokalDa = !hb.isEmpty();
+                    if (imZiel) plan.add("ersetzen:" + x);
+                    else if (lokalDa) plan.add("loeschen:" + x);
+                }
+            }
+            ui(() -> {
+                if (f != null) {
+                    ed.fehler("Datei zuruecksetzen: " + f);
+                    return;
+                }
+                if (plan.isEmpty()) {
+                    ed.meldung = name + ": nichts zu tun, schon wie in " + zielBranch;
+                    return;
+                }
+                ed.meldung = null;
+                List<String> was = new ArrayList<>();
+                for (String x : plan) was.add((x.startsWith("ersetzen:") ? "wie in " + zielBranch + ": " : "loeschen: ") + x.substring(x.indexOf(':') + 1));
+                frage(String.join(", ", was) + " - dann commit auf " + quelle + ". Commit-Nachricht (leer = abbrechen):",
+                        "Aenderungen an " + Editor.name(Path.of(pfade.get(pfade.size() - 1))) + " zurueckgenommen (Stand von " + zielBranch + ")", nachricht -> {
+                            if (nachricht.isBlank()) {
+                                ed.meldung = "zuruecksetzen abgebrochen";
+                                return;
+                            }
+                            zuruecksetzenAusfuehren(z, rz, plan, pfade, nachricht.strip(), danach);
+                        });
+            });
+        });
+    }
+
+    private void zuruecksetzenAusfuehren(Ziel z, String rz, List<String> plan, List<String> pfade, String nachricht, Runnable danach) {
+        Path repo = z.repo();
+        ed.meldung = "setze zurueck ...";
+        hintergrund(() -> {
+            String fehler = null;
+            for (String x : plan) {
+                String p = x.substring(x.indexOf(':') + 1);
+                Git.Lauf l = x.startsWith("ersetzen:") ? Git.git(repo, "checkout", rz, "--", p) : Git.git(repo, "rm", "-q", "--", p);
+                if (l.code() != 0) {
+                    fehler = Werkzeug.letzteZeile(l.ausgabe());
+                    break;
+                }
+            }
+            String[] commit = new String[pfade.size() + 5];
+            commit[0] = "commit";
+            commit[1] = "-q";
+            commit[2] = "-m";
+            commit[3] = nachricht;
+            commit[4] = "--";
+            for (int i = 0; i < pfade.size(); i++) commit[5 + i] = pfade.get(i);
+            if (fehler == null) {
+                Git.Lauf c = Git.git(repo, commit);
+                if (c.code() != 0) fehler = Werkzeug.letzteZeile(c.ausgabe());
+            }
+            if (fehler != null) {
+                // nichts halb stehen lassen: Index und Dateien zurueck auf HEAD
+                List<String> args = new ArrayList<>(List.of("restore", "--source=HEAD", "--staged", "--worktree", "--"));
+                for (String p : pfade) if (!blob(repo, "HEAD", p).isEmpty()) args.add(p);
+                if (args.size() > 5) Git.git(repo, args.toArray(new String[0]));
+            }
+            String hash = Git.git(repo, "rev-parse", "--short", "HEAD").ausgabe().strip();
+            String f = fehler;
+            ui(() -> {
+                ed.wz.neuLaden(repo);
+                ed.index.neuEinlesen();
+                if (f != null) {
+                    ed.fehler("Datei zuruecksetzen fehlgeschlagen (nichts geaendert): " + f);
+                    return;
+                }
+                ed.print("SCM-Manager: " + hash + " " + nachricht);
+                ed.meldung = hash + " committet: " + String.join(", ", pfade) + " - noch nicht gepusht (Leertaste g P), erst danach im Pull Request";
+                if (danach != null) danach.run();
+            });
+        });
+    }
+
+    /** Blob-Hash von ref:pfad, leer wenn es die Datei dort nicht gibt */
+    private static String blob(Path repo, String ref, String pfad) {
+        Git.Lauf l = Git.git(repo, "rev-parse", "--verify", "-q", ref + ":" + pfad);
+        return l.code() == 0 ? l.ausgabe().strip() : "";
+    }
+
     private static final String UEBERNEHMEN = "-> uebernehmen";
 
     /** Reviewer an- und abwaehlen (tippen sucht weitere), dann den Pull Request aktualisieren */

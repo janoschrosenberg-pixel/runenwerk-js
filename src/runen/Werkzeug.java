@@ -559,7 +559,7 @@ final class Werkzeug {
     }
 
     /** offene, ungeaenderte Texte im Repo von der Platte neu lesen (nach einem Branchwechsel) */
-    private void neuLaden(Path repo) {
+    void neuLaden(Path repo) {
         for (Doc t : ed.tabs) {
             if (t.pfad == null || !t.pfad.startsWith(repo) || t.geaendert) continue;
             if (!Files.exists(t.pfad)) {

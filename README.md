@@ -217,6 +217,7 @@ Bearer-Token.
   | `c` | Kommentar schreiben: auf einer Codezeile zu dieser Zeile, sonst zum Pull Request (`\n` = neue Zeile) |
   | `C` | auf den Kommentar unter dem Cursor antworten |
   | `e` | Reviewer ändern: Liste aller Benutzer, ENTER wählt an/ab, tippen filtert/sucht, „übernehmen“ speichert |
+  | `u` | Datei zurücksetzen: die gewählte Datei bekommt den Stand des Ziel-Branchs (gibt es sie dort nicht, wird sie gelöscht) und wird auf dem lokalen Quell-Branch committet – nur wenn der Quell-Branch ausgecheckt ist und die Datei lokal denselben Stand hat wie im Pull Request; danach Leertaste g P zum Pushen |
   | `j`/`k`, `Strg+D`/`Strg+U`, `gg`/`G` | bewegen |
   | `TAB` / `Shift+TAB`, `0` | nächste/vorige Datei, Übersicht |
   | `n` / `p` | nächste/vorige Änderung (auch über Dateien) |

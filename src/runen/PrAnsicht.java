@@ -476,8 +476,8 @@ final class PrAnsicht {
 
     // ================================================================ Tasten
     /** Tasten fuer die Statuszeile: Taste, Funktion, kurz; wichtigste zuerst (fehlt Platz, fallen die letzten weg) */
-    static final String[][] TASTEN = {{"a", "Freigeben", "Freigabe"}, {"x", "Freigabe zurueck", "Zurueck"}, {"m", "Mergen", "Merge"}, {"R", "Ablehnen", "Ablehnen"},
-            {"c", "Kommentar", "Komm."}, {"C", "Antworten", "Antw."}, {"e", "Reviewer", "Rev."}, {"ENTER", "zur Codestelle", "Code"}, {"TAB", "naechste Datei", "Datei"},
+    static final String[][] TASTEN = {{"a", "Freigeben", "Freigabe"}, {"x", "Freigabe zurueck", "Freig. weg"}, {"m", "Mergen", "Merge"}, {"R", "Ablehnen", "Ablehnen"},
+            {"c", "Kommentar", "Komm."}, {"C", "Antworten", "Antw."}, {"e", "Reviewer", "Rev."}, {"u", "Datei zuruecksetzen", "Revert"}, {"ENTER", "zur Codestelle", "Code"}, {"TAB", "naechste Datei", "Datei"},
             {"n/p", "Aenderung", "Aend."}, {"]k/[k", "Kommentar", "Komm."}, {"q", "Liste", "Liste"}, {"w", "Umbruch", "Umbr."}, {"r", "neu laden", "neu"},
             {"o", "Browser", "Web"}};
 
@@ -536,6 +536,15 @@ final class PrAnsicht {
             aktiv = false;
             ed.unterschied.zeigen(lokTitel, "# " + lokAlt + "  ->  " + lokNeu + "\n# ENTER springt in die Datei, ]c / [c naechster/voriger Abschnitt\n\n" + lokDiff, lokWurzel);
         });
+        /** @binding Pull Request: die gewaehlte Datei auf den Stand des Ziel-Branchs zuruecksetzen und committen (lokaler Quell-Branch) */
+        c.put("prRevertFile", a -> nurPr(() -> {
+            if (wahl == 0) {
+                ed.meldung = "u: erst eine Datei waehlen (TAB)";
+                return;
+            }
+            Datei d = datei();
+            ed.scm.dateiZuruecksetzen(pr, ziel, d.alt, d.neu, null);
+        }));
         /** @binding Pull Request: neu laden */
         c.put("prRefresh", a -> neuLaden());
         /** @binding Pull Request: im Browser oeffnen */
@@ -977,6 +986,11 @@ final class PrAnsicht {
             }
         }
         return r;
+    }
+
+    /** Pfad der gewaehlten Datei (null in der Uebersicht) */
+    String dateiPfad() {
+        return wahl == 0 || dateien.isEmpty() ? null : datei().pfad();
     }
 
     String gewaehltText() {
