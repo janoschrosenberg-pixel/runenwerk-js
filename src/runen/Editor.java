@@ -33,7 +33,15 @@ final class Editor {
     static final int E_GRUND = 0x020702, E_RASTER = 0x061006, E_LEISTE = 0x0A2412, E_TEXT = 0x33E070, E_HELL = 0x8CFFB0, E_MATT = 0x1D7A3D,
             E_FEHLER = 0xFF3B5C, E_WARN = 0xFFB000, E_ZEILE = 0x071A0C, E_KONSOLE = 0x010401, E_INFO = 0x7FD4FF;
     /** je Klasse aus {@link Highlight} */
-    static final int[] FARBEN = {0x33E070, 0x5CFFE6, 0xFF9F43, 0x1D7A3D, 0xE8FF5C, 0x7FD4FF, 0x5CFFE6, 0x8CFFB0, 0x2FB85A, 0xE8FF5C, 0xFFB000, 0xFF5C7A, 0xB8FF5C};
+    /**
+     * Farben der Hervorhebung je Klasse (Highlight.TEXT ... FELD). Neon: kraeftige, gut unterscheidbare Farben auf
+     * dem dunklen Grund, Kommentare und Satzzeichen zurueckgenommen; gruen: die fruehere Phosphor-Optik
+     */
+    static final int[] NEON = {0xD2F7E0, 0xC77DFF, 0xFFE45C, 0x5E9484, 0xFFB347, 0x3DE8FF, 0xFF6AD5, 0x6CFF6C, 0x7FA89C, 0x5CA8FF, 0xFF6B6B, 0xFF5C7A,
+            0xB8FF5C, 0xFF4FA3, 0x9FDBFF};
+    static final int[] GRUEN = {0x33E070, 0x5CFFE6, 0xFF9F43, 0x1D7A3D, 0xE8FF5C, 0x7FD4FF, 0x5CFFE6, 0x8CFFB0, 0x2FB85A, 0xE8FF5C, 0xFFB000, 0xFF5C7A,
+            0xB8FF5C, 0x5CFFE6, 0x33E070};
+    static int[] FARBEN = NEON;
 
     interface Cmd {
         void run(String arg);
@@ -244,6 +252,7 @@ final class Editor {
         kf.lesen();
         for (String f : kf.fehler) farbig(f, E_WARN);
         schriftGroesse = Math.max(6, Math.min(72, kf.zahl("font.size", 15)));
+        FARBEN = kf.get("syntax.farben", "neon").equals("gruen") ? GRUEN : NEON;
         schrift = kf.get("font", schrift);
         einzug = Math.max(1, kf.zahl("indent", 2));
         tabBreite = Math.max(1, kf.zahl("tabWidth", 4));

@@ -136,6 +136,8 @@ debug.chrome.url = http://localhost:5173
 
 # ---------------------------------------------------------------- Editor
 font.size = 15
+# Farben der Hervorhebung: neon (kraeftige, gut unterscheidbare Farben) oder gruen (fruehere Phosphor-Optik)
+syntax.farben = neon
 font = JetBrains Mono, Cascadia Mono, Consolas, SF Mono, Menlo, DejaVu Sans Mono, Liberation Mono, Monospaced
 indent = 2
 tabWidth = 4

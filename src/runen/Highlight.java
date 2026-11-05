@@ -4,7 +4,15 @@ import java.util.Set;
 
 /** Hervorhebung fuer JavaScript/TypeScript mit JSX: eine Klasse je Zeichen. */
 final class Highlight {
-    static final byte TEXT = 0, KEYWORD = 1, STRING = 2, COMMENT = 3, NUMBER = 4, TYPE = 5, TAG = 6, FUNC = 7, PUNCT = 8, ATTR = 9, CONST = 10, WEG = 11, NEU = 12;
+    static final byte TEXT = 0, KEYWORD = 1, STRING = 2, COMMENT = 3, NUMBER = 4, TYPE = 5, TAG = 6, FUNC = 7, PUNCT = 8, ATTR = 9, CONST = 10, WEG = 11, NEU = 12,
+            KONTROLLE = 13, FELD = 14;
+
+    /** Kontrollfluss (eigene Farbe, sonst wie Schluesselwoerter) */
+    private static final Set<String> KONTROLL = Set.of("if", "else", "for", "while", "do", "switch", "case", "default", "break", "continue", "return",
+            "throw", "try", "catch", "finally", "yield", "await", "goto");
+    /** eingebaute Typen: Farbe der Typen */
+    private static final Set<String> GRUNDTYPEN = Set.of("int", "long", "short", "byte", "char", "boolean", "float", "double", "void", "var", "string",
+            "number", "any", "unknown", "never", "object", "symbol", "bigint");
 
     private static final Set<String> KEYWORDS = Set.of("abstract", "as", "async", "await", "break", "case", "catch", "class", "const", "continue",
             "debugger", "declare", "default", "delete", "do", "else", "enum", "export", "extends", "finally", "for", "from", "function", "get", "if",
@@ -292,14 +300,19 @@ final class Highlight {
                 String w = s.subSequence(a, i).toString();
                 byte k;
                 if (schluessel.contains(w)) {
-                    k = KEYWORD;
+                    k = KONTROLL.contains(w) ? KONTROLLE : GRUNDTYPEN.contains(w) ? TYPE : KEYWORD;
                 } else if (konst.contains(w)) {
                     k = CONST;
                 } else {
                     int j = i;
                     while (j < n && (s.charAt(j) == ' ' || s.charAt(j) == '\t')) j++;
+                    // Feld/Eigenschaft nach einem Punkt (obj.feld), nicht in import/package-Zeilen
+                    int v = a - 1;
+                    while (v >= 0 && (s.charAt(v) == ' ' || s.charAt(v) == '\t')) v--;
+                    boolean nachPunkt = v >= 0 && s.charAt(v) == '.' && !(v > 0 && s.charAt(v - 1) == '.');
                     if (j < n && s.charAt(j) == '(') k = FUNC;
                     else if (Character.isUpperCase(c)) k = TYPE;
+                    else if (nachPunkt && !importZeile(s, a)) k = FELD;
                     else k = TEXT;
                 }
                 for (int q = a; q < i; q++) f[q] = k;
@@ -346,6 +359,25 @@ final class Highlight {
             ausdruck = c != ')' && c != ']';
         }
         return f;
+    }
+
+    /** steht die Stelle in einer Zeile, die mit import oder package anfaengt? */
+    private static boolean importZeile(CharSequence s, int i) {
+        int z = i;
+        while (z > 0 && s.charAt(z - 1) != '\n') z--;
+        while (z < i && (s.charAt(z) == ' ' || s.charAt(z) == '\t')) z++;
+        return startsWith(s, z, "import ") || startsWith(s, z, "package ") || startsWith(s, z, "export ") && indexOfZeile(s, z, " from ") >= 0;
+    }
+
+    private static boolean startsWith(CharSequence s, int i, String w) {
+        if (i + w.length() > s.length()) return false;
+        for (int k = 0; k < w.length(); k++) if (s.charAt(i + k) != w.charAt(k)) return false;
+        return true;
+    }
+
+    private static int indexOfZeile(CharSequence s, int i, String w) {
+        for (int k = i; k < s.length() && s.charAt(k) != '\n'; k++) if (startsWith(s, k, w)) return k;
+        return -1;
     }
 
     private static int indexOf3(CharSequence s, int ab) {

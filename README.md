@@ -51,6 +51,12 @@ tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.
   Maven- und Gradle-Projekte werden importiert. **Lombok** ist eingebaut (jdtls läuft mit `-javaagent:lombok.jar`), daher
   keine falschen Fehler bei `@Getter`, `@Data`, `@Builder`, `@Slf4j` …; eigene Version mit `java.lombok`.
 
+**Hervorhebung im Neon-Stil** (Java, TypeScript/JSX, SQL, YAML, Diffs): Deklarationen (`class`, `public`, `const`) violett,
+Kontrollfluss (`if`, `return`, `for`, `try`) pink, Typen und eingebaute Typen (`int`, `string`) cyan, Funktionen grün,
+Felder nach `.` hellblau, Texte gelb, Zahlen bernstein, `true`/`null`/`this` koralle, Annotationen und Attribute
+azurblau, JSX-Tags magenta; Kommentare und Satzzeichen zurückgenommen. `syntax.farben = gruen` in config.txt
+bringt die frühere Phosphor-Optik zurück.
+
 Definition (`gd`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
 gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder `]m` / `[m`), mit Zähler.
 **Call Hierarchy**: `Leertaste c` (oder `gh`) zeigt alle Stellen, die die Methode/Funktion unter dem Cursor aufrufen,
