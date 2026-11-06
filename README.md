@@ -317,6 +317,40 @@ Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (um
 - **Ex** `:w :q :q! :wq :x :e DATEI :N :$`, `:s/a/b/g`, `:%s/…/…/gi`, `:'<,'>s/…`, `:5,10s/…` (Vim-Muster mit `\( \) \| \< \>`, Ersatz mit `& \1 \r`)
 - **Insert-Mode**: `Strg+W` (Wort löschen), `Strg+U`, `Strg+T`/`Strg+D` (Einrückung), `Strg+H`, `Strg+C`/`Strg+[` wie ESC
 
+## Tastaturlayouts: `Strg+G`
+
+Der Editor hat ein eigenes Tastaturlayout, unabhängig vom Betriebssystem: Er rechnet jedes getippte Zeichen
+über das Systemlayout auf die Taste zurück und belegt sie neu. Vorgabe ist **en_US**, auch wenn macOS oder
+Windows auf Deutsch steht. `Strg+G` (Mac: `Cmd+G`) schaltet weiter: en_US → de_DE → prog. Das aktive Layout
+steht farbig neben dem Mode in der Statuszeile (EN cyan, DE gelb, PROG pink). Befehl: `layout [NAME]`.
+
+- **en_US**: US-Belegung (`[ ] { } ; ' \` ohne AltGr)
+- **de_DE**: deutsche Belegung; ist das System nicht deutsch, kommen `[ ] { } | \ @ ~` wie gewohnt mit AltGr (Mac: Option)
+- **prog**: Die Buchstabentasten tragen nur Ziffern und Sonderzeichen, alle anderen Tasten bleiben wie bei en_US.
+  Links liegt ein Ziffernblock mit Klammern und `=` daneben (Shift wie auf der US-Zahlenreihe, aufgebaut wie die
+  NUM-/SYM-Ebene von Miryoku). Rechts liegen die häufigsten Zeichen zum Programmieren und für Vim
+  (`0 $ ( ) / - +`):
+
+  ```
+  Q W E R T      [{  7&  8*  9(  ]}        Y U I O P      !?  (<  )>  "'  &#
+  A S D F G      ;:  4$  5%  6^  =+        H J K L        -_  0.  +*  /\
+  Z X C V B      `~  1!  2@  3#  \|        N M            $%  |~
+  ```
+
+`Strg`-Befehle bleiben in jedem Layout auf denselben Buchstaben. Bei prog gilt der Buchstabe von en_US.
+
+In `keymap.config`:
+
+```
+set layouts en_US de_DE prog   # Reihenfolge für Strg+G, das erste gilt beim Start
+set system auto                # Systemlayout: auto (Eingabequelle des Systems), de_DE oder en_US
+layout custom extends de_DE {  # eigenes Layout: Zeichen ersetzen, dann in set layouts aufnehmen
+  z = y
+}
+```
+
+Ist die Eingabequelle des Systems weder deutsch noch englisch (und `set system auto`), übersetzt der Editor nichts.
+
 ## Kopieren und Einfügen: 10 Speicherbänke
 
 `Strg+C Ziffer` kopiert, `Strg+V Ziffer` fügt ein (die Ziffer darf mit oder ohne gehaltenes Strg kommen).

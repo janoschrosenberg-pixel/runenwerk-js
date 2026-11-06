@@ -15,7 +15,8 @@ import java.util.Set;
  * keymap.config lesen (Modes und Layouts mit extends), wie beim RUNENWERK-Kernel:
  *
  * <pre>
- *   set layout custom             # aktives Layout (Standard: de_DE)
+ *   set layouts en_US de_DE prog  # Layouts fuer layoutNext, das erste gilt beim Start (Tastatur.java)
+ *   set system auto               # Layout des Betriebssystems: auto, de_DE, en_US
  *   set start normal              # Mode beim Start (Standard: normal)
  *   layout custom extends de_DE { z = y ... }
  *   mode normal extends base { dd = deleteLine  Ctrl-s = save  ANY = insertChar }
@@ -58,8 +59,9 @@ final class Keymap {
 
     final Map<String, Mode> modes = new java.util.LinkedHashMap<>();
     final Map<String, Layout> layouts = new HashMap<>();
-    final Map<Integer, Integer> layoutMap = new HashMap<>();
-    String layout = "de_DE";
+    /** set layouts: zum Durchschalten, das erste gilt beim Start */
+    final List<String> layoutListe = new ArrayList<>(List.of("en_US", "de_DE", "prog"));
+    String system = "auto";
     String start = "normal";
     final List<String> fehler = new ArrayList<>();
 
@@ -108,7 +110,9 @@ final class Keymap {
         modes.clear();
         layouts.clear();
         fehler.clear();
-        layout = "de_DE";
+        layoutListe.clear();
+        layoutListe.addAll(List.of("en_US", "de_DE", "prog"));
+        system = "auto";
         start = "normal";
         if (vorgabe != null) {
             try (vorgabe) {
@@ -129,7 +133,6 @@ final class Keymap {
             String el = e.getValue().eltern;
             if (!el.isEmpty() && !modes.containsKey(el)) fehler.add("keymap: mode " + e.getKey() + " extends " + el + ": gibt es nicht");
         }
-        layoutAn();
         return da || vorgabe != null;
     }
 
@@ -187,7 +190,20 @@ final class Keymap {
                 if (w0.equals("set")) {
                     kommentar.setLength(0);
                     switch (wort(z, 1)) {
-                        case "layout" -> layout = wort(z, 2);
+                        case "layouts" -> {
+                            String[] t = z.trim().split("\\s+");
+                            layoutListe.clear();
+                            layoutListe.addAll(List.of(t).subList(2, t.length));
+                        }
+                        // frueher: das Layout des Betriebssystems (de_DE/en_US) oder ein eigenes; ein eigenes kommt nach vorn
+                        case "layout" -> {
+                            String l = wort(z, 2);
+                            if (!l.equals("de_DE") && !l.equals("en_US")) {
+                                layoutListe.remove(l);
+                                layoutListe.add(0, l);
+                            }
+                        }
+                        case "system" -> system = wort(z, 2);
                         case "start" -> start = wort(z, 2);
                         default -> fehler.add(datei + ":" + nr + ": unbekannte Einstellung " + wort(z, 1));
                     }
@@ -355,30 +371,5 @@ final class Keymap {
 
     boolean modeDa(String mode) {
         return modes.containsKey(mode);
-    }
-
-    /**
-     * Layout einrichten. Das Grundlayout liefert das Betriebssystem (de_DE und en_US sind
-     * deshalb nur Namen); eigene Layouts ersetzen Zeichen, Eltern zuerst.
-     */
-    boolean layoutAn() {
-        layoutMap.clear();
-        List<Layout> kette = new ArrayList<>();
-        String name = layout;
-        while (layouts.containsKey(name) && kette.size() < 32) {
-            Layout l = layouts.get(name);
-            kette.add(l);
-            name = l.basis;
-        }
-        if (!name.equals("de_DE") && !name.equals("en_US")) {
-            fehler.add("keymap.config: Layout " + name + " gibt es nicht (Grundlayouts: de_DE, en_US)");
-            return false;
-        }
-        for (int k = kette.size() - 1; k >= 0; k--) layoutMap.putAll(kette.get(k).map);
-        return true;
-    }
-
-    int zeichen(int cp) {
-        return layoutMap.getOrDefault(cp, cp);
     }
 }

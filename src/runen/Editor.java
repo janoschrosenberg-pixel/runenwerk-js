@@ -52,6 +52,10 @@ final class Editor {
     final Screen scr = new Screen();
     final Map<String, Cmd> cmds = new HashMap<>();
     final Keymap km = new Keymap();
+    /** Tastaturlayout des Editors (en_US, de_DE, prog), unabhaengig vom Betriebssystem */
+    final Tastatur tb = new Tastatur(km);
+    /** Eingabesprache des Betriebssystems (set system auto); Main fragt das Fenster */
+    java.util.function.Supplier<java.util.Locale> osLayout = java.util.Locale::getDefault;
     final Mapping mp = new Mapping();
     final Indexer index;
     final Lsp tsLsp, javaLsp;
@@ -304,10 +308,11 @@ final class Editor {
         km.lesen(keymapPfad, Main.class.getResourceAsStream("/vorgaben/keymap.config"));
         // Maus, Strg+[ und das Hover-Fenster: frueher fest im Programm
         km.dazuLesen(konfig.resolve("sondertasten.config"), Main.class.getResourceAsStream("/vorgaben/sondertasten.config"));
+        tb.an(osLayout.get());
         for (String f : km.fehler) farbig(f, E_WARN);
         mp.laden(mappingPfad);
         for (String f : mp.fehler) farbig(f, E_WARN);
-        print("keymap: Layout " + km.layout + ", Modes " + km.modes.size() + ", Mapping-Funktionen " + mp.funs.size());
+        print("keymap: Layout " + tb.aktiv + " (" + String.join(", ", tb.liste) + "; System " + (tb.system == null ? "unbekannt" : tb.system) + "), Modes " + km.modes.size() + ", Mapping-Funktionen " + mp.funs.size());
     }
 
     /** TypeScript-Arbeitsbereich setzen (Index und Language Server neu) */
@@ -423,13 +428,6 @@ final class Editor {
 
     // ================================================================ Tasten (wie taste_verarbeiten im Kernel)
     void taste(String name, int code) {
-        if (code > 0) {
-            int m = km.zeichen(code);
-            if (m != code) {
-                code = m;
-                name = m == 32 ? "SPACE" : new String(Character.toChars(m));
-            }
-        }
         // sondertasten.config: mode immer gilt vor jedem Mode
         String immer = km.befehl("immer", name);
         if (immer != null) {
@@ -1081,6 +1079,16 @@ final class Editor {
         reg("reindex", a -> {
             index.neuEinlesen();
             meldung = "Index wird neu eingelesen";
+        });
+        /** @binding Schaltet das Tastaturlayout weiter (set layouts in keymap.config) oder auf das genannte */
+        reg("layout", a -> {
+            if (a.isBlank()) tb.weiter();
+            else if (!tb.setzen(a.trim())) {
+                fehler("Layout " + a.trim() + " gibt es nicht (" + String.join(", ", tb.liste) + ")");
+                return;
+            }
+            meldung = "Tastaturlayout " + tb.aktiv + (tb.system == null ? " (Systemlayout unbekannt: es gilt das des Systems)" : "");
+            meldungFarbe = layoutFarbe();
         });
         /** @binding Schrift groesser */
         reg("fontBigger", a -> {
@@ -2664,6 +2672,12 @@ final class Editor {
         int my = sy + (unten() - lh) / 2;
         scr.rect(0, sy, mw, unten(), mf);
         scr.text(0, my, m, E_GRUND);
+        // Tastaturlayout: eigene Farbe je Layout, direkt neben dem Mode
+        String lt = " " + Tastatur.kurz(tb.aktiv) + " ";
+        int lw = scr.textWidth(lt);
+        scr.rect(mw + 2, sy, lw, unten(), layoutFarbe());
+        scr.text(mw + 2, my, lt, E_GRUND);
+        mw += lw + 2;
         // offenes Menue (SPACE g ...): alle Tasten mit ihrer Funktion, passt es nicht, Zeilen darueber
         if (!folge.isEmpty() && km.menu(modus, folge) != null) {
             menuMalen(mw + cw, sy, my);
@@ -2710,6 +2724,15 @@ final class Editor {
         }
         scr.noClip();
         meldungFarbe = meldung == null ? E_WARN : meldungFarbe;
+    }
+
+    /** Farbe des Tastaturlayouts in der Statuszeile */
+    int layoutFarbe() {
+        return switch (tb.basis) {
+            case "de_DE" -> 0xFFE45C;
+            case "prog" -> 0xFF6AD5;
+            default -> 0x3DE8FF;
+        };
     }
 
     private String modusAnzeige() {

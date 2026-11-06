@@ -35,6 +35,7 @@ public final class Main {
     private JFrame fenster;
     private JPanel flaeche;
     private boolean vollbild = true;
+    private boolean altGeschluckt;
     private boolean geschluckt;
 
     private static Path logPfad;
@@ -236,6 +237,12 @@ public final class Main {
             }
         };
         flaeche.addKeyListener(k);
+        // Eingabesprache des Systems: daraus rechnet das Editor-Layout die Tasten zurueck
+        ed.osLayout = () -> {
+            java.awt.im.InputContext ic = flaeche.getInputContext();
+            java.util.Locale l = ic == null ? null : ic.getLocale();
+            return l == null ? java.util.Locale.getDefault() : l;
+        };
     }
 
     private static boolean strg(KeyEvent e) {
@@ -245,6 +252,21 @@ public final class Main {
 
     private void gedrueckt(KeyEvent e) {
         int c = e.getKeyCode();
+        ed.tb.systemSetzen(ed.osLayout.get());
+        ed.tb.gedrueckt(c);
+        // tote Tasten (^ ´ ` auf deutschen Tastaturen) und AltGr/Option-Zeichen im Editor-Layout
+        // (das keyTyped einer Taste kommt vor dem naechsten keyPressed)
+        altGeschluckt = false;
+        int z = ed.tb.tot(c);
+        if (z < 0 && !strg(e) && (e.isAltGraphDown() || e.isAltDown()) && c != KeyEvent.VK_ENTER) {
+            z = ed.tb.alt(c, e.isShiftDown());
+            altGeschluckt = z >= 0;
+        }
+        if (z >= 0) {
+            e.consume();
+            ed.taste(z == ' ' ? "SPACE" : String.valueOf((char) z), z);
+            return;
+        }
         String n = switch (c) {
             case KeyEvent.VK_ESCAPE -> "ESC";
             case KeyEvent.VK_ENTER -> "ENTER";
@@ -267,7 +289,10 @@ public final class Main {
         else if ("ENTER".equals(n) && e.isAltDown()) n = "Alt-ENTER";
         if (n != null && n.startsWith("F") && e.isShiftDown()) n = "Shift-" + n;
         if (n == null && strg(e)) {
-            if (c >= KeyEvent.VK_A && c <= KeyEvent.VK_Z) n = "Ctrl-" + (char) ((e.isShiftDown() ? 'A' : 'a') + c - KeyEvent.VK_A);
+            if (c >= KeyEvent.VK_A && c <= KeyEvent.VK_Z) {
+                char b = (char) ed.tb.strg(c);
+                n = "Ctrl-" + (e.isShiftDown() ? Character.toUpperCase(b) : b);
+            }
             else if (c >= KeyEvent.VK_0 && c <= KeyEvent.VK_9) n = "Ctrl-" + (char) ('0' + c - KeyEvent.VK_0);
             else if (c == KeyEvent.VK_SPACE) n = "Ctrl-SPACE";
             else if (c == KeyEvent.VK_MINUS) n = "Ctrl--";
@@ -289,8 +314,15 @@ public final class Main {
             geschluckt = false;
             if (c < 32 || c == 127 || strg(e)) return;
         }
+        if (altGeschluckt) {
+            // das Zeichen kam schon aus gedrueckt (Option-/AltGr-Ebene des Editor-Layouts)
+            altGeschluckt = false;
+            return;
+        }
         if (c == KeyEvent.CHAR_UNDEFINED || c < 32 || c == 127 || strg(e)) return;
-        ed.taste(c == ' ' ? "SPACE" : String.valueOf(c), c);
+        int z = ed.tb.zeichen(c);
+        if (z < 0) return;
+        ed.taste(z == ' ' ? "SPACE" : new String(Character.toChars(z)), z);
     }
 
     // ---------------------------------------------------------------- Maus
