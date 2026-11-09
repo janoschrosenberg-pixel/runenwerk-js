@@ -18,6 +18,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
@@ -1276,6 +1277,8 @@ final class Editor {
         // ------------------------------------------------ Language Server
         /** @binding Springt zur Definition (Language Server) */
         reg("gotoDefinition", a -> gotoDefinition());
+        /** @binding Springt zur Implementierung (Interface, abstrakte Methode); bei mehreren aus einer Liste waehlen */
+        reg("gotoImplementation", a -> gotoImplementation());
         /** @binding Springt zurueck zur letzten Sprungmarke */
         reg("goBack", a -> {
             if (spruenge.isEmpty()) {
@@ -2052,6 +2055,70 @@ final class Editor {
             }
             neuMalen.run();
         });
+    }
+
+    private void gotoImplementation() {
+        if (!lspBereit()) return;
+        Doc d = d();
+        int v = d.version;
+        String w = wortHier();
+        meldung = "suche Implementierungen von " + w + " ...";
+        lspFuer(d()).anfrage("textDocument/implementation", position(d), r -> {
+            List<Object> l = r instanceof List<?> ? Json.list(r) : r == null ? List.of() : List.of(r);
+            // Ziele (Location oder LocationLink); Dateien ausserhalb des Projekts (jdt://, Bibliotheken) fallen weg
+            Map<String, Object[]> ziele = new LinkedHashMap<>();
+            for (Object o : l) {
+                String uri = Json.str(Json.get(o, "uri"));
+                Object range = Json.get(o, "range");
+                if (uri == null) {
+                    uri = Json.str(Json.get(o, "targetUri"));
+                    range = Json.get(o, "targetSelectionRange");
+                }
+                Path pf = uri == null ? null : ausUri(uri);
+                if (pf == null) continue;
+                Object start = Json.get(range, "start");
+                int z = Json.num(Json.get(start, "line"), 0);
+                String klasse = klasseBei(pf, z);
+                String text = zeileAus(pf, z).strip();
+                if (text.length() > 70) text = text.substring(0, 69) + "~";
+                String ort = relativ(pf) + ":" + (z + 1);
+                ziele.putIfAbsent(klasse + "  " + text + "   (" + ort + ")", new Object[] {pf, start});
+            }
+            if (d() != d || d.version != v) return;
+            if (ziele.isEmpty()) {
+                meldung = l.isEmpty() ? "keine Implementierung gefunden: " + w : "Implementierung nur ausserhalb des Projekts (Bibliothek)";
+            } else if (ziele.size() == 1) {
+                Object[] z = ziele.values().iterator().next();
+                springen((Path) z[0], z[1]);
+                meldung = null;
+            } else {
+                meldung = null;
+                wz.auswahl(ziele.size() + " Implementierungen von " + w, new ArrayList<>(ziele.keySet()), null, e -> {
+                    Object[] z = ziele.get(e);
+                    if (z != null) springen((Path) z[0], z[1]);
+                });
+            }
+            neuMalen.run();
+        });
+    }
+
+    private static final java.util.regex.Pattern KLASSE = java.util.regex.Pattern.compile("\\b(?:class|record|enum|interface)\\s+([A-Za-z_$][\\w$]*)");
+
+    /** Name der Klasse, in der Zeile z der Datei steht (die naechste Deklaration darueber), sonst der Dateiname */
+    private String klasseBei(Path p, int z) {
+        List<String> zeilen = null;
+        for (Doc t : tabs) if (p.equals(t.pfad)) zeilen = Arrays.asList(t.t.toString().split("\n", -1));
+        try {
+            if (zeilen == null) zeilen = Files.readAllLines(p, StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException e) {
+            zeilen = List.of();
+        }
+        for (int k = Math.min(z, zeilen.size() - 1); k >= 0; k--) {
+            java.util.regex.Matcher m = KLASSE.matcher(zeilen.get(k));
+            if (m.find()) return m.group(1);
+        }
+        String datei = p.getFileName().toString();
+        return datei.contains(".") ? datei.substring(0, datei.lastIndexOf('.')) : datei;
     }
 
     private void springen(Path p, Object start) {

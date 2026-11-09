@@ -194,6 +194,7 @@ final class Lsp {
                         "completion", Json.obj("completionItem", Json.obj("snippetSupport", false, "documentationFormat", List.of("plaintext"))),
                         "hover", Json.obj("contentFormat", List.of("plaintext", "markdown")),
                         "definition", Json.obj("linkSupport", true),
+                        "implementation", Json.obj("linkSupport", true),
                         "references", Json.obj(),
                         "formatting", Json.obj(),
                         "rename", Json.obj("prepareSupport", false),

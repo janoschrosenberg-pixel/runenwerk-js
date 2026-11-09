@@ -75,7 +75,7 @@ tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.
 **Bildlauf**: Mausrad und Trackpad rollen die Ansicht, der Cursor wandert mit, sobald er sonst aus dem Bild liefe.
 Eine Raste sind 3 Zeilen, das Trackpad rollt anteilig.
 
-Definition (`gd`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
+Definition (`gd`), Implementierung (`gi`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
 gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder `]m` / `[m`), mit Zähler.
 **Call Hierarchy**: `Leertaste c` (oder `gh`) zeigt alle Stellen, die die Methode/Funktion unter dem Cursor aufrufen,
 als Liste; tippen filtert, ENTER springt hin.
@@ -469,6 +469,7 @@ c.put("scroll", this::rollen);
 | Strg+P | Dateimanager mit Suchfeld: links Dateinamen (Teilfolge), rechts Treffer im Inhalt |
 | `:` | Terminal (`open`, `w`, `q`, `workdir`, `run npm test`, `help`, Zeilennummer …) |
 | gd / F12, Strg+O | Definition, zurück |
+| gi / Strg+F12 | zur Implementierung (Interface, abstrakte Methode, auch auf dem Interface-Namen); bei mehreren eine Auswahlliste mit Klasse, Zeile und Datei (tippen filtert, ENTER springt), bei genau einer direkt hin |
 | K, gr, F2, Leertaste f | Hover, Referenzen, Umbenennen, Formatieren |
 | v/V … Leertaste m | markierten Block in eine neue Methode auslagern |
 | Leertaste i, Alt+ENTER | fehlende Importe (Auswahl bei mehreren Kandidaten), alle Code Actions an der Stelle |
