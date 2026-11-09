@@ -29,9 +29,43 @@ import javax.swing.Timer;
  * keymap.config gleich aussieht), Tastenverarbeitung wie im RUNENWERK-Kernel und Malen.
  */
 final class Editor {
-    // Farben wie beim RUNENWERK-Editor
-    static final int E_GRUND = 0x020702, E_RASTER = 0x061006, E_LEISTE = 0x0A2412, E_TEXT = 0x33E070, E_HELL = 0x8CFFB0, E_MATT = 0x1D7A3D,
-            E_FEHLER = 0xFF3B5C, E_WARN = 0xFFB000, E_ZEILE = 0x071A0C, E_KONSOLE = 0x010401, E_INFO = 0x7FD4FF;
+    /*
+     * Farben der Oberflaeche je Look (config.txt: look). hacker: Ueberwachungsmonitore aus den Hackerfilmen der 90er
+     * (Staatsfeind Nr. 1) - fast schwarzes Nachtblau, Cyan fuer Rahmen und Schrift, Bernstein und Rot fuer Warnungen;
+     * gruen: die fruehere Phosphor-Optik.
+     * Reihenfolge: GRUND RASTER LEISTE TEXT HELL MATT FEHLER WARN ZEILE KONSOLE INFO AUSWAHL TREFFER TASTE AKZENT
+     */
+    static final int[] LOOK_HACKER = {0x01050C, 0x07172A, 0x031426, 0x36CFFF, 0xC8F4FF, 0x1C6A8A, 0xFF3355, 0xFFB000, 0x06233C, 0x00030A, 0x6CFF9E,
+            0x0E4466, 0x3A3A08, 0x0B3350, 0xFFB000};
+    static final int[] LOOK_GRUEN = {0x020702, 0x061006, 0x0A2412, 0x33E070, 0x8CFFB0, 0x1D7A3D, 0xFF3B5C, 0xFFB000, 0x071A0C, 0x010401, 0x7FD4FF,
+            0x1E5A2E, 0x2A4A10, 0x14401F, 0x5CFFE6};
+    static int E_GRUND, E_RASTER, E_LEISTE, E_TEXT, E_HELL, E_MATT, E_FEHLER, E_WARN, E_ZEILE, E_KONSOLE, E_INFO, E_AUSWAHL, E_TREFFER, E_TASTE, E_AKZENT;
+    /** Look hacker: Rahmen mit Eckwinkeln, Lineal, Raster, Uhr */
+    static boolean HUD = true;
+
+    static {
+        lookSetzen("hacker");
+    }
+
+    static void lookSetzen(String name) {
+        HUD = !name.equals("gruen");
+        int[] f = HUD ? LOOK_HACKER : LOOK_GRUEN;
+        E_GRUND = f[0];
+        E_RASTER = f[1];
+        E_LEISTE = f[2];
+        E_TEXT = f[3];
+        E_HELL = f[4];
+        E_MATT = f[5];
+        E_FEHLER = f[6];
+        E_WARN = f[7];
+        E_ZEILE = f[8];
+        E_KONSOLE = f[9];
+        E_INFO = f[10];
+        E_AUSWAHL = f[11];
+        E_TREFFER = f[12];
+        E_TASTE = f[13];
+        E_AKZENT = f[14];
+    }
     /** je Klasse aus {@link Highlight} */
     /**
      * Farben der Hervorhebung je Klasse (Highlight.TEXT ... FELD). Neon: kraeftige, gut unterscheidbare Farben auf
@@ -39,9 +73,12 @@ final class Editor {
      */
     static final int[] NEON = {0xD2F7E0, 0xC77DFF, 0xFFE45C, 0x5E9484, 0xFFB347, 0x3DE8FF, 0xFF6AD5, 0x6CFF6C, 0x7FA89C, 0x5CA8FF, 0xFF6B6B, 0xFF5C7A,
             0xB8FF5C, 0xFF4FA3, 0x9FDBFF};
+    /** hacker: Weiss-Cyan auf Nachtblau, Schluesselwoerter Cyan, Kontrollfluss Pink, Strings Phosphorgruen, Zahlen Bernstein */
+    static final int[] HACKER = {0xD6F3FF, 0x2FB8FF, 0x8DFF5A, 0x3B6A84, 0xFFB547, 0x5CFFE0, 0x2FB8FF, 0xFFFFFF, 0x5E8BA3, 0x9FD8FF, 0xFF8A3D, 0xFF5C6E,
+            0x8DFF5A, 0xFF4F8B, 0xA8E6FF};
     static final int[] GRUEN = {0x33E070, 0x5CFFE6, 0xFF9F43, 0x1D7A3D, 0xE8FF5C, 0x7FD4FF, 0x5CFFE6, 0x8CFFB0, 0x2FB85A, 0xE8FF5C, 0xFFB000, 0xFF5C7A,
             0xB8FF5C, 0x5CFFE6, 0x33E070};
-    static int[] FARBEN = NEON;
+    static int[] FARBEN = HACKER;
 
     interface Cmd {
         void run(String arg);
@@ -80,6 +117,9 @@ final class Editor {
     int schriftGroesse = 15, einzug = 2, tabBreite = 4;
     String schrift = "JetBrains Mono, Cascadia Mono, Consolas, SF Mono, Menlo, DejaVu Sans Mono, Liberation Mono, Monospaced";
     boolean autoVervollst = true;
+    /** Cursor blinkt (cursor.blink); blinkAn = sichtbare Phase, Main schaltet sie um */
+    boolean blinken = true, blinkAn = true;
+    long letzteTaste;
     double skala = 1;
     List<String> lspBefehl = List.of("typescript-language-server", "--stdio");
     String compileBefehl = "npm run build", compileFastBefehl = "npx tsc --noEmit", javaCompileBefehl = "";
@@ -256,7 +296,12 @@ final class Editor {
         kf.lesen();
         for (String f : kf.fehler) farbig(f, E_WARN);
         schriftGroesse = Math.max(6, Math.min(72, kf.zahl("font.size", 15)));
-        FARBEN = kf.get("syntax.farben", "neon").equals("gruen") ? GRUEN : NEON;
+        String look = kf.get("look", "hacker");
+        lookSetzen(look);
+        String sf = kf.get("syntax.farben", "auto");
+        if (sf.equals("auto")) sf = look.equals("gruen") ? "gruen" : "hacker";
+        FARBEN = sf.equals("gruen") ? GRUEN : sf.equals("neon") ? NEON : HACKER;
+        blinken = kf.an("cursor.blink", true);
         schrift = kf.get("font", schrift);
         einzug = Math.max(1, kf.zahl("indent", 2));
         tabBreite = Math.max(1, kf.zahl("tabWidth", 4));
@@ -428,6 +473,8 @@ final class Editor {
 
     // ================================================================ Tasten (wie taste_verarbeiten im Kernel)
     void taste(String name, int code) {
+        blinkAn = true;
+        letzteTaste = System.currentTimeMillis();
         // sondertasten.config: mode immer gilt vor jedem Mode
         String immer = km.befehl("immer", name);
         if (immer != null) {
@@ -2443,6 +2490,8 @@ final class Editor {
 
     // ================================================================ Maus
     private int mausX, mausY, keyTiefe;
+    /** Zeilen je Rad-Schritt (Main schickt beim Trackpad einzelne Zeilen) */
+    int radZeilen = 3;
 
     /** Maus als Taste (MAUS-LINKS, MAUS-RAD-HOCH/RUNTER), belegt in sondertasten.config */
     void mausTaste(String name, int x, int y) {
@@ -2462,7 +2511,15 @@ final class Editor {
         }
         Doc d = d();
         if (rad != 0) {
-            d.oben = Math.max(0, Math.min(d.zeilen() - 1, d.oben + rad * 3));
+            // Rad/Trackpad: die Ansicht rollt, der Cursor bleibt im Bild (wie Strg+E/Y), sonst zoege malen() zurueck
+            int h = textZeilen() - (d.term != null ? 1 : 0), r3 = Math.min(3, (h - 1) / 2);
+            d.oben = Math.max(0, Math.min(d.zeilen() - 1, d.oben + rad * radZeilen));
+            int z = d.zeileVon(d.cursor), ziel = Math.max(d.oben + r3, Math.min(z, d.oben + h - r3 - 1));
+            ziel = Math.max(0, Math.min(d.zeilen() - 1, ziel));
+            if (ziel != z && d.term == null) {
+                if (d.spalteMerk < 0) d.spalteMerk = vspalte(d, d.cursor);
+                d.cursor = posBeiVspalte(d, ziel, d.spalteMerk);
+            }
             neuMalen.run();
             return;
         }
@@ -2500,6 +2557,21 @@ final class Editor {
     private void grund(int y, int h) {
         scr.rect(0, y, scr.w, h, E_GRUND);
         for (int yy = y - y % 4 + 3; yy < y + h; yy += 4) scr.rect(0, yy, scr.w, 1, E_RASTER);
+        // HUD: senkrechtes Raster alle 8 Zeichen
+        if (HUD) for (int xx = 8 * scr.cw; xx < scr.w; xx += 8 * scr.cw) scr.rect(xx, y, 1, h, E_RASTER);
+    }
+
+    /** Eckwinkel eines Rahmens (HUD): je Ecke zwei kurze Balken */
+    private void ecken(int x, int y, int w, int h, int farbe) {
+        int l = Math.max(6, scr.cw * 2), d = Math.max(2, scr.lh / 14);
+        scr.rect(x, y, l, d, farbe);
+        scr.rect(x, y, d, l, farbe);
+        scr.rect(x + w - l, y, l, d, farbe);
+        scr.rect(x + w - d, y, d, l, farbe);
+        scr.rect(x, y + h - d, l, d, farbe);
+        scr.rect(x, y + h - l, d, l, farbe);
+        scr.rect(x + w - l, y + h - d, l, d, farbe);
+        scr.rect(x + w - d, y + h - l, d, l, farbe);
     }
 
     void malen() {
@@ -2521,12 +2593,30 @@ final class Editor {
         int maxR = Math.max(10, W / cw / 3);
         if (rechts.length() > maxR) rechts = "~" + rechts.substring(rechts.length() - maxR + 1);
         rechts += "  ";
-        int rx = W - scr.textWidth(rechts) - 8;
-        int x = scr.text(8, ty, ">> ", E_MATT);
+        // HUD: Uhr und blinkendes LIVE rechts, Kennung links, Lineal unter der Leiste
+        String uhr = HUD ? java.time.LocalTime.now().withNano(0).toString() + " " : "";
+        if (HUD && uhr.length() == 6) uhr = uhr.trim() + ":00 ";
+        int uw = HUD ? scr.textWidth(" * LIVE  " + uhr) : 0;
+        int rx = W - scr.textWidth(rechts) - 8 - uw;
+        int x;
+        if (HUD) {
+            String kennung = " RUNENWERK//JS ";
+            int kw = scr.textWidth(kennung);
+            scr.rect(0, 0, kw, bh, E_TEXT);
+            scr.text(0, ty, kennung, E_GRUND);
+            x = kw + cw;
+            int ux = W - uw - 4;
+            if (blinkAn || !blinken) scr.rect(ux + cw + cw / 4, ty + lh / 2 - cw / 3, cw / 2 + 1, cw / 2 + 1, E_FEHLER);
+            scr.text(ux + 2 * cw, ty, " LIVE", E_FEHLER);
+            scr.text(ux + scr.textWidth(" * LIVE  "), ty, uhr, E_AKZENT);
+            for (int t = 0, k = 0; t < W; t += cw, k++) scr.rect(t, bh + 2, 1, k % 16 == 0 ? 4 : k % 4 == 0 ? 3 : 1, k % 4 == 0 ? E_TEXT : E_MATT);
+        } else {
+            x = scr.text(8, ty, ">> ", E_MATT);
+        }
         scr.clip(0, 0, rx - 16, bh);
         for (int i = 0; i < tabs.size(); i++) {
             Doc u = tabs.get(i);
-            String n = " " + u.name() + (u.geaendert ? "+" : "") + " ";
+            String n = HUD ? " [" + (i + 1) + "] " + u.name() + (u.geaendert ? "+" : "") + " " : " " + u.name() + (u.geaendert ? "+" : "") + " ";
             int w = scr.textWidth(n);
             if (i == aktiv) {
                 scr.rect(x, 2, w, bh - 2, E_TEXT);
@@ -2591,6 +2681,12 @@ final class Editor {
                     if (g.zeile() <= z && g.endZeile() >= z && (schwer == 0 || g.schwere() < schwer)) schwer = g.schwere();
                 }
                 String nr = String.valueOf(z + 1);
+                // HUD: mit Nullen aufgefuellt, gepunktete Linie zum Text
+                if (HUD) {
+                    int breite = rand - 2 - (d.blame != null ? Werkzeug.BLAME_BREITE : 0);
+                    if (nr.length() < breite) nr = "0".repeat(breite - nr.length()) + nr;
+                    for (int py = y; py < y + lh; py += 4) scr.rect((rand - 1) * cw - cw / 3, py, 1, 2, E_MATT);
+                }
                 int nf = z == cz ? E_HELL : E_MATT;
                 if (schwer == 1) {
                     nf = E_FEHLER;
@@ -2632,14 +2728,14 @@ final class Editor {
                         va = z == selZ1 ? vspalte(d, selLo) : 0;
                         ve = z == selZ2 ? vspalte(d, selHi) + 1 : vspalte(d, e) + 1;
                     }
-                    scr.rect(tx + (va - links) * cw, y, (ve - va) * cw, lh, 0x1E5A2E);
+                    scr.rect(tx + (va - links) * cw, y, (ve - va) * cw, lh, E_AUSWAHL);
                 }
                 // Suchtreffer
                 if (sucheK.length() > 0) {
                     String zl = genau ? d.t.substring(a, e) : d.t.substring(a, e).toLowerCase();
                     for (int p = zl.indexOf(sucheK); p >= 0; p = zl.indexOf(sucheK, p + 1)) {
                         int vx = vspalte(d, a + p) - links;
-                        scr.rect(tx + vx * cw, y, sucheK.length() * cw, lh, 0x2A4A10);
+                        scr.rect(tx + vx * cw, y, sucheK.length() * cw, lh, E_TREFFER);
                     }
                 }
                 int v = 0;
@@ -2683,7 +2779,10 @@ final class Editor {
             if ((!konsoleOffen || !modus.equals("console")) && !modus.equals("terminal") && !modus.equals("termcomplete")) {
                 int cx = tx + (cs - d.links - (cz == d.versatzZeile ? d.zeileVersatz : 0)) * cw;
                 int cy = oben + (cz - d.oben) * lh;
-                if (modus.equals("insert") || modus.equals("complete")) {
+                boolean sicht = blinkAn || !blinken;
+                if (!sicht) {
+                    // dunkle Phase des Blinkens: kein Cursor
+                } else if (modus.equals("insert") || modus.equals("complete")) {
                     scr.rect(cx, cy + 1, Math.max(2, cw / 5), lh - 2, E_HELL);
                 } else if (modus.equals("replace") || modus.equals("operator")) {
                     scr.rect(cx, cy + lh - Math.max(3, lh / 6), cw, Math.max(3, lh / 6), E_HELL);
@@ -2692,6 +2791,19 @@ final class Editor {
                     char ch = d.at(d.cursor);
                     if (ch > 32) scr.glyph(cx, cy, ch, E_GRUND);
                 }
+            }
+        }
+        if (HUD && !wz.merge.sichtbar() && !prAnsicht.sichtbar() && !oa.sichtbar()) {
+            ecken(1, oben - 3, W - 2, (term ? n + 1 : n) * lh + 5, E_TEXT);
+            // Bildlauf-Anzeige rechts: Spur mit Strichen, Block fuer den sichtbaren Teil, Prozent darueber
+            int sx = W - cw / 2 - 3, sh = n * lh - 2 * lh, sy0 = oben + lh + lh / 2, gesamt = Math.max(1, d.zeilen());
+            if (sh > 4 * lh && gesamt > n) {
+                for (int t = 0; t <= 20; t++) scr.rect(sx - (t % 5 == 0 ? 3 : 1), sy0 + t * sh / 20, t % 5 == 0 ? 7 : 3, 1, E_MATT);
+                scr.rect(sx, sy0, 1, sh, E_MATT);
+                int by = sy0 + (int) ((long) d.oben * sh / gesamt), bh2 = Math.max(lh / 2, (int) ((long) n * sh / gesamt));
+                scr.rect(sx - 2, by, 5, Math.min(bh2, sy0 + sh - by), E_TEXT);
+                String pz = String.format("%03d%%", Math.min(100, (cz + 1) * 100 / gesamt));
+                scr.text(W - scr.textWidth(pz) - cw, oben, pz, E_MATT);
             }
         }
         int panelY = oben + textZeilen() * lh + 6;
@@ -2707,7 +2819,7 @@ final class Editor {
         if (wz.auswahlOffen) wz.auswahlMalen();
         // ------------------------------------------------ Statuszeile
         int sy = H - unten();
-        scr.rect(0, sy - 2, W, 2, E_MATT);
+        scr.rect(0, sy - 2, W, 2, HUD ? E_TEXT : E_MATT);
         scr.rect(0, sy, W, unten(), E_LEISTE);
         String m = " " + modusAnzeige() + " ";
         int mw = scr.textWidth(m);
@@ -2744,7 +2856,7 @@ final class Editor {
         }
         String r = (vim.makroReg != 0 ? "rec @" + vim.makroReg + "   " : "") + (vim.regWahl != 0 ? "\"" + vim.regWahl + " " : "")
                 + (vim.zaehler > 0 ? vim.zaehler + " " : "") + (vim.opOffen ? vim.op + " " : "") + (folge.isEmpty() ? "" : folge + "   ") + (fehler + warn > 0 ? "x" + fehler + " !" + warn + "   " : "") + wz.status() + "   "
-                + (index.laeuft ? "Index..." : "Index " + index.dateien.size()) + "   " + (cz + 1) + ":" + (cs + 1) + " ";
+                + (index.laeuft ? "Index..." : "Index " + index.dateien.size()) + "   " + (HUD ? String.format("LN %04d COL %03d", cz + 1, cs + 1) : (cz + 1) + ":" + (cs + 1)) + " ";
         int rw = scr.textWidth(r);
         scr.text(W - rw - cw, my, r, E_TEXT);
         scr.clip(x + 2 * cw, sy, W - rw - 3 * cw - x, unten());
@@ -2899,7 +3011,7 @@ final class Editor {
             for (String[] t : zeilen.get(i)) {
                 int kw = scr.textWidth(" " + t[0] + " ");
                 boolean menue = t[2].equals("menu");
-                scr.rect(xx, yy, kw, lh, menue ? 0x1E3A5A : 0x14401F);
+                scr.rect(xx, yy, kw, lh, menue ? 0x1E3A5A : E_TASTE);
                 scr.text(xx, yy, " " + t[0] + " ", E_HELL);
                 xx = scr.text(xx + kw + cw / 2, yy, t[1], menue ? E_INFO : E_TEXT) + 2 * cw;
             }
@@ -2924,7 +3036,7 @@ final class Editor {
         for (int i = 0; i < n; i++) {
             String[] t = tasten[i];
             int kw = scr.textWidth(" " + t[0] + " ");
-            scr.rect(x, my, kw, scr.lh, 0x14401F);
+            scr.rect(x, my, kw, scr.lh, E_TASTE);
             scr.text(x, my, " " + t[0] + " ", E_HELL);
             x = scr.text(x + kw + cw / 2, my, kurz && t.length > 2 ? t[2] : t[1], E_TEXT) + (kurz ? cw + cw / 2 : 2 * cw);
         }
@@ -2963,6 +3075,7 @@ final class Editor {
         scr.rect(x, y, w, h, E_KONSOLE);
         scr.frame(x, y, w, h, E_HELL);
         scr.frame(x + 3, y + 3, w - 6, h - 6, E_MATT);
+        if (HUD) ecken(x - 2, y - 2, w + 4, h + 4, E_AKZENT);
     }
 
     private void popupMalen() {

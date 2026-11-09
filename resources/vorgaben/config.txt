@@ -136,8 +136,13 @@ debug.chrome.url = http://localhost:5173
 
 # ---------------------------------------------------------------- Editor
 font.size = 15
-# Farben der Hervorhebung: neon (kraeftige, gut unterscheidbare Farben) oder gruen (fruehere Phosphor-Optik)
-syntax.farben = neon
+# Aussehen: hacker (Ueberwachungsmonitore aus den Hackerfilmen der 90er: Nachtblau, Cyan, Rahmen mit Eckwinkeln,
+# Lineal, Raster, Uhr) oder gruen (fruehere Phosphor-Optik)
+look = hacker
+# Farben der Hervorhebung: auto (passend zum Look), hacker, neon oder gruen
+syntax.farben = auto
+# Cursor blinkt
+cursor.blink = on
 font = JetBrains Mono, Cascadia Mono, Consolas, SF Mono, Menlo, DejaVu Sans Mono, Liberation Mono, Monospaced
 indent = 2
 tabWidth = 4

@@ -27,6 +27,8 @@ final class Screen {
     int cw, lh, asc;
     private Font font, ersatz;
     private final Map<Integer, byte[]> glyphen = new HashMap<>();
+    /** schneller Zugriff fuer die haeufigen Zeichen (ohne Boxing in der HashMap) */
+    private byte[][] schnell = new byte[0x3000][];
     // Clip-Bereich
     private int cx0, cy0, cx1, cy1;
 
@@ -60,6 +62,7 @@ final class Screen {
         asc = pad + fm.getAscent();
         g.dispose();
         glyphen.clear();
+        schnell = new byte[0x3000][];
     }
 
     String fontName() {
@@ -130,9 +133,18 @@ final class Screen {
         return r << 16 | g << 8 | b;
     }
 
+    /** wie mix, mit Schieben statt Teilen (fuer Schriftkanten, Fehler unter 1/255 fallen nicht auf) */
+    private static int mischen(int d, int s, int a) {
+        a += a >> 7;
+        int na = 256 - a;
+        int rb = ((s & 0xFF00FF) * a + (d & 0xFF00FF) * na) >>> 8 & 0xFF00FF;
+        int g = ((s & 0x00FF00) * a + (d & 0x00FF00) * na) >>> 8 & 0x00FF00;
+        return rb | g;
+    }
+
     // ---------------------------------------------------------------- Text
     private byte[] maske(int cp) {
-        byte[] m = glyphen.get(cp);
+        byte[] m = cp < schnell.length ? schnell[cp] : glyphen.get(cp);
         if (m != null) return m;
         BufferedImage gi = new BufferedImage(cw, lh, BufferedImage.TYPE_BYTE_GRAY);
         Graphics2D g = gi.createGraphics();
@@ -146,7 +158,8 @@ final class Screen {
         g.drawString(s, Math.max(0, (cw - sw) / 2), asc);
         g.dispose();
         m = ((DataBufferByte) gi.getRaster().getDataBuffer()).getData().clone();
-        glyphen.put(cp, m);
+        if (cp < schnell.length) schnell[cp] = m;
+        else glyphen.put(cp, m);
         return m;
     }
 
@@ -162,7 +175,7 @@ final class Screen {
             for (int xx = x0; xx < x1; xx++) {
                 int a = m[mo + xx] & 255;
                 if (a == 0) continue;
-                px[o + xx] = a == 255 ? farbe : mix(px[o + xx], farbe, a);
+                px[o + xx] = a == 255 ? farbe : mischen(px[o + xx], farbe, a);
             }
         }
     }

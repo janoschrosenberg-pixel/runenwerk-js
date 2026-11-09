@@ -51,11 +51,29 @@ tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.
   Maven- und Gradle-Projekte werden importiert. **Lombok** ist eingebaut (jdtls läuft mit `-javaagent:lombok.jar`), daher
   keine falschen Fehler bei `@Getter`, `@Data`, `@Builder`, `@Slf4j` …; eigene Version mit `java.lombok`.
 
-**Hervorhebung im Neon-Stil** (Java, TypeScript/JSX, SQL, YAML, Diffs): Deklarationen (`class`, `public`, `const`) violett,
-Kontrollfluss (`if`, `return`, `for`, `try`) pink, Typen und eingebaute Typen (`int`, `string`) cyan, Funktionen grün,
-Felder nach `.` hellblau, Texte gelb, Zahlen bernstein, `true`/`null`/`this` koralle, Annotationen und Attribute
-azurblau, JSX-Tags magenta; Kommentare und Satzzeichen zurückgenommen. `syntax.farben = gruen` in config.txt
-bringt die frühere Phosphor-Optik zurück.
+**Aussehen** (`look` in config.txt): Vorgabe ist `hacker`, im Stil der Überwachungsmonitore aus den Hackerfilmen der 90er
+(Staatsfeind Nr. 1):
+
+- Farben: Nachtblau mit Cyan, Warnungen bernstein und rot, Raster und Scanlines im Hintergrund
+- Kopfleiste: Kennung `RUNENWERK//JS`, nummerierte Tabs `[1] …`, blinkendes `LIVE`, Uhr, Lineal darunter
+- Textbereich: Eckwinkel um den Text, Zeilennummern mit Nullen (`0042`), Bildlauf-Anzeige rechts mit Prozent
+- Statuszeile: `LN 0042 COL 012`
+- Fenster: Eckwinkel in Bernstein
+- Blinkender Cursor (`cursor.blink = off` schaltet das ab)
+
+`look = gruen` bringt die frühere Phosphor-Optik zurück.
+
+**Hervorhebung** (Java, TypeScript/JSX, SQL, YAML, Diffs), `syntax.farben`:
+
+- `auto` (Vorgabe) nimmt die Farben passend zum Look.
+- `hacker`: Text weiß-cyan, Schlüsselwörter cyan, Kontrollfluss (`if`, `return`, `for`) pink, Typen aquamarin,
+  Funktionen weiß, Texte phosphorgrün, Zahlen bernstein, `true`/`null`/`this` orange; Kommentare und Satzzeichen
+  zurückgenommen.
+- `neon`: Deklarationen violett, Typen cyan, Funktionen grün, Texte gelb.
+- `gruen`: die Phosphor-Optik.
+
+**Bildlauf**: Mausrad und Trackpad rollen die Ansicht, der Cursor wandert mit, sobald er sonst aus dem Bild liefe.
+Eine Raste sind 3 Zeilen, das Trackpad rollt anteilig.
 
 Definition (`gd`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
 gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder `]m` / `[m`), mit Zähler.

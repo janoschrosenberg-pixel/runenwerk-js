@@ -36,6 +36,8 @@ public final class Main {
     private JPanel flaeche;
     private boolean vollbild = true;
     private boolean altGeschluckt;
+    /** angefangene Zeile vom Trackpad */
+    private double radRest;
     private boolean geschluckt;
 
     private static Path logPfad;
@@ -145,6 +147,12 @@ public final class Main {
         ed.vollbild = this::vollbildUmschalten;
         tastatur();
         maus();
+        // Cursor blinken und HUD-Uhr: zweimal je Sekunde neu malen (nach einer Taste bleibt der Cursor kurz sichtbar)
+        new javax.swing.Timer(530, e -> {
+            if (System.currentTimeMillis() - ed.letzteTaste < 530) ed.blinkAn = true;
+            else ed.blinkAn = !ed.blinkAn;
+            if ((ed.blinken || Editor.HUD) && fenster.isActive()) flaeche.repaint();
+        }).start();
         if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.APP_QUIT_HANDLER)) {
             // Cmd+Q auf dem Mac: erst nach ungespeicherten Aenderungen fragen
             Desktop.getDesktop().setQuitStrategy(QuitStrategy.CLOSE_ALL_WINDOWS);
@@ -216,10 +224,12 @@ public final class Main {
         }
         BufferedImage img = ed.scr.img;
         g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
-        // Bildpunkte 1:1 aufs Geraet (die Grafik ist schon mit s skaliert)
-        g.scale(1 / s, 1 / s);
+        // Bildpunkte 1:1 aufs Geraet (die Grafik ist schon mit s skaliert): reine Verschiebung statt scale(1/s),
+        // sonst bleibt bei 125 %/150 % ein Rest-Massstab und Java2D skaliert jedes Bild einzeln (langsam)
+        java.awt.geom.AffineTransform alt = g.getTransform();
+        g.setTransform(java.awt.geom.AffineTransform.getTranslateInstance(Math.round(alt.getTranslateX()), Math.round(alt.getTranslateY())));
         g.drawImage(img, 0, 0, null);
-        g.scale(s, s);
+        g.setTransform(alt);
         Toolkit.getDefaultToolkit().sync();
     }
 
@@ -336,10 +346,13 @@ public final class Main {
 
             @Override
             public void mouseWheelMoved(MouseWheelEvent e) {
-                int r = e.getWheelRotation();
-                if (r == 0) r = e.getPreciseWheelRotation() > 0 ? 1 : e.getPreciseWheelRotation() < 0 ? -1 : 0;
-                // je Raste eine Taste (Belegung in sondertasten.config)
+                // je Zeile eine Taste (Belegung in sondertasten.config): Raste = 3 Zeilen, Trackpad anteilig
+                radRest += e.getPreciseWheelRotation() * 3;
+                int r = (int) radRest;
+                radRest -= r;
+                ed.radZeilen = 1;
                 for (int i = 0; i < Math.abs(r); i++) ed.mausTaste(r > 0 ? "MAUS-RAD-RUNTER" : "MAUS-RAD-HOCH", px(e.getPoint()).x, px(e.getPoint()).y);
+                ed.radZeilen = 3;
             }
         };
         flaeche.addMouseListener(m);
