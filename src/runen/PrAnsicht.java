@@ -69,6 +69,10 @@ final class PrAnsicht {
     Scm.Ziel ziel;
     private final List<Datei> dateien = new ArrayList<>();
     private int wahl, zeile, oben;
+    /** Fenster mit dem Fokus (TAB): 0 Dateiliste, 1 vorher (links), 2 nachher (rechts) */
+    int fenster = 2;
+    /** Anfang der Zeilenauswahl (v), -1 = keine */
+    private int anker = -1;
     private boolean umbruch = true;
     private String woher = "";
     /** lokaler Vergleich (Leertaste g d): Titel, Namen der Seiten, Repo, unified diff, neu rechnen */
@@ -122,6 +126,8 @@ final class PrAnsicht {
         uebersicht(ueb, kom.size(), komFehler, allgemein, draussen, ich);
         aktiv = true;
         ed.modus = "prdiff";
+        anker = -1;
+        if (!gleich) fenster = 2;
         wahl = 0;
         zeile = 0;
         oben = 0;
@@ -160,6 +166,8 @@ final class PrAnsicht {
         for (String t : info) text(ueb, t, t.equals(info.get(0)) ? E_HELL : t.endsWith(":") && t.equals(t.toUpperCase()) ? E_INFO : E_TEXT, 0, null);
         aktiv = true;
         ed.modus = "prdiff";
+        anker = -1;
+        if (!gleich) fenster = 2;
         if (gleich && alteWahl < dateien.size()) {
             wahl = alteWahl;
             zeile = Math.min(alteZeile, Math.max(0, datei().zeilen.size() - 1));
@@ -477,32 +485,65 @@ final class PrAnsicht {
     // ================================================================ Tasten
     /** Tasten fuer die Statuszeile: Taste, Funktion, kurz; wichtigste zuerst (fehlt Platz, fallen die letzten weg) */
     static final String[][] TASTEN = {{"a", "Freigeben", "Freigabe"}, {"x", "Freigabe zurueck", "Freig. weg"}, {"m", "Mergen", "Merge"}, {"R", "Ablehnen", "Ablehnen"},
-            {"c", "Kommentar", "Komm."}, {"C", "Antworten", "Antw."}, {"e", "Reviewer", "Rev."}, {"u", "Datei zuruecksetzen", "Revert"}, {"ENTER", "zur Codestelle", "Code"}, {"TAB", "naechste Datei", "Datei"},
+            {"c", "Kommentar", "Komm."}, {"C", "Antworten", "Antw."}, {"e", "Reviewer", "Rev."}, {"u", "Datei zuruecksetzen", "Revert"}, {"ENTER", "zur Codestelle", "Code"}, {"TAB", "Fenster", "Fenster"}, {"]f/[f", "Datei", "Datei"},
+            {"v", "Auswahl", "Ausw."}, {"Strg+C 0-9", "kopieren", "kop."},
             {"n/p", "Aenderung", "Aend."}, {"]k/[k", "Kommentar", "Komm."}, {"q", "Liste", "Liste"}, {"w", "Umbruch", "Umbr."}, {"r", "neu laden", "neu"},
             {"o", "Browser", "Web"}};
 
     /** Tasten beim lokalen Vergleich */
     static final String[][] TASTEN_LOKAL = {{"ENTER", "zur Codestelle", "Code"}, {"n/p", "naechste/vorige Aenderung", "Aend."}, {"j/k", "Zeile", "Zeile"},
-            {"Strg+d/u", "Seite", "Seite"}, {"w", "Umbruch", "Umbr."}, {"r", "neu vergleichen", "neu"}, {"t", "als Text (unified)", "Text"}, {"TAB", "Uebersicht/Datei", "Datei"},
+            {"Strg+d/u", "Seite", "Seite"}, {"w", "Umbruch", "Umbr."}, {"r", "neu vergleichen", "neu"}, {"t", "als Text (unified)", "Text"}, {"TAB", "Fenster", "Fenster"},
+            {"]f/[f", "Datei", "Datei"}, {"v", "Auswahl", "Ausw."}, {"Strg+C 0-9", "kopieren", "kop."},
             {"q", "schliessen", "zu"}};
 
     void befehle(Map<String, Editor.Cmd> c) {
-        /** @binding Pull Request: Zeile runter/hoch (Zahl), auch seitenweise (page, -page) */
+        /** @binding Pull Request/Diff: Zeile runter/hoch (Zahl), auch seitenweise (page, -page); in der Dateiliste: Datei */
         c.put("prMove", a -> bewegen(a.strip()));
+        /** @binding Pull Request/Diff: naechstes/voriges Fenster (1, -1): Dateiliste, vorher, nachher */
+        c.put("prWindow", a -> {
+            int r = a.strip().startsWith("-") ? -1 : 1;
+            anker = -1;
+            // in der Uebersicht gibt es nur eine Spalte
+            do fenster = Math.floorMod(fenster + r, 3);
+            while (wahl == 0 && fenster == 1);
+            ed.meldung = FENSTER[fenster];
+        });
+        /** @binding Pull Request/Diff: Zeilenauswahl an/aus (Strg+C Ziffer kopiert sie) */
+        c.put("prSelect", a -> {
+            if (fenster == 0) {
+                ed.meldung = "Auswahl: erst in vorher/nachher wechseln (TAB)";
+                return;
+            }
+            anker = anker >= 0 ? -1 : zeile;
+            ed.meldung = anker >= 0 ? "Auswahl: j/k erweitern, Strg+C Ziffer kopiert, ESC hebt auf" : null;
+        });
+        /** @binding Pull Request/Diff: hebt die Auswahl auf, sonst zurueck zur Liste */
+        c.put("prEscape", a -> {
+            if (anker >= 0) anker = -1;
+            else c.get("prClose").run("");
+        });
         /** @binding Pull Request: naechste/vorige Datei (1, -1); 0 = Uebersicht */
         c.put("prFile", a -> {
             int n = a.strip().equals("0") ? -wahl : a.strip().startsWith("-") ? -1 : 1;
             wahl = Math.floorMod(wahl + n, dateien.size());
             zeile = 0;
             oben = 0;
+            anker = -1;
+            if (wahl == 0 && fenster == 1) fenster = 2;
             if (wahl > 0) naechste(z -> z.aenderung() || z.art == KOMMENTAR, 1, false);
         });
         /** @binding Pull Request: naechste/vorige Aenderung (1, -1), auch ueber Dateien */
         c.put("prChange", a -> springenNach(z -> z.aenderung(), a.strip().startsWith("-") ? -1 : 1, "Aenderung"));
         /** @binding Pull Request: naechster/voriger Kommentar (1, -1), auch ueber Dateien */
         c.put("prComment", a -> springenNach(z -> z.art == KOMMENTAR, a.strip().startsWith("-") ? -1 : 1, "Kommentar"));
-        /** @binding Pull Request: an die Codestelle (Zeile, Kommentar, Datei in der Uebersicht) */
-        c.put("prOpen", a -> oeffnen());
+        /** @binding Pull Request: an die Codestelle (Zeile, Kommentar, Datei in der Uebersicht); in der Dateiliste: in die Datei */
+        c.put("prOpen", a -> {
+            if (fenster == 0) {
+                fenster = 2;
+                return;
+            }
+            oeffnen();
+        });
         /** @binding Pull Request: lange Zeilen umbrechen an/aus */
         c.put("prWrap", a -> {
             umbruch = !umbruch;
@@ -539,7 +580,7 @@ final class PrAnsicht {
         /** @binding Pull Request: die gewaehlte Datei auf den Stand des Ziel-Branchs zuruecksetzen und committen (lokaler Quell-Branch) */
         c.put("prRevertFile", a -> nurPr(() -> {
             if (wahl == 0) {
-                ed.meldung = "u: erst eine Datei waehlen (TAB)";
+                ed.meldung = "u: erst eine Datei waehlen (]f oder in der Dateiliste)";
                 return;
             }
             Datei d = datei();
@@ -572,6 +613,24 @@ final class PrAnsicht {
     private void bewegen(String a) {
         List<Zeile> l = datei().zeilen;
         int seite = Math.max(1, sichtbareZeilen() - 2);
+        if (fenster == 0) {
+            // Dateiliste: Datei waehlen (ohne Umlauf)
+            int n = a.equals("page") ? seite : a.equals("-page") ? -seite : a.startsWith("-") ? -1 : 1;
+            try {
+                n = Integer.parseInt(a);
+            } catch (NumberFormatException e) {
+                // page/-page
+            }
+            int neu = Math.max(0, Math.min(dateien.size() - 1, wahl + n));
+            if (neu != wahl) {
+                wahl = neu;
+                zeile = 0;
+                oben = 0;
+                anker = -1;
+                if (wahl > 0) naechste(z -> z.aenderung() || z.art == KOMMENTAR, 1, false);
+            }
+            return;
+        }
         int n = switch (a) {
             case "page" -> seite;
             case "-page" -> -seite;
@@ -806,7 +865,12 @@ final class PrAnsicht {
         int cw = s.cw, lh = s.lh;
         sw = Math.max(28 * cw, Math.min(s.w / 5, 46 * cw));
         s.rect(0, top, sw, y1 - top, E_KONSOLE);
-        s.text(cw, top + 2, "DATEIEN", E_MATT);
+        if (fenster == 0) {
+            s.rect(0, top, sw - 2, lh + 2, E_TEXT);
+            s.text(cw, top + 2, "DATEIEN", E_GRUND);
+        } else {
+            s.text(cw, top + 2, "DATEIEN", E_MATT);
+        }
         int fy = top + lh + 4;
         int sichtbar = Math.max(1, (y1 - fy) / lh);
         int fOben = Math.max(0, Math.min(wahl - sichtbar / 2, dateien.size() - sichtbar));
@@ -815,9 +879,13 @@ final class PrAnsicht {
             Datei d = dateien.get(i);
             int yy = fy + (i - fOben) * lh;
             boolean g = i == wahl;
-            if (g) s.rect(0, yy, sw - 2, lh, E_TEXT);
+            boolean gv = g && fenster == 0;
+            if (g) {
+                if (fenster == 0) s.rect(0, yy, sw - 2, lh, E_TEXT);
+                else s.frame(0, yy, sw - 2, lh, E_TEXT);
+            }
             if (i == 0) {
-                s.text(cw, yy, "  Uebersicht" + (d.kommentare > 0 ? "  " + d.kommentare + " Kom." : ""), g ? E_GRUND : E_HELL);
+                s.text(cw, yy, "  Uebersicht" + (d.kommentare > 0 ? "  " + d.kommentare + " Kom." : ""), gv ? E_GRUND : E_HELL);
                 continue;
             }
             int stf = switch (d.status) {
@@ -826,16 +894,16 @@ final class PrAnsicht {
                 case "R" -> E_INFO;
                 default -> E_WARN;
             };
-            s.text(cw, yy, d.status, g ? E_GRUND : stf);
+            s.text(cw, yy, d.status, gv ? E_GRUND : stf);
             String p = d.pfad();
             String name = p.substring(p.lastIndexOf('/') + 1), ordner = p.contains("/") ? p.substring(0, p.lastIndexOf('/')) : "";
             String zahl = "+" + d.plus + " -" + d.minus + (d.kommentare > 0 ? "  " + d.kommentare + "K" : "");
             int zx = sw - s.textWidth(zahl) - cw;
             s.clip(0, yy, zx - cw, lh);
-            int nx = s.text(3 * cw, yy, name, g ? E_GRUND : E_HELL);
-            if (!ordner.isEmpty()) s.text(nx + cw, yy, ordner, g ? E_LEISTE : E_MATT);
+            int nx = s.text(3 * cw, yy, name, gv ? E_GRUND : E_HELL);
+            if (!ordner.isEmpty()) s.text(nx + cw, yy, ordner, gv ? E_LEISTE : E_MATT);
             s.clip(0, fy, sw - 2, y1 - fy);
-            s.text(zx, yy, zahl, g ? E_GRUND : d.kommentare > 0 ? E_WARN : E_MATT);
+            s.text(zx, yy, zahl, gv ? E_GRUND : d.kommentare > 0 ? E_WARN : E_MATT);
         }
         s.noClip();
         s.rect(sw - 2, top, 2, y1 - top, E_MATT);
@@ -863,8 +931,10 @@ final class PrAnsicht {
             s.text(mx + mw - s.textWidth(z), ky + 2, z, E_MATT);
             ky += lh + 4;
             String la = lokal ? lokAlt : Json.str(Json.get(pr, "target")), ln = lokal ? lokNeu : Json.str(Json.get(pr, "source"));
-            s.text(mx, ky, d.status.equals("A") ? "(neu)" : "vorher (" + la + ")", E_MATT);
-            s.text(mx + pw + cw, ky, d.status.equals("D") ? "(geloescht)" : "nachher (" + ln + ")", E_MATT);
+            if (fenster == 1) s.rect(mx - cw / 2, ky, pw + cw / 2, lh, E_TEXT);
+            if (fenster == 2) s.rect(mx + pw + cw / 2, ky, pw + cw / 2, lh, E_TEXT);
+            s.text(mx, ky, d.status.equals("A") ? "(neu)" : "vorher (" + la + ")", fenster == 1 ? E_GRUND : E_MATT);
+            s.text(mx + pw + cw, ky, d.status.equals("D") ? "(geloescht)" : "nachher (" + ln + ")", fenster == 2 ? E_GRUND : E_MATT);
             ky += lh;
         }
         int hy = ky + 2;
@@ -886,6 +956,10 @@ final class PrAnsicht {
             Zeile z = l.get(i);
             int h = hoehe(z);
             boolean g = i == zeile;
+            if (anker >= 0 && i >= Math.min(anker, zeile) && i <= Math.max(anker, zeile) && fenster > 0) {
+                if (wahl == 0) s.rect(mx - cw / 2, yy, mw + cw, h * lh, Editor.E_AUSWAHL);
+                else s.rect(fenster == 1 ? mx : mx + pw + cw, yy, pw, h * lh, Editor.E_AUSWAHL);
+            }
             zeileMalen(s, d, z, yy, h, g);
             yy += h * lh;
         }
@@ -927,16 +1001,25 @@ final class PrAnsicht {
                 // Code: links alt, rechts neu
                 int gl = z.art == WEG || z.art == PAAR ? GRUND_WEG : z.art == NEU ? LUECKE : 0;
                 int gr = z.art == NEU || z.art == PAAR ? GRUND_NEU : z.art == WEG ? LUECKE : 0;
-                if (gl != 0) s.rect(lx, y, pw, h * lh, gl);
-                if (gr != 0) s.rect(rx, y, pw, h * lh, gr);
+                boolean auswahl = anker >= 0 && fenster > 0;
+                if (gl != 0 && !(auswahl && fenster == 1 && inAuswahl(z))) s.rect(lx, y, pw, h * lh, gl);
+                if (gr != 0 && !(auswahl && fenster == 2 && inAuswahl(z))) s.rect(rx, y, pw, h * lh, gr);
                 if (g) {
                     s.rect(mx - cw, y, cw / 3, h * lh, E_HELL);
                     s.frame(lx, y, mw, h * lh, 0x2F6A3F);
+                    // Seite mit dem Fokus hell umrandet
+                    if (fenster == 1) s.frame(lx, y, pw, h * lh, E_HELL);
+                    if (fenster == 2) s.frame(rx, y, pw, h * lh, E_HELL);
                 }
                 seite(s, z.alt, z.art == NEU ? null : z.links, z.markL, d.farbenL, z.offL, lx, y, z.art == WEG || z.art == PAAR ? '-' : ' ', g);
                 seite(s, z.neu, z.art == WEG ? null : z.rechts, z.markR, d.farbenR, z.offR, rx, y, z.art == NEU || z.art == PAAR ? '+' : ' ', g);
             }
         }
+    }
+
+    private boolean inAuswahl(Zeile z) {
+        int i = datei().zeilen.indexOf(z);
+        return i >= Math.min(anker, zeile) && i <= Math.max(anker, zeile);
     }
 
     private void seite(Screen s, int nr, String text, boolean[] mark, byte[] farben, int off, int x, int y, char zeichen, boolean g) {
@@ -986,6 +1069,36 @@ final class PrAnsicht {
             }
         }
         return r;
+    }
+
+    static final String[] FENSTER = {"Fenster: Dateiliste (j/k Datei, ENTER hinein)", "Fenster: vorher", "Fenster: nachher"};
+
+    /**
+     * Strg+C Ziffer: in der Dateiliste der Pfad, sonst die Zeile unter dem Cursor bzw. die Auswahl der Seite mit dem
+     * Fokus (vorher: alte Zeilen, nachher: neue); Kommentare mit ihrem Text. Danach ist die Auswahl weg.
+     */
+    String kopierText() {
+        if (dateien.isEmpty()) return null;
+        if (fenster == 0) return wahl == 0 ? null : datei().pfad();
+        List<Zeile> l = datei().zeilen;
+        if (l.isEmpty()) return null;
+        int a = anker >= 0 ? Math.min(anker, zeile) : zeile, e = anker >= 0 ? Math.max(anker, zeile) : zeile;
+        StringBuilder b = new StringBuilder();
+        for (int i = Math.max(0, a); i <= e && i < l.size(); i++) {
+            Zeile z = l.get(i);
+            switch (z.art) {
+                case KOMMENTAR -> b.append(z.kom.text()).append('\n');
+                case TEXT -> b.append(z.links).append('\n');
+                case HUNK, LEER -> {
+                }
+                default -> {
+                    if (fenster == 1 && z.art != NEU) b.append(z.links).append('\n');
+                    if (fenster == 2 && z.art != WEG) b.append(z.rechts).append('\n');
+                }
+            }
+        }
+        anker = -1;
+        return b.toString();
     }
 
     /** Pfad der gewaehlten Datei (null in der Uebersicht) */

@@ -265,7 +265,9 @@ Bearer-Token.
   | `e` | Reviewer ändern: Liste aller Benutzer, ENTER wählt an/ab, tippen filtert/sucht, „übernehmen“ speichert |
   | `u` | Datei zurücksetzen: die gewählte Datei bekommt den Stand des Ziel-Branchs (gibt es sie dort nicht, wird sie gelöscht) und wird auf dem lokalen Quell-Branch committet – nur wenn der Quell-Branch ausgecheckt ist und die Datei lokal denselben Stand hat wie im Pull Request; danach Leertaste g P zum Pushen |
   | `j`/`k`, `Strg+D`/`Strg+U`, `gg`/`G` | bewegen |
-  | `TAB` / `Shift+TAB`, `0` | nächste/vorige Datei, Übersicht |
+  | `TAB` / `Shift+TAB` | nächstes/voriges Fenster: Dateiliste, vorher (links), nachher (rechts); das aktive ist hell markiert. In der Dateiliste wählen `j`/`k` die Datei, ENTER springt hinein |
+  | `]f` / `[f`, `0` | nächste/vorige Datei, Übersicht |
+  | `v`, `Strg+C Ziffer`, `y` | Zeilen auswählen (`j`/`k` erweitern, ESC hebt auf), dann in eine Speicherbank bzw. mit `y` in die Zwischenablage kopieren. Ohne Auswahl wird die Zeile unter dem Cursor kopiert. Vorher kopiert die alten Zeilen, nachher die neuen; in der Dateiliste den Pfad, auf einem Kommentar dessen Text. Gilt auch beim Vergleich mit einem Commit (Leertaste g d) |
   | `n` / `p` | nächste/vorige Änderung (auch über Dateien) |
   | `]k` / `[k` | nächster/voriger Kommentar |
   | `r`, `o`, `q` | neu laden, im Browser, zurück zur Liste |

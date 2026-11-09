@@ -1582,6 +1582,7 @@ final class Editor {
             case "result" -> t = wz.tabellenText();
             case "debug" -> t = wz.dbg.kopierText();
             case "openapi" -> t = oa.kopierText();
+            case "prdiff" -> t = prAnsicht.kopierText();
             default -> {
             }
         }
