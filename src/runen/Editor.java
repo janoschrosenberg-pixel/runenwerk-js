@@ -970,6 +970,48 @@ final class Editor {
         reg("terminalInterrupt", a -> {
             if (d().term != null) d().term.abbrechen();
         });
+        /** @binding Terminal: vervollstaendigt das Wort am Cursor (Pfade, Befehle, git, npm, Maven); mehrere Treffer: Liste */
+        reg("terminalComplete", a -> {
+            Terminal t = d().term;
+            if (t == null) return;
+            String m = t.vervollstaendigen();
+            if (m != null) meldung = m;
+            if (t.listeOffen) modus = "termcomplete";
+        });
+        /** @binding Terminal-Vervollstaendigung: naechster Vorschlag */
+        reg("terminalCompleteNext", a -> {
+            if (d().term != null) d().term.waehlen(1);
+        });
+        /** @binding Terminal-Vervollstaendigung: voriger Vorschlag */
+        reg("terminalCompletePrev", a -> {
+            if (d().term != null) d().term.waehlen(-1);
+        });
+        /** @binding Terminal-Vervollstaendigung: uebernimmt den Vorschlag */
+        reg("terminalCompleteAccept", a -> {
+            if (d().term != null) d().term.nehmen();
+            termListeZu();
+        });
+        /** @binding Terminal-Vervollstaendigung: schliesst die Liste */
+        reg("terminalCompleteClose", a -> {
+            if (d().term != null) d().term.listeOffen = false;
+            termListeZu();
+        });
+        /** @binding Terminal-Vervollstaendigung: tippt das Zeichen und sucht neu */
+        reg("terminalCompleteChar", a -> {
+            Terminal t = d().term;
+            if (t == null) return;
+            t.zeichen(a);
+            t.listeNeu();
+            termListeZu();
+        });
+        /** @binding Terminal-Vervollstaendigung: loescht das Zeichen vor dem Cursor und sucht neu */
+        reg("terminalCompleteBackspace", a -> {
+            Terminal t = d().term;
+            if (t == null) return;
+            t.zurueck();
+            t.listeNeu();
+            termListeZu();
+        });
         /** @binding Terminal: Ausgabe nach oben rollen */
         reg("terminalScrollUp", a -> d().oben = Math.max(0, d().oben - 3));
         /** @binding Terminal: Ausgabe nach unten rollen */
@@ -2503,7 +2545,7 @@ final class Editor {
         if (term) {
             // letzte Zeile: Eingabe; im Terminal-Mode folgt die Ansicht der Ausgabe
             n = Math.max(1, n - 1);
-            if (modus.equals("terminal")) d.cursor = d.t.length();
+            if (modus.equals("terminal") || modus.equals("termcomplete")) d.cursor = d.t.length();
         }
         int cz = d.zeileVon(d.cursor);
         int rand = rand(d);
@@ -2633,11 +2675,12 @@ final class Editor {
                 int ab = Math.max(0, d.term.eingabeCursor - platz + 1);
                 scr.clip(x0, y, W - x0, lh);
                 scr.text(x0, y, e.substring(Math.min(ab, e.length())), E_TEXT);
-                if (modus.equals("terminal")) scr.rect(x0 + (d.term.eingabeCursor - ab) * cw, y + 1, Math.max(2, cw / 5), lh - 2, E_HELL);
+                if (modus.equals("terminal") || modus.equals("termcomplete")) scr.rect(x0 + (d.term.eingabeCursor - ab) * cw, y + 1, Math.max(2, cw / 5), lh - 2, E_HELL);
                 scr.noClip();
+                if (modus.equals("termcomplete") && d.term.listeOffen) termListeMalen(d.term, x0 + Math.max(0, d.term.wortAnf - ab) * cw, y);
             }
             // ------------------------------------------------ Cursor
-            if ((!konsoleOffen || !modus.equals("console")) && !modus.equals("terminal")) {
+            if ((!konsoleOffen || !modus.equals("console")) && !modus.equals("terminal") && !modus.equals("termcomplete")) {
                 int cx = tx + (cs - d.links - (cz == d.versatzZeile ? d.zeileVersatz : 0)) * cw;
                 int cy = oben + (cz - d.oben) * lh;
                 if (modus.equals("insert") || modus.equals("complete")) {
@@ -2726,6 +2769,46 @@ final class Editor {
         meldungFarbe = meldung == null ? E_WARN : meldungFarbe;
     }
 
+    /** zurueck in den Terminal-Mode, sobald die Vorschlagsliste zu ist */
+    private void termListeZu() {
+        if (d().term == null || !d().term.listeOffen) {
+            if (modus.equals("termcomplete")) modus = "terminal";
+        }
+    }
+
+    /** Vorschlagsliste der Terminal-Eingabe, ueber der Eingabezeile (x = Anfang des Wortes) */
+    private void termListeMalen(Terminal t, int x, int yZeile) {
+        int cw = scr.cw, lh = scr.lh;
+        List<TermVervollst.Vorschlag> l = t.liste;
+        int n = Math.min(12, l.size());
+        if (n == 0) return;
+        int breite = 24;
+        for (TermVervollst.Vorschlag v : l.subList(0, Math.min(300, l.size()))) {
+            breite = Math.max(breite, v.zeige().length() + (v.detail().isEmpty() ? 0 : Math.min(50, v.detail().length()) + 3));
+        }
+        breite = Math.min(breite + 4, scr.w / cw - 4);
+        int w = breite * cw, h = n * lh + 8 + (l.size() > n ? lh : 0);
+        if (x + w > scr.w - 8) x = Math.max(8, scr.w - 8 - w);
+        int y = Math.max(0, yZeile - h - 2);
+        kasten(x, y, w, h);
+        int oben = Math.max(0, Math.min(t.wahl - n / 2, l.size() - n));
+        scr.clip(x, y, w, h);
+        for (int k = 0; k < n; k++) {
+            int i = oben + k;
+            TermVervollst.Vorschlag v = l.get(i);
+            int zy = y + 4 + k * lh;
+            boolean an = i == t.wahl;
+            if (an) scr.rect(x + 3, zy, w - 6, lh, E_TEXT);
+            scr.text(x + cw, zy, String.valueOf(v.art()), an ? E_GRUND : E_INFO);
+            scr.text(x + 3 * cw, zy, v.zeige(), an ? E_GRUND : v.art() == 'd' ? E_HELL : E_TEXT);
+            String dt = v.detail().replace('\n', ' ');
+            if (dt.length() > 50) dt = dt.substring(0, 49) + "~";
+            if (!dt.isEmpty()) scr.text(x + w - cw - scr.textWidth(dt), zy, dt, an ? E_GRUND : E_MATT);
+        }
+        if (l.size() > n) scr.text(x + cw, y + 4 + n * lh, (t.wahl + 1) + "/" + l.size() + "   TAB weiter  ENTER nehmen  ESC zu", E_MATT);
+        scr.noClip();
+    }
+
     /** Farbe des Tastaturlayouts in der Statuszeile */
     int layoutFarbe() {
         return switch (tb.basis) {
@@ -2746,7 +2829,7 @@ final class Editor {
             case "operator" -> "NORMAL " + vim.op;
             case "result" -> "ERGEBNIS";
             case "debug" -> "DEBUG";
-            case "terminal" -> "TERMINAL";
+            case "terminal", "termcomplete" -> "TERMINAL";
             case "gitstatus" -> "GIT";
             case "merge" -> "MERGE";
             case "openapi" -> "OPENAPI";

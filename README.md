@@ -260,6 +260,26 @@ Verlauf, Strg+H/L bewegen in der Zeile, Strg+C bricht den laufenden Befehl ab, E
 Shell (Windows `cmd.exe`, sonst die Login-Shell), `cd` und Variablen bleiben erhalten. Ohne Pseudo-Terminal laufen
 Zeilenprogramme (`npm test`, `git log`, `mvn …`), aber keine Vollbildprogramme wie `vim` oder `top`.
 
+**TAB vervollständigt** das Wort am Cursor:
+
+- **Befehle** aus dem PATH und Shell-Befehle wie `cd` oder `export`
+- **Pfade** relativ zum aktuellen Ordner der Shell, auch `~/`
+  - Leerzeichen werden mit `\` geschützt, angefangene Anführungszeichen bleiben
+  - versteckte Dateien erscheinen nur, wenn das Wort mit `.` beginnt
+  - `cd` schlägt nur Ordner vor
+- **git**: Unterbefehle und Aliase, Branches und Tags (`checkout`, `switch`, `merge`, `rebase`, `log`, `diff`, …), Remotes bei `push`/`pull`
+- **npm/pnpm/yarn**: Skripte aus `package.json` (`npm run …`), im Vorschlag steht der Befehl des Skripts
+- **mvn**: Phasen und gängige Goals, Profile aus `pom.xml` (`-P…`, auch mit Kommas)
+
+Ein Treffer wird gleich eingesetzt. Bei mehreren setzt TAB den gemeinsamen Anfang ein und öffnet eine Liste über der
+Eingabezeile:
+
+- TAB, ↓ oder Strg+N/J gehen weiter; Shift+TAB, ↑ oder Strg+P/K zurück
+- ENTER übernimmt den gewählten Eintrag, ESC schließt die Liste
+- Weitertippen filtert die Liste; nach `/` zeigt sie den Inhalt dieses Ordners
+
+Die Tasten der Liste stehen in `mode termcomplete` der `keymap.config`.
+
 ## Formatieren: `Leertaste f`
 
 - TypeScript/JavaScript mit **prettier** (`ts.format`, Vorgabe `prettier --stdin-filepath {file}`; installieren mit

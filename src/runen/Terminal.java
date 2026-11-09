@@ -266,6 +266,71 @@ final class Terminal {
         eingabeCursor = Math.min(eingabe.length(), eingabeCursor + 1);
     }
 
+    // ---------------------------------------------------------------- Vervollstaendigung (TAB)
+    /** offene Vorschlagsliste ueber der Eingabezeile */
+    List<TermVervollst.Vorschlag> liste = List.of();
+    int wahl;
+    boolean listeOffen;
+    /** Anfang des vervollstaendigten Wortes in der Eingabe, sein Anfuehrungszeichen */
+    int wortAnf;
+    private char wortQuote;
+
+    /** TAB: eindeutig - einsetzen; mehrere - gemeinsamen Anfang einsetzen und die Liste oeffnen; Rueckgabe: Meldung oder null */
+    String vervollstaendigen() {
+        TermVervollst.Wort w = TermVervollst.wort(eingabe.toString(), eingabeCursor);
+        List<TermVervollst.Vorschlag> l = TermVervollst.vorschlaege(w, ordner);
+        wortAnf = w.anf();
+        wortQuote = w.quote();
+        if (l.isEmpty()) {
+            listeOffen = false;
+            return "keine Vorschlaege fuer \"" + w.wert() + "\"";
+        }
+        if (l.size() == 1) {
+            einsetzen(l.get(0));
+            return null;
+        }
+        String g = TermVervollst.gemeinsam(l);
+        if (g.length() > w.wert().length()) ersetzen(TermVervollst.roh(g, wortQuote, false));
+        liste = l;
+        wahl = 0;
+        listeOffen = true;
+        return null;
+    }
+
+    /** nach getipptem Zeichen/BACKSPACE: Liste neu (im Ordner nach / dessen Inhalt); leer oder Leerzeichen schliesst sie */
+    void listeNeu() {
+        TermVervollst.Wort w = TermVervollst.wort(eingabe.toString(), eingabeCursor);
+        if (w.anf() != wortAnf && !(w.wert().isEmpty() && eingabeCursor == wortAnf)) {
+            listeOffen = false;
+            return;
+        }
+        List<TermVervollst.Vorschlag> l = TermVervollst.vorschlaege(w, ordner);
+        listeOffen = !l.isEmpty() && !(l.size() == 1 && l.get(0).wert().equals(w.wert()));
+        liste = l;
+        wahl = 0;
+    }
+
+    void waehlen(int d) {
+        if (liste.isEmpty()) return;
+        wahl = Math.floorMod(wahl + d, liste.size());
+    }
+
+    void nehmen() {
+        if (listeOffen && !liste.isEmpty()) einsetzen(liste.get(wahl));
+        listeOffen = false;
+    }
+
+    private void einsetzen(TermVervollst.Vorschlag v) {
+        ersetzen(TermVervollst.roh(v.wert(), wortQuote, v.fertig()) + (v.fertig() && (eingabeCursor >= eingabe.length() || eingabe.charAt(eingabeCursor) != ' ') ? " " : ""));
+        listeOffen = false;
+    }
+
+    /** Wort vom Anfang bis zum Cursor ersetzen */
+    private void ersetzen(String roh) {
+        eingabe.replace(wortAnf, eingabeCursor, roh);
+        eingabeCursor = wortAnf + roh.length();
+    }
+
     void verlauf(int d) {
         if (verlauf.isEmpty()) return;
         verlaufPos = Math.max(0, Math.min(verlauf.size(), verlaufPos + d));
