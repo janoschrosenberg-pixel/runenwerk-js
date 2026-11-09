@@ -194,6 +194,7 @@ final class FileManager {
         }
         ergebnis = true;
         String ql = q.toLowerCase().replace('\\', '/').replace(" ", "");
+        java.util.regex.Pattern muster = Indexer.platzhalter(ql) ? Indexer.muster(ql) : null;
         Panel l = erg[0];
         l.e.clear();
         l.cursor = 0;
@@ -203,8 +204,12 @@ final class FileManager {
             e.name = d.rel();
             e.pfad = d.pfad();
             e.groesse = d.groesse();
-            e.wo = new int[ql.length()];
-            Indexer.bewerten(d.relKlein(), ql, e.wo);
+            if (muster != null) {
+                e.wo = Indexer.musterStellen(d.relKlein(), muster);
+            } else {
+                e.wo = new int[ql.length()];
+                Indexer.bewerten(d.relKlein(), ql, e.wo);
+            }
             l.e.add(e);
         }
         l.titel = "Dateien";

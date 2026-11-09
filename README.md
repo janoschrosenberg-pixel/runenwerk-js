@@ -466,7 +466,7 @@ c.put("scroll", this::rollen);
 
 | Taste | Befehl |
 |---|---|
-| Strg+P | Dateimanager mit Suchfeld: links Dateinamen (Teilfolge), rechts Treffer im Inhalt |
+| Strg+P | Dateimanager mit Suchfeld: links Dateinamen (Teilfolge), rechts Treffer im Inhalt; Platzhalter siehe unten |
 | `:` | Terminal (`open`, `w`, `q`, `workdir`, `run npm test`, `help`, Zeilennummer …) |
 | gd / F12, Strg+O | Definition, zurück |
 | gi / Strg+F12 | zur Implementierung (Interface, abstrakte Methode, auch auf dem Interface-Namen); bei mehreren eine Auswahlliste mit Klasse, Zeile und Datei (tippen filtert, ENTER springt), bei genau einer direkt hin |
@@ -483,6 +483,14 @@ c.put("scroll", this::rollen);
 | Strg+Leertaste | Vorschläge (nach `.` automatisch), mit Auto-Import |
 | F9 / F10 | `npm run build` / `npx tsc --noEmit`, Ausgabe im Terminal |
 | F11 | Vollbild an/aus |
+
+**Platzhalter in der Suche (Strg+P):**
+- Dateinamen:
+  - `*` steht für beliebig viele Zeichen (ohne `/`), `**` auch über Ordner, `?` für genau ein Zeichen.
+  - Beispiele: `*.java`, `*Service` (erst `UserService.java`, dann `ServiceTest.java`), `Kunden*Repo`, `K?sse`, `src/**/Test*.ts`, `test/*/*.json`.
+  - Mit einer Endung (`*.ts`) muss der Name dort enden, `app.tsx` passt also nicht.
+- Inhalt: `*` steht für beliebig viel innerhalb einer Zeile (`get*Id`, `import*List`), `\*` sucht einen echten Stern.
+- Ohne `*` und `?` sucht die Suche wie bisher (Teilfolge im Namen, genauer Text im Inhalt).
 
 Im Dateimanager: `/` oder Strg+F ins Suchfeld, ESC zu den Ergebnissen, TAB reihum Suchfeld – linke Spalte – rechte Spalte (Shift+TAB zurück, Klick ins Suchfeld geht auch),
 ENTER öffnet (bei Inhaltstreffern an der Zeile), F2 neue Datei, F5 kopieren, F6 verschieben,

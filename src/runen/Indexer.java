@@ -21,6 +21,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Dateien im Arbeitsordner: Liste aller Projektdateien (fuer die Namenssuche) und ein
@@ -171,6 +173,22 @@ final class Indexer {
     List<Datei> namenSuchen(String q, int max) {
         String ql = q.toLowerCase().replace('\\', '/').replace(" ", "");
         List<Datei> alle = dateien;
+        if (platzhalter(ql)) {
+            // Muster: kurze Pfade zuerst, dann alphabetisch
+            // Muster: erst die, deren Name genau aufs Muster endet (*Service: UserService.java vor
+            // ServiceTest.java), dann kurze Pfade, dann alphabetisch
+            Pattern m = muster(ql, false), streng = muster(ql, true);
+            List<Datei> r = new ArrayList<>();
+            Set<Datei> genau = new HashSet<>();
+            for (Datei d : alle) {
+                if (!m.matcher(d.relKlein()).matches()) continue;
+                r.add(d);
+                if (streng.matcher(d.relKlein()).matches()) genau.add(d);
+            }
+            r.sort((a, b) -> genau.contains(a) != genau.contains(b) ? (genau.contains(a) ? -1 : 1)
+                    : a.rel().length() != b.rel().length() ? a.rel().length() - b.rel().length() : a.rel().compareTo(b.rel()));
+            return r.size() > max ? new ArrayList<>(r.subList(0, max)) : r;
+        }
         List<int[]> wert = new ArrayList<>();
         for (int k = 0; k < alle.size(); k++) {
             int b = bewerten(alle.get(k).relKlein(), ql, null);
@@ -180,6 +198,90 @@ final class Indexer {
         List<Datei> r = new ArrayList<>();
         for (int k = 0; k < Math.min(max, wert.size()); k++) r.add(alle.get(wert.get(k)[1]));
         return r;
+    }
+
+    // ---------------------------------------------------------------- Platzhalter
+    /** Namenssuche mit * oder ? */
+    static boolean platzhalter(String q) {
+        return q.indexOf('*') >= 0 || q.indexOf('?') >= 0;
+    }
+
+    /**
+     * Dateimuster (kleingeschrieben, / als Trenner) fuer den Dateinamen bzw. das Pfadende (mit /):
+     * * beliebig viele Zeichen ausser /, ** auch ueber Ordner, ? genau ein Zeichen. Endet das Muster
+     * mit einer Endung (*.ts), muss der Name dort enden; sonst darf noch etwas folgen (Kunden*Repo passt
+     * auf KundenRepository.java), streng nur eine Endung (*Service: UserService.java, nicht
+     * ServiceTest.java). Feste Textteile sind Gruppen, fuer die Hervorhebung.
+     */
+    static Pattern muster(String ql) {
+        return muster(ql, false);
+    }
+
+    static Pattern muster(String ql, boolean streng) {
+        StringBuilder b = new StringBuilder("(?:.*/)?");
+        int i = 0, n = ql.length();
+        String letzt = "";
+        while (i < n) {
+            char c = ql.charAt(i);
+            if (c == '*') {
+                boolean zwei = i + 1 < n && ql.charAt(i + 1) == '*';
+                b.append(zwei ? ".*" : "[^/]*");
+                i += zwei ? 2 : 1;
+                // **/ passt auch auf keinen Ordner
+                if (zwei && i < n && ql.charAt(i) == '/') {
+                    b.setLength(b.length() - 2);
+                    b.append("(?:.*/)?");
+                    i++;
+                }
+                letzt = "";
+            } else if (c == '?') {
+                b.append("[^/]");
+                i++;
+                letzt = "";
+            } else {
+                int a = i;
+                while (i < n && ql.charAt(i) != '*' && ql.charAt(i) != '?') i++;
+                letzt = ql.substring(a, i);
+                b.append('(').append(Pattern.quote(letzt)).append(')');
+            }
+        }
+        boolean endung = letzt.lastIndexOf('.') >= 0 && letzt.indexOf('/', letzt.lastIndexOf('.')) < 0;
+        if (!endung) b.append(streng ? "(?:\\.[^/]*)?" : "[^/]*");
+        return Pattern.compile(b.toString());
+    }
+
+    /** Stellen der festen Textteile im Treffer (fuer die Hervorhebung), leer wenn es nicht passt */
+    static int[] musterStellen(String text, Pattern m) {
+        Matcher x = m.matcher(text);
+        if (!x.matches()) return new int[0];
+        List<Integer> l = new ArrayList<>();
+        for (int g = 1; g <= x.groupCount(); g++) for (int k = x.start(g); k < x.end(g); k++) l.add(k);
+        int[] r = new int[l.size()];
+        for (int k = 0; k < r.length; k++) r[k] = l.get(k);
+        return r;
+    }
+
+    /** Inhaltssuche mit *: beliebig viel innerhalb der Zeile (\* sucht einen Stern); null ohne Stern */
+    static Pattern inhaltMuster(String q) {
+        if (q.replace("\\*", "").indexOf('*') < 0 || q.replace("*", "").isBlank()) return null;
+        // Sterne am Anfang und Ende aendern nichts am Treffer, nur an der Markierung: weg damit
+        while (q.startsWith("*")) q = q.substring(1);
+        while (q.endsWith("*") && !q.endsWith("\\*")) q = q.substring(0, q.length() - 1);
+        StringBuilder b = new StringBuilder(), teil = new StringBuilder();
+        for (int i = 0; i < q.length(); i++) {
+            char c = q.charAt(i);
+            if (c == '\\' && i + 1 < q.length() && q.charAt(i + 1) == '*') {
+                teil.append('*');
+                i++;
+            } else if (c == '*') {
+                b.append(Pattern.quote(teil.toString())).append("[^\\n]*?");
+                teil.setLength(0);
+            } else {
+                teil.append(c);
+            }
+        }
+        b.append(Pattern.quote(teil.toString()));
+        return Pattern.compile(b.toString());
     }
 
     // ---------------------------------------------------------------- Inhaltssuche
@@ -245,6 +347,7 @@ final class Indexer {
         sucher.submit(() -> {
             boolean genau = !q.equals(klein(q));
             String ql = genau ? q : klein(q);
+            Pattern muster = inhaltMuster(ql);
             List<Treffer> r = new ArrayList<>();
             int seit = 0;
             long gezeigt = System.currentTimeMillis();
@@ -254,7 +357,8 @@ final class Indexer {
                 if (in == null) continue;
                 String t = in.text();
                 String such = genau ? t : in.klein();
-                int von = such.indexOf(ql);
+                Matcher mm = muster == null ? null : muster.matcher(such);
+                int von = mm == null ? such.indexOf(ql) : mm.find() ? mm.start() : -1;
                 int zeile = 0, zeilAnf = 0, gezaehlt = 0;
                 while (von >= 0 && r.size() < max) {
                     for (int k = gezaehlt; k < von; k++) {
@@ -267,8 +371,10 @@ final class Indexer {
                     int e = t.indexOf('\n', von);
                     if (e < 0) e = t.length();
                     String z = t.substring(zeilAnf, Math.min(e, zeilAnf + 400));
-                    r.add(new Treffer(d.pfad(), d.rel(), zeile, von - zeilAnf, q.length(), z));
-                    von = such.indexOf(ql, e);
+                    int laenge = mm == null ? q.length() : Math.max(1, mm.end() - mm.start());
+                    r.add(new Treffer(d.pfad(), d.rel(), zeile, von - zeilAnf, laenge, z));
+                    if (mm == null) von = such.indexOf(ql, e);
+                    else von = e < such.length() && mm.find(e) ? mm.start() : -1;
                 }
                 if (r.size() >= max) break;
                 // zwischendurch zeigen, was schon da ist
