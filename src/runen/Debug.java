@@ -79,7 +79,9 @@ final class Debug {
                 status = "angehalten" + (grund == null || grund.isEmpty() ? "" : " (" + grund + ")");
                 offen = true;
                 ed.konsoleOffen = false;
+                inspekt = null;
                 frameZeigen();
+                modusAn();
                 ed.neuMalen.run();
             });
         }
@@ -103,7 +105,7 @@ final class Debug {
                 status = "aus";
                 ed.meldung = "Debugger beendet" + (grund == null ? "" : ": " + grund);
                 ed.farbig("[debug] beendet" + (grund == null ? "" : ": " + grund), E_MATT);
-                if (ed.modus.equals("debug")) ed.modus = "normal";
+                modusAus();
                 ed.neuMalen.run();
             });
         }
@@ -164,6 +166,57 @@ final class Debug {
     /** 0 Aufrufstapel, 1 Variablen */
     private int bereich = 1;
     boolean offen;
+    /** im Panel mit ENTER geoeffnete Variable: voller Wert im Kasten */
+    private Var inspekt;
+
+    /** Tasten in der Statuszeile: im Code (Mode debugstep) und im Panel (Mode debug); {Taste, Funktion, kurz} */
+    static final String[][] TASTEN_CODE = {
+            {"n", "drueber", "drue"}, {"i", "hinein", "hin"}, {"o", "heraus", "her"}, {"c", "weiter", "wei"},
+            {"p", "Haltepunkt", "HP"}, {"x", "stop", "x"}, {"TAB", "Variablen", "Var"}, {"S-TAB", "Stapel", "Stap"},
+            {"hjkl", "umsehen", "seh"}, {"ESC", "bearbeiten", "bearb"}};
+    static final String[][] TASTEN_VARS = {
+            {"ENTER", "inspizieren", "insp"}, {"j/k", "waehlen", "wae"}, {"TAB", "Stapel", "Stap"}, {"S-TAB", "Code", "Code"},
+            {"y", "kopieren", "kop"}, {"n", "drueber", "drue"}, {"i", "hinein", "hin"}, {"o", "heraus", "her"},
+            {"c", "weiter", "wei"}, {"x", "stop", "x"}, {"ESC", "Code", "Code"}};
+    static final String[][] TASTEN_STAPEL = {
+            {"ENTER", "Frame zeigen", "Frame"}, {"j/k", "waehlen", "wae"}, {"TAB", "Code", "Code"}, {"S-TAB", "Variablen", "Var"},
+            {"n", "drueber", "drue"}, {"i", "hinein", "hin"}, {"o", "heraus", "her"}, {"c", "weiter", "wei"},
+            {"x", "stop", "x"}, {"ESC", "Code", "Code"}};
+    static final String[][] TASTEN_INSPEKT = {{"ENTER", "schliessen", "zu"}, {"ESC", "schliessen", "zu"}, {"y", "kopieren", "kop"}};
+
+    /** Tasten fuer die Statuszeile im aktuellen Mode, null ausserhalb des Debuggers */
+    String[][] tastenJetzt() {
+        return switch (ed.modus) {
+            case "debugstep" -> TASTEN_CODE;
+            case "debug" -> inspekt != null ? TASTEN_INSPEKT : bereich == 0 ? TASTEN_STAPEL : TASTEN_VARS;
+            default -> null;
+        };
+    }
+
+    /** Anzeige des Modes in der Statuszeile */
+    String modusName() {
+        return ed.modus.equals("debugstep") ? "DEBUG" : bereich == 0 ? "DEBUG STAPEL" : "DEBUG VARIABLEN";
+    }
+
+    /** angehalten: in den Debug-Modus (aus Insert/Visual sauber heraus); offene Dialoge bleiben */
+    private void modusAn() {
+        switch (ed.modus) {
+            case "insert", "replace" -> ed.befehl("switchState", "normal");
+            case "visual", "operator", "char" -> ed.vim.visualEnde();
+            case "normal", "debugstep", "debug", "nurlesen" -> {
+            }
+            default -> {
+                ed.meldung = "Debugger angehalten - Leertaste d s fuer den Debug-Modus";
+                return;
+            }
+        }
+        if (!ed.modus.equals("debug")) ed.modus = "debugstep";
+    }
+
+    private void modusAus() {
+        inspekt = null;
+        if (ed.modus.equals("debug") || ed.modus.equals("debugstep")) ed.modus = "normal";
+    }
     private int stOben, vOben;
 
     Debug(Editor ed) {
@@ -298,7 +351,7 @@ final class Debug {
             b.stop();
             frames = List.of();
             status = "aus";
-            if (ed.modus.equals("debug")) ed.modus = "normal";
+            modusAus();
         });
         /** @binding Oeffnet das Debug-Panel (Aufrufstapel und Variablen) */
         c.put("debugPanel", a -> {
@@ -306,28 +359,76 @@ final class Debug {
             ed.konsoleOffen = false;
             ed.modus = "debug";
         });
-        /** @binding Debug-Panel: zurueck in den Text */
-        c.put("debugBack", a -> ed.modus = "normal");
+        /** @binding Debug-Panel: zurueck in den Code (Debug-Modus, ohne Debugger in den Normal-Mode); schliesst erst die geoeffnete Variable */
+        c.put("debugBack", a -> {
+            if (inspekt != null) inspekt = null;
+            else ed.modus = aktiv() ? "debugstep" : "normal";
+        });
         /** @binding Debug-Panel: schliessen */
         c.put("debugClose", a -> {
             offen = false;
-            if (ed.modus.equals("debug")) ed.modus = "normal";
+            inspekt = null;
+            if (ed.modus.equals("debug")) ed.modus = aktiv() ? "debugstep" : "normal";
         });
-        /** @binding Debug-Panel: zwischen Stapel und Variablen wechseln */
-        c.put("debugSwitch", a -> bereich = 1 - bereich);
+        /** @binding In den Debug-Modus: Schritte mit einzelnen Tasten, Tasten in der Statuszeile */
+        c.put("debugMode", a -> {
+            if (!bereit()) return;
+            offen = true;
+            ed.konsoleOffen = false;
+            ed.modus = "debugstep";
+        });
+        /** @binding Debug-Modus verlassen und den Text bearbeiten (der Debugger bleibt stehen; Leertaste d s zurueck) */
+        c.put("debugLeave", a -> {
+            ed.modus = "normal";
+            ed.meldung = "Debug-Modus verlassen (Leertaste d s zurueck)";
+        });
+        /**
+         * @binding Fenster weiter: Code -> Variablen -> Aufrufstapel -> Code
+         * @binding-arg 1 = vorwaerts
+         * @binding-arg -1 = rueckwaerts
+         */
+        c.put("debugSwitch", a -> {
+            int r = a.trim().equals("-1") ? -1 : 1;
+            // Reihenfolge: 0 Code, 1 Variablen, 2 Stapel
+            int jetzt = !ed.modus.equals("debug") ? 0 : bereich == 1 ? 1 : 2;
+            int neu = Math.floorMod(jetzt + r, 3);
+            inspekt = null;
+            if (neu == 0) {
+                ed.modus = aktiv() ? "debugstep" : "normal";
+                return;
+            }
+            offen = true;
+            ed.konsoleOffen = false;
+            bereich = neu == 1 ? 1 : 0;
+            ed.modus = "debug";
+        });
         /** @binding Debug-Panel: Eintrag runter */
         c.put("debugDown", a -> bewegen(1));
         /** @binding Debug-Panel: Eintrag hoch */
         c.put("debugUp", a -> bewegen(-1));
         /** @binding Debug-Panel: Stapelrahmen zeigen bzw. Variable aufklappen */
         c.put("debugEnter", a -> {
+            if (inspekt != null) {
+                inspekt = null;
+                return;
+            }
             if (bereich == 0) {
                 frameZeigen();
                 return;
             }
             List<Object[]> l = new ArrayList<>();
             flach(vars, 0, l);
-            if (varWahl < l.size()) aufklappen((Var) l.get(varWahl)[0]);
+            if (varWahl >= l.size()) return;
+            Var v = (Var) l.get(varWahl)[0];
+            // Objekte/Listen klappen auf, einfache Werte zeigen den vollen Wert
+            if (v.kannAuf) aufklappen(v);
+            else inspekt = v;
+        });
+        /** @binding Debug-Panel: voller Wert der Variable im Kasten (auch fuer Objekte) */
+        c.put("debugInspect", a -> {
+            List<Object[]> l = new ArrayList<>();
+            flach(vars, 0, l);
+            inspekt = inspekt == null && bereich == 1 && varWahl < l.size() ? (Var) l.get(varWahl)[0] : null;
         });
         /** @binding Debug-Panel: kopiert den Wert der Variable */
         c.put("debugYank", a -> {
@@ -341,12 +442,14 @@ final class Debug {
 
     /** Wert der gewaehlten Variable (Strg+C) */
     String kopierText() {
+        if (inspekt != null) return inspekt.wert;
         List<Object[]> l = new ArrayList<>();
         flach(vars, 0, l);
         return varWahl < l.size() ? ((Var) l.get(varWahl)[0]).wert : null;
     }
 
     private void bewegen(int d) {
+        inspekt = null;
         if (bereich == 0) {
             int alt = frameWahl;
             frameWahl = Math.max(0, Math.min(frames.size() - 1, frameWahl + d));
@@ -363,12 +466,13 @@ final class Debug {
         Screen s = ed.scr;
         int W = s.w, lh = s.lh, cw = s.cw;
         int h = s.h - ed.unten() - 6 - y0;
-        boolean fokus = ed.modus.equals("debug");
+        boolean fokus = ed.modus.equals("debug"), schritt = ed.modus.equals("debugstep");
         s.rect(0, y0, W, h, E_KONSOLE);
-        s.frame(4, y0, W - 8, h, fokus ? E_HELL : E_TEXT);
+        s.frame(4, y0, W - 8, h, fokus || schritt ? E_HELL : E_TEXT);
         s.frame(5, y0 + 1, W - 10, h - 2, E_MATT);
+        // die Tasten stehen im Debug-Modus in der Statuszeile
         String titel = " DEBUG " + (backend == null ? "" : backend.name() + " ") + status
-                + (fokus ? "  (c weiter, n drueber, i hinein, o heraus, x stop, TAB, ENTER, ESC) " : " ");
+                + (fokus || schritt ? " " : "  (Leertaste d s: Debug-Modus) ");
         s.rect(3 * cw, y0 - lh / 2, s.textWidth(titel), lh, E_KONSOLE);
         s.text(3 * cw, y0 - lh / 2, titel, E_HELL);
         int teil = W * 2 / 5;
@@ -416,6 +520,31 @@ final class Debug {
             }
         }
         if (l.isEmpty()) s.text(vx, y + lh + 2, angehalten() ? "..." : "(laeuft - Haltepunkt setzen mit Leertaste d b)", E_MATT);
+        s.noClip();
+        if (inspekt != null && fokus) inspektMalen(teil + 2 * cw, y + lh + 2, W - teil - 4 * cw, h - 3 * lh);
+    }
+
+    /** Kasten mit Name und vollem Wert der Variable (umbrochen) ueber der Variablenliste */
+    private void inspektMalen(int x, int y, int w, int h) {
+        Screen s = ed.scr;
+        int lh = s.lh, cw = s.cw;
+        int spalten = Math.max(10, w / cw - 4);
+        List<String> z = new ArrayList<>();
+        for (String teil : inspekt.wert.split("\\R", -1)) {
+            if (teil.isEmpty()) z.add("");
+            for (int i = 0; i < teil.length(); i += spalten) z.add(teil.substring(i, Math.min(teil.length(), i + spalten)));
+        }
+        int max = Math.max(1, h / lh - 3);
+        boolean mehr = z.size() > max;
+        if (mehr) z = new ArrayList<>(z.subList(0, max - 1));
+        int kh = (z.size() + (mehr ? 3 : 2)) * lh + 8;
+        s.rect(x + 6, y + 6, w, kh, 0x000000);
+        s.rect(x, y, w, kh, E_KONSOLE);
+        s.frame(x, y, w, kh, E_HELL);
+        s.clip(x + 2, y + 2, w - 4, kh - 4);
+        s.text(x + cw, y + 4, inspekt.name + "  (" + inspekt.wert.length() + " Zeichen)", E_WARN);
+        for (int i = 0; i < z.size(); i++) s.text(x + cw, y + 4 + (i + 1) * lh, z.get(i), E_TEXT);
+        if (mehr) s.text(x + cw, y + 4 + (z.size() + 1) * lh, "... (y kopiert den ganzen Wert)", E_MATT);
         s.noClip();
     }
 }

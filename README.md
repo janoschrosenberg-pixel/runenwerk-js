@@ -99,6 +99,25 @@ wählt man aus einer Liste (Java: `java.util` oben, interne JDK-Pakete unten), �
 | F3 / F8 / F7 / Shift+F8 | weiter / Schritt drüber / hinein / heraus (auch Leertaste d c / d n / d i / d o) |
 | Leertaste d x | stoppen (Java: nur trennen, die Anwendung läuft weiter) |
 | Leertaste d p | ins Debug-Panel: links Aufrufstapel, rechts Variablen; `j`/`k`, TAB, ENTER klappt auf bzw. wählt den Frame, `y` kopiert, ESC zurück |
+| Leertaste d s | zurück in den Debug-Modus (nach ESC) |
+
+**Debug-Modus:** Hält der Debugger an (Haltepunkt, Schritt), öffnet der Editor die Datei als Tab (falls noch nicht offen),
+springt in die Zeile und wechselt in den Mode `DEBUG`. Die Statuszeile zeigt dann alle Tasten:
+
+| Taste | im Code (`DEBUG`) |
+|---|---|
+| `n` / `i` / `o` | Schritt drüber / hinein / heraus (auch F8 / F7 / Shift+F8) |
+| `c` | weiter bis zum nächsten Haltepunkt (auch F3) |
+| `p` | Haltepunkt in der Cursorzeile an/aus |
+| `x` | Debugger stoppen |
+| `h j k l`, `w b`, `gg G`, `Strg+D` … | im Code umsehen (Text bleibt unverändert) |
+| TAB / Shift+TAB | ins Variablen- bzw. Aufrufstapel-Fenster |
+| ESC | Debug-Modus verlassen und Text bearbeiten, der Debugger bleibt stehen (`Leertaste d s` zurück) |
+
+Im Variablen-Fenster (`DEBUG VARIABLEN`) wählt `j`/`k`, ENTER klappt Objekte und Listen auf bzw. zu und zeigt einfache
+Werte vollständig in einem Kasten (`K` auch für Objekte), `y` kopiert den Wert. TAB wechselt weiter in den Aufrufstapel
+(ENTER zeigt den Frame), noch einmal TAB zurück in den Code; ESC geht direkt in den Code. Schritte (`n i o c x`) gehen
+auch aus den Fenstern.
 
 Java nutzt JDI aus dem JDK (der Editor muss also mit einem JDK laufen, nicht nur mit einer JRE) und verbindet sich per
 JDWP mit Java 21. JS/TS nutzt js-debug von Microsoft (Node und Chrome, Source Maps); beim ersten Start bietet der

@@ -2822,7 +2822,8 @@ final class Editor {
         scr.rect(0, sy, W, unten(), E_LEISTE);
         String m = " " + modusAnzeige() + " ";
         int mw = scr.textWidth(m);
-        int mf = modus.equals("insert") || modus.equals("replace") ? E_WARN : modus.equals("console") ? E_HELL : visuell ? E_INFO : E_TEXT;
+        int mf = modus.equals("insert") || modus.equals("replace") ? E_WARN : modus.equals("console") ? E_HELL : visuell ? E_INFO
+                : modus.startsWith("debug") ? E_FEHLER : E_TEXT;
         int my = sy + (unten() - lh) / 2;
         scr.rect(0, sy, mw, unten(), mf);
         scr.text(0, my, m, E_GRUND);
@@ -2838,7 +2839,7 @@ final class Editor {
             return;
         }
         // Ansichten mit eigenen Tasten: statt Pfad und Position alle Tasten mit ihrer Funktion
-        String[][] tasten = prAnsicht.sichtbar() ? prAnsicht.tastenJetzt() : modus.equals("pullrequests") ? Scm.TASTEN : null;
+        String[][] tasten = prAnsicht.sichtbar() ? prAnsicht.tastenJetzt() : modus.equals("pullrequests") ? Scm.TASTEN : wz.dbg.tastenJetzt();
         if (tasten != null) {
             tastenMalen(tasten, mw + cw, sy, my);
             return;
@@ -2939,7 +2940,7 @@ final class Editor {
             case "normal" -> "NORMAL";
             case "operator" -> "NORMAL " + vim.op;
             case "result" -> "ERGEBNIS";
-            case "debug" -> "DEBUG";
+            case "debug", "debugstep" -> wz.dbg.modusName();
             case "terminal", "termcomplete" -> "TERMINAL";
             case "gitstatus" -> "GIT";
             case "merge" -> "MERGE";
