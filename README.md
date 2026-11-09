@@ -55,7 +55,7 @@ tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.
 (Staatsfeind Nr. 1):
 
 - Farben: Nachtblau mit Cyan, Warnungen bernstein und rot, Raster und Scanlines im Hintergrund
-- Kopfleiste: Kennung `RUNENWERK//JS`, nummerierte Tabs `[1] …`, blinkendes `LIVE`, Uhr, Lineal darunter
+- Kopfleiste: Kennung `RUNENWERK//JS`, nummerierte Tabs `[1] …`, Uhr, Lineal darunter
 - Textbereich: Eckwinkel um den Text, Zeilennummern mit Nullen (`0042`), Bildlauf-Anzeige rechts mit Prozent
 - Statuszeile: `LN 0042 COL 012`
 - Fenster: Eckwinkel in Bernstein
@@ -346,7 +346,8 @@ Die Vorgabe-Keymap ist Vim, gebaut aus denselben Bausteinen wie alles andere (um
 - **Zähler** vor allem: `3j`, `5x`, `2dw`, `d3w`, `3p`, `3ifoo<ESC>`, `10G`, `50%`
 - **Bewegungen**: `h j k l w W b B e E ge gE 0 ^ $ _ + - gg G H M L f t F T ; , % { } n N` sowie `'a` und `` `a ``
 - **Operatoren** (Mode `operator`): `d c y > < gu gU g~`, doppelt für ganze Zeilen (`dd cc yy >> guu`)
-- **Textobjekte**: `iw aw iW aW i" a" i' a' i` a` i( a( ib i{ a{ iB i[ a[ i< a< it at ip ap`
+- **Textobjekte**: `iw aw iW aW i" a" i' a' i` a` i( a( ib i{ a{ iB i[ a[ i< a< it at ip ap am im af if`
+- **Methode markieren**: `vam` waehlt die ganze Methode/Funktion um den Cursor (mit Javadoc, Kommentaren und Annotationen darueber), `vim` nur den Rumpf; nochmal `am` in der Auswahl nimmt die naechst aeussere Methode. Steht der Cursor im Kopf, in der Javadoc oder auf einer Annotation, gilt die Methode darunter. Geht auch mit Operatoren: `dam`, `yam`, `cim`, `>am`. Java, JavaScript und TypeScript (auch Pfeilfunktionen und Lambdas, wenn keine Methode drumherum liegt); `af`/`if` sind gleichwertig
 - **Kurzformen**: `x X s S C D Y p P r R ~ J gJ Strg+A Strg+X`
 - **Visual**: `v`, `V`, `Strg+V` (Block mit `I`, `A`, `$A`, `c`, `d`, `y`, `r`, `~`), `o`, `gv`, `p` ersetzt die Auswahl, `:` gibt `'<,'>`
 - **Register** `"a`–`"z` (`"A` hängt an), `"0`, `"1`–`"9`, `"-`, `"_`, `"+`; `:reg`

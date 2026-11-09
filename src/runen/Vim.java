@@ -733,6 +733,25 @@ final class Vim {
                 if (r == null) return null;
                 return innen ? new int[] {r[1], r[2], 0} : new int[] {r[0], r[3], 0};
             }
+            case "m", "f": {
+                // ganze Methode (am) oder Rumpf (im); erneut in einer Auswahl: die naechst aeussere
+                int sa = -1, se = -1;
+                if (visArt != 0) {
+                    sa = Math.min(anker, p);
+                    se = Math.max(anker, p) + 1;
+                    if (visArt == 2) {
+                        sa = d.anf(d.zeileVon(sa));
+                        se = d.ende(d.zeileVon(se - 1));
+                    }
+                }
+                int[] letzt = null;
+                for (int stufe = 0; ; stufe++) {
+                    int[] r = Methode.objekt(d, p, innen, stufe);
+                    if (r == null) return letzt;
+                    if (visArt == 0 || r[0] < sa || r[1] > se) return r;
+                    letzt = r;
+                }
+            }
             case "p": {
                 int z = d.zeileVon(p), zn = d.zeilen();
                 boolean l = leer(d, z);

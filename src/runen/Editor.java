@@ -2594,10 +2594,10 @@ final class Editor {
         int maxR = Math.max(10, W / cw / 3);
         if (rechts.length() > maxR) rechts = "~" + rechts.substring(rechts.length() - maxR + 1);
         rechts += "  ";
-        // HUD: Uhr und blinkendes LIVE rechts, Kennung links, Lineal unter der Leiste
+        // HUD: Uhr rechts, Kennung links, Lineal unter der Leiste
         String uhr = HUD ? java.time.LocalTime.now().withNano(0).toString() + " " : "";
         if (HUD && uhr.length() == 6) uhr = uhr.trim() + ":00 ";
-        int uw = HUD ? scr.textWidth(" * LIVE  " + uhr) : 0;
+        int uw = HUD ? scr.textWidth("  " + uhr) : 0;
         int rx = W - scr.textWidth(rechts) - 8 - uw;
         int x;
         if (HUD) {
@@ -2607,9 +2607,7 @@ final class Editor {
             scr.text(0, ty, kennung, E_GRUND);
             x = kw + cw;
             int ux = W - uw - 4;
-            if (blinkAn || !blinken) scr.rect(ux + cw + cw / 4, ty + lh / 2 - cw / 3, cw / 2 + 1, cw / 2 + 1, E_FEHLER);
-            scr.text(ux + 2 * cw, ty, " LIVE", E_FEHLER);
-            scr.text(ux + scr.textWidth(" * LIVE  "), ty, uhr, E_AKZENT);
+            scr.text(ux + scr.textWidth("  "), ty, uhr, E_AKZENT);
             for (int t = 0, k = 0; t < W; t += cw, k++) scr.rect(t, bh + 2, 1, k % 16 == 0 ? 4 : k % 4 == 0 ? 3 : 1, k % 4 == 0 ? E_TEXT : E_MATT);
         } else {
             x = scr.text(8, ty, ">> ", E_MATT);
