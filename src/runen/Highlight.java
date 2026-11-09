@@ -57,6 +57,7 @@ final class Highlight {
         if (sprache.equals("sql")) return sql(s);
         if (sprache.equals("yaml")) return yaml(s);
         if (sprache.equals("diff")) return diff(s);
+        if (sprache.equals("log")) return Ausgabe.faerben(s, null);
         if (sprache.equals("java")) return faerben(s, false, true);
         return faerben(s, sprache.endsWith("react") || sprache.equals("javascript"), false);
     }

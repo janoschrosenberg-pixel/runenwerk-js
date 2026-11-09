@@ -54,12 +54,28 @@ tragen sie in `config.txt` ein. Die Hervorhebung richtet sich nach der Datei (`.
 **Aussehen** (`look` in config.txt): Vorgabe ist `hacker`, im Stil der Überwachungsmonitore aus den Hackerfilmen der 90er
 (Staatsfeind Nr. 1):
 
-- Farben: Nachtblau mit Cyan, Warnungen bernstein und rot, Raster und Scanlines im Hintergrund
+- Farben: Nachtblau mit Cyan, Warnungen bernstein und rot, schlichter Hintergrund
 - Kopfleiste: Kennung `RUNENWERK//JS`, nummerierte Tabs `[1] …`, Uhr, Lineal darunter
 - Textbereich: Eckwinkel um den Text, Zeilennummern mit Nullen (`0042`), Bildlauf-Anzeige rechts mit Prozent
 - Statuszeile: `LN 0042 COL 012`
 - Fenster: Eckwinkel in Bernstein
 - Blinkender Cursor (`cursor.blink = off` schaltet das ab)
+
+**Gehaltene Tasten** (`j`, Pfeile) laufen ohne Nachziehen:
+- Der Editor zeichnet erst, wenn keine Tasten mehr warten, und lässt zwischen zwei Bildern Zeit für die Eingabe.
+- Die Eingabemethoden des Systems sind aus (`tasten.eingabemethode = off`). Sonst fragt macOS bei jeder Taste synchron
+  nach, und Tastenwiederholungen stauen sich, solange ein Bild entsteht.
+- Umlaute, tote Tasten und Option-/AltGr-Zeichen gehen trotzdem. Wer das Akzent-Popup beim Halten oder eine asiatische
+  Eingabe braucht, setzt `tasten.eingabemethode = on`.
+
+**Ausgaben farbig** (Terminal-Tabs, `.log`-Dateien):
+- Maven: `[INFO]` blau, `[WARNING]` gelb, `[ERROR]` rot; Abschnitte (`--- plugin:goal`, `Building`) lila; BUILD SUCCESS grün,
+  BUILD FAILURE rot; Downloads und Trennlinien gedimmt; `Tests run:` grün ohne Fehler, sonst rot.
+- Logzeilen (Spring Boot, logback, log4j): Zeit, PID und Logger gedimmt, Level farbig, die Meldung bei WARN gelb und bei
+  ERROR rot.
+- Stacktraces: die Exception und `Caused by:` rot; Zeilen aus dem eigenen Code hell mit `Datei:Zeile` hervorgehoben;
+  JDK, Spring, Bibliotheken und `node_modules` gedimmt.
+- npm, tsc, javac: Fehler rot, Warnungen gelb, `Datei:Zeile` hervorgehoben.
 
 `look = gruen` bringt die frühere Phosphor-Optik zurück.
 
@@ -468,7 +484,7 @@ c.put("scroll", this::rollen);
 |---|---|
 | Strg+P | Dateimanager mit Suchfeld: links Dateinamen (Teilfolge), rechts Treffer im Inhalt; Platzhalter siehe unten |
 | `:` | Terminal (`open`, `w`, `q`, `workdir`, `run npm test`, `help`, Zeilennummer …) |
-| gd / F12, Strg+O | Definition, zurück |
+| gd / F12, Strg+O | Definition, zurück; in Ausgaben (Terminal, Logs) springt `gd` auf einer Stacktrace-Zeile (`at demo.Kasse.summe(Kasse.java:21)`, `at fn (/pfad/x.ts:12:5)`) oder `Datei:Zeile` (Maven `Kasse.java:[21,13]`, tsc `app.ts(3,7)`) in die Datei des Projekts; Zeilen aus JDK und Bibliotheken meldet es als „nicht im Projekt“ |
 | gi / Strg+F12 | zur Implementierung (Interface, abstrakte Methode, auch auf dem Interface-Namen); bei mehreren eine Auswahlliste mit Klasse, Zeile und Datei (tippen filtert, ENTER springt), bei genau einer direkt hin |
 | K, gr, F2, Leertaste f | Hover, Referenzen, Umbenennen, Formatieren |
 | v/V … Leertaste m | markierten Block in eine neue Methode auslagern |

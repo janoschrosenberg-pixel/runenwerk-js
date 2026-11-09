@@ -73,12 +73,18 @@ final class Editor {
      * dem dunklen Grund, Kommentare und Satzzeichen zurueckgenommen; gruen: die fruehere Phosphor-Optik
      */
     static final int[] NEON = {0xD2F7E0, 0xC77DFF, 0xFFE45C, 0x5E9484, 0xFFB347, 0x3DE8FF, 0xFF6AD5, 0x6CFF6C, 0x7FA89C, 0x5CA8FF, 0xFF6B6B, 0xFF5C7A,
-            0xB8FF5C, 0xFF4FA3, 0x9FDBFF};
+            0xB8FF5C, 0xFF4FA3, 0x9FDBFF,
+            // Ausgaben: Fehler, Warnung, Info, leise, Erfolg, eigener Code, Datei:Zeile, Abschnitt
+            0xFF4D5E, 0xFFC23D, 0x5CA8FF, 0x4F7389, 0x5CFF8A, 0xFFFFFF, 0xFF6AD5, 0xC77DFF};
     /** hacker: Weiss-Cyan auf Nachtblau, Schluesselwoerter Cyan, Kontrollfluss Pink, Strings Phosphorgruen, Zahlen Bernstein */
     static final int[] HACKER = {0xD6F3FF, 0x2FB8FF, 0x8DFF5A, 0x3B6A84, 0xFFB547, 0x5CFFE0, 0x2FB8FF, 0xFFFFFF, 0x5E8BA3, 0x9FD8FF, 0xFF8A3D, 0xFF5C6E,
-            0x8DFF5A, 0xFF4F8B, 0xA8E6FF};
+            0x8DFF5A, 0xFF4F8B, 0xA8E6FF,
+            // Ausgaben: Fehler, Warnung, Info, leise, Erfolg, eigener Code, Datei:Zeile, Abschnitt
+            0xFF4D5E, 0xFFB547, 0x2FB8FF, 0x3B6A84, 0x5CFF8A, 0xFFFFFF, 0xFF4F8B, 0xB98CFF};
     static final int[] GRUEN = {0x33E070, 0x5CFFE6, 0xFF9F43, 0x1D7A3D, 0xE8FF5C, 0x7FD4FF, 0x5CFFE6, 0x8CFFB0, 0x2FB85A, 0xE8FF5C, 0xFFB000, 0xFF5C7A,
-            0xB8FF5C, 0x5CFFE6, 0x33E070};
+            0xB8FF5C, 0x5CFFE6, 0x33E070,
+            // Ausgaben: Fehler, Warnung, Info, leise, Erfolg, eigener Code, Datei:Zeile, Abschnitt
+            0xFF3B5C, 0xFFB000, 0x7FD4FF, 0x1D7A3D, 0xB8FF5C, 0xE6FFE6, 0x5CFFE6, 0xE8FF5C};
     static int[] FARBEN = HACKER;
 
     interface Cmd {
@@ -2036,6 +2042,7 @@ final class Editor {
 
     private void gotoDefinition() {
         if (oa.definition(d())) return;
+        if (stapelSprung()) return;
         if (!lspBereit()) return;
         Doc d = d();
         int v = d.version;
@@ -2055,6 +2062,77 @@ final class Editor {
             }
             neuMalen.run();
         });
+    }
+
+    /**
+     * gd in Ausgaben (Terminal, Logs, Text ohne Language Server): Stacktrace-Zeile oder pfad:zeile
+     * unter dem Cursor bzw. die erste der Zeile, die zum Projekt gehoert. false = keine Ausgabe, normal weiter.
+     */
+    private boolean stapelSprung() {
+        Doc d = d();
+        boolean ausgabe = d.term != null || d.titel != null || d.lspArt() == null;
+        if (!ausgabe) return false;
+        int z = d.zeileVon(d.cursor);
+        String zeile = d.zeile(z);
+        List<Stapel.Stelle> l = Stapel.stellen(zeile);
+        if (l.isEmpty()) {
+            if (d.term == null && d.titel == null) return false;
+            meldung = "keine Codestelle in dieser Zeile";
+            return true;
+        }
+        Path ordner = d.term != null ? d.term.ordner() : d.pfad != null ? d.pfad.getParent() : arbeitsordner;
+        // unter dem Cursor zuerst, dann die anderen der Zeile von links
+        List<Stapel.Stelle> reihe = new ArrayList<>();
+        Stapel.Stelle w = Stapel.wahl(l, d.cursor - d.anf(z));
+        reihe.add(w);
+        for (Stapel.Stelle s : l) if (s != w) reihe.add(s);
+        for (Stapel.Stelle s : reihe) {
+            List<Path> pf = Stapel.dateien(s, index.dateien, ordner);
+            if (pf.isEmpty()) continue;
+            if (pf.size() == 1) {
+                stelleOeffnen(pf.get(0), s);
+                return true;
+            }
+            Map<String, Path> wahl = new LinkedHashMap<>();
+            for (Path p : pf) wahl.put(relativ(p) + ":" + s.zeile(), p);
+            wz.auswahl(pf.size() + " Dateien fuer " + s.datei(), new ArrayList<>(wahl.keySet()), null, e -> {
+                if (wahl.containsKey(e)) stelleOeffnen(wahl.get(e), s);
+            });
+            return true;
+        }
+        meldung = "nicht im Projekt: " + (w.klasse() != null ? w.klasse() + " (" + w.datei() + ")" : w.datei());
+        return true;
+    }
+
+    private void stelleOeffnen(Path p, Stapel.Stelle s) {
+        springMerken();
+        Doc z = oeffnen(p);
+        if (z == null) return;
+        z.cursor = z.stelle(s.zeile() - 1, s.spalte() - 1);
+        if (s.spalte() <= 1) while (z.at(z.cursor) == ' ' || z.at(z.cursor) == '\t') z.cursor++;
+        z.spalteMerk = -1;
+        meldung = relativ(p) + ":" + s.zeile();
+    }
+
+    private List<Indexer.Datei> eigeneStand;
+    private int eigeneAnzahl = -1;
+    private final java.util.Set<String> eigeneEnden = new java.util.HashSet<>();
+
+    /** gehoert paket/Datei.java zum Projekt? (alle Pfadenden der Java/Kotlin-Dateien im Index, neu nach jedem Einlesen) */
+    java.util.function.Predicate<String> eigeneDatei() {
+        List<Indexer.Datei> l = index.dateien;
+        if (l != eigeneStand || l.size() != eigeneAnzahl) {
+            eigeneStand = l;
+            eigeneAnzahl = l.size();
+            eigeneEnden.clear();
+            for (Indexer.Datei x : l) {
+                String r = x.rel().replace('\\', '/');
+                if (!(r.endsWith(".java") || r.endsWith(".kt") || r.endsWith(".groovy") || r.endsWith(".scala"))) continue;
+                eigeneEnden.add(r);
+                for (int k = r.indexOf('/'); k >= 0; k = r.indexOf('/', k + 1)) eigeneEnden.add(r.substring(k + 1));
+            }
+        }
+        return eigeneEnden::contains;
     }
 
     private void gotoImplementation() {
@@ -2622,11 +2700,9 @@ final class Editor {
         return Math.max(5, String.valueOf(d.zeilen()).length() + 2) + (d.blame != null ? Werkzeug.BLAME_BREITE : 0);
     }
 
+    /** schlichter Hintergrund (ohne Raster und Zeilenmuster, die mit Zeilennummern und Text kollidierten) */
     private void grund(int y, int h) {
         scr.rect(0, y, scr.w, h, E_GRUND);
-        for (int yy = y - y % 4 + 3; yy < y + h; yy += 4) scr.rect(0, yy, scr.w, 1, E_RASTER);
-        // HUD: senkrechtes Raster alle 8 Zeichen
-        if (HUD) for (int xx = 8 * scr.cw; xx < scr.w; xx += 8 * scr.cw) scr.rect(xx, y, 1, h, E_RASTER);
     }
 
     /** Eckwinkel eines Rahmens (HUD): je Ecke zwei kurze Balken */
@@ -2647,8 +2723,10 @@ final class Editor {
         int cw = scr.cw, lh = scr.lh, W = scr.w, H = scr.h;
         scr.noClip();
         scr.clear(E_GRUND);
-        if (d.sprache() != null && d.farbenVersion != d.version && d.t.length() < 4_000_000) {
-            d.farben = Highlight.faerben(d.t, d.sprache());
+        // Terminal-Tabs und .log: Ausgabe-Farben (Maven, Logs, Stacktraces), eigener Code gegen den Index geprueft
+        String sp = d.term != null ? "log" : d.sprache();
+        if (sp != null && d.farbenVersion != d.version && d.t.length() < 4_000_000) {
+            d.farben = sp.equals("log") ? Ausgabe.faerben(d.t, eigeneDatei()) : Highlight.faerben(d.t, sp);
             d.farbenVersion = d.version;
         }
         oa.pruefenFalls(d);

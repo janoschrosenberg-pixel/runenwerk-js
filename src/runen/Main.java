@@ -139,7 +139,7 @@ public final class Main {
         flaeche.setFocusTraversalKeysEnabled(false);
         fenster.setFocusTraversalKeysEnabled(false);
         fenster.setContentPane(flaeche);
-        ed.neuMalen = flaeche::repaint;
+        ed.neuMalen = this::neuMalen;
         ed.beenden = () -> {
             fenster.dispose();
             System.exit(0);
@@ -167,6 +167,10 @@ public final class Main {
         skalaSetzen();
         log("Konfiguration: " + konfig + ", Skalierung " + ed.skala + ", Schrift " + ed.scr.fontName() + " " + ed.scr.cw + "x" + ed.scr.lh);
         ed.start(args);
+        // Eingabemethoden des Systems (Akzent-Popup, asiatische Eingabe): auf dem Mac fragt AppKit dafuer bei jeder
+        // Taste mehrmals synchron im Swing-Faden nach; waehrend ein Bild entsteht, stauen sich so gehaltene Tasten
+        // (j, Pfeile) und laufen nach dem Loslassen nach. Ohne gehen Umlaute, tote Tasten und Option-Zeichen weiter.
+        flaeche.enableInputMethods(ed.kf.an("tasten.eingabemethode", false));
         log("Editor gestartet, Arbeitsordner: " + ed.arbeitsordner);
         vollbildAn(true);
         log("Fenster sichtbar: " + fenster.isShowing() + ", " + fenster.getBounds());
@@ -210,7 +214,51 @@ public final class Main {
         vollbildAn(!vollbild);
     }
 
+    /** Ende und Dauer des letzten Bildes (ns) */
+    private long bildEnde, bildDauer;
+    private boolean bildGeplant;
+    private final javax.swing.Timer bildUhr = new javax.swing.Timer(1, e -> bildPruefen());
+
+    /**
+     * neu malen, aber Tasten zuerst: liegen noch Tasten in der Warteschlange, kommt das Bild danach (zeigt dann den
+     * neuesten Stand), und zwischen zwei Bildern bleibt mindestens so viel Zeit frei, wie das letzte gebraucht hat.
+     * So stauen sich gehaltene Tasten nicht, auch wenn ein Bild (grosser Bildschirm) laenger dauert als die
+     * Tastenwiederholung.
+     */
+    private void neuMalen() {
+        if (bildGeplant) return;
+        bildGeplant = true;
+        SwingUtilities.invokeLater(this::bildPruefen);
+    }
+
+    private void bildPruefen() {
+        java.awt.EventQueue q = Toolkit.getDefaultToolkit().getSystemEventQueue();
+        if (q.peekEvent(java.awt.event.KeyEvent.KEY_PRESSED) != null || q.peekEvent(java.awt.event.KeyEvent.KEY_TYPED) != null) {
+            SwingUtilities.invokeLater(this::bildPruefen);
+            return;
+        }
+        long frei = (System.nanoTime() - bildEnde) / 1_000_000, noetig = Math.max(4, bildDauer / 1_000_000);
+        if (frei < noetig) {
+            bildUhr.setInitialDelay((int) (noetig - frei));
+            bildUhr.setRepeats(false);
+            bildUhr.restart();
+            return;
+        }
+        bildGeplant = false;
+        flaeche.repaint();
+    }
+
     private void malen(Graphics2D g) {
+        long t0 = System.nanoTime();
+        try {
+            malenJetzt(g);
+        } finally {
+            bildEnde = System.nanoTime();
+            bildDauer = bildEnde - t0;
+        }
+    }
+
+    private void malenJetzt(Graphics2D g) {
         skalaSetzen();
         double s = ed.skala;
         int w = (int) Math.round(flaeche.getWidth() * s), h = (int) Math.round(flaeche.getHeight() * s);

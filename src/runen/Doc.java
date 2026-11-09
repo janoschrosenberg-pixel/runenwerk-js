@@ -96,6 +96,7 @@ final class Doc {
         if (n.endsWith(".jsx")) return "javascriptreact";
         if (n.endsWith(".js") || n.endsWith(".mjs") || n.endsWith(".cjs")) return "javascript";
         if (n.endsWith(".java")) return "java";
+        if (n.endsWith(".log") || n.endsWith(".out")) return "log";
         if (n.endsWith(".yaml") || n.endsWith(".yml")) return "yaml";
         if (n.endsWith(".sql") || n.endsWith(".pks") || n.endsWith(".pkb") || n.endsWith(".pls") || n.endsWith(".prc") || n.endsWith(".fnc") || n.endsWith(".trg")) return "sql";
         return null;
