@@ -481,12 +481,12 @@ c.put("scroll", this::rollen);
 
 ## Leertaste: Kategorien in der Statuszeile
 
-Alle Befehle hinter der Leertaste sind nach Kategorien geordnet. Im Normalmodus stehen die Kategorien immer in der
-Statuszeile (`␣` und dahinter `g Git`, `c Code`, `s SQL`, `a Anwendung`, `d Debug`, `o Öffnen`); im Visual-Mode die
-für die Auswahl (`s SQL`, `c Code`). Die Leertaste öffnet das Menü, eine Kategorie zeigt ihre Tasten mit Funktion.
+Alle Befehle hinter der Leertaste sind nach Kategorien geordnet. Die Leertaste zeigt die Kategorien in der
+Statuszeile (`g Git`, `c Code`, `s SQL`, `a Anwendung`, `d Debug`, `o Öffnen`; im Visual-Mode die für die Auswahl:
+`s SQL`, `c Code`), ESC blendet sie wieder aus. Eine Kategorie zeigt ihre Tasten mit Funktion.
 **Unterkategorien sind farbig** (violette Taste, Titel mit `»`), direkte Befehle haben eine dunkle Taste. Das Menü
-bleibt offen bis zu einem Befehl oder ESC, BACKSPACE geht eine Ebene höher. Wird es neben einer langen Meldung zu
-eng, stehen nur die Tasten da; `statuszeile.kategorien = off` in `config.txt` blendet die Leiste aus.
+bleibt offen bis zu einem Befehl oder ESC, BACKSPACE geht eine Ebene höher. Wer die Kategorien dauerhaft im
+Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 
 | Kategorie | Tasten |
 |---|---|

@@ -3114,12 +3114,13 @@ final class Editor {
     }
 
     /**
-     * Kategorien der Leertaste (menu SPACE in keymap.config) in der Statuszeile ab x0, wenn kein Menue offen ist:
+     * Kategorien der Leertaste (menu SPACE in keymap.config) dauerhaft in der Statuszeile ab x0, nur mit
+     * statuszeile.kategorien = on (sonst erscheinen sie erst nach der Leertaste):
      * erst mit Titeln, sonst nur die Tasten; passt es nicht neben den Hinweis (Breite frei), gar nicht.
      * Gibt das neue x zurueck.
      */
     private int kategorienMalen(int x0, int my, int ende, int frei) {
-        if (!kf.an("statuszeile.kategorien", true) || km.menu(modus, "SPACE") == null) return x0;
+        if (!kf.an("statuszeile.kategorien", false) || km.menu(modus, "SPACE") == null) return x0;
         List<String[]> e = km.menuEintraege(modus, "SPACE");
         if (e.isEmpty()) return x0;
         int cw = scr.cw;
