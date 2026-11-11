@@ -587,7 +587,7 @@ final class OpenApi {
             int z = Math.min(e.zeile, doc.zeilen() - 1);
             doc.cursor = doc.stelle(z, Yaml.einzug(doc.zeile(z)));
         }
-        ed.meldung = "Puffer " + doc.name() + " - Leertaste y zeigt wieder die OpenAPI-Ansicht";
+        ed.meldung = "Puffer " + doc.name() + " - Leertaste o y zeigt wieder die OpenAPI-Ansicht";
     }
 
     /** neuer Text fuer die Datei (ein Undo-Schritt), danach die Zeile waehlen */

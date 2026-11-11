@@ -840,7 +840,7 @@ final class Scm {
             String lokal = Git.branch(repo);
             String fehler = null;
             if (!quelle.equals(lokal)) {
-                fehler = "lokal ist " + lokal + " ausgecheckt, der Pull Request kommt aus " + quelle + " - erst auf " + quelle + " wechseln (Leertaste b)";
+                fehler = "lokal ist " + lokal + " ausgecheckt, der Pull Request kommt aus " + quelle + " - erst auf " + quelle + " wechseln (Leertaste g b b)";
             } else if (Git.git(repo, "rev-parse", "--verify", "-q", rq).code() != 0) {
                 fehler = rq + " gibt es nicht (git fetch fehlgeschlagen?)";
             } else {

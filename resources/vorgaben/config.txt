@@ -146,6 +146,8 @@ cursor.blink = on
 # Eingabemethoden des Systems (Akzent-Popup beim Halten, asiatische Eingabe). Aus: gehaltene Tasten (j, Pfeile)
 # laufen ohne Nachziehen; Umlaute, tote Tasten und Option-/AltGr-Zeichen gehen trotzdem
 tasten.eingabemethode = off
+# Kategorien der Leertaste (Git, Code, SQL, ...) im Normalmodus immer in der Statuszeile; Unterkategorien sind farbig
+statuszeile.kategorien = on
 font = JetBrains Mono, Cascadia Mono, Consolas, SF Mono, Menlo, DejaVu Sans Mono, Liberation Mono, Monospaced
 indent = 2
 tabWidth = 4

@@ -116,7 +116,7 @@ final class CodeAktion {
         Doc d = ed.d();
         if (!bereit(d)) return;
         if (e <= a) {
-            ed.meldung = "erst einen Codeblock markieren (v oder V), dann Leertaste m";
+            ed.meldung = "erst einen Codeblock markieren (v oder V), dann Leertaste c m";
             return;
         }
         // ganze Zeilen ohne den letzten Zeilenumbruch, sonst lehnt jdtls die Auswahl gern ab
@@ -443,7 +443,7 @@ final class CodeAktion {
         c.put("extractMethod", a -> {
             int[] r = ed.vim.visArt != 0 ? ed.vim.auswahl() : null;
             if (r == null) {
-                ed.meldung = "erst einen Codeblock markieren (v oder V), dann Leertaste m";
+                ed.meldung = "erst einen Codeblock markieren (v oder V), dann Leertaste c m";
                 return;
             }
             ed.befehl("visualExit", "");

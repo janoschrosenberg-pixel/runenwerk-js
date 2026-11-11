@@ -93,14 +93,14 @@ Eine Raste sind 3 Zeilen, das Trackpad rollt anteilig.
 
 Definition (`gd`), Implementierung (`gi`), Hover (`K`), Vervollständigung, Referenzen (`gr`), Umbenennen (`F2`), Fehler (`]d`/`[d`)
 gehen in beiden Sprachen. **Von Methode zu Methode**: `Strg+J` / `Strg+K` (oder `]m` / `[m`), mit Zähler.
-**Call Hierarchy**: `Leertaste c` (oder `gh`) zeigt alle Stellen, die die Methode/Funktion unter dem Cursor aufrufen,
+**Call Hierarchy**: `Leertaste c c` (oder `gh`) zeigt alle Stellen, die die Methode/Funktion unter dem Cursor aufrufen,
 als Liste; tippen filtert, ENTER springt hin.
 
-**Methode extrahieren**: Codeblock markieren (`v` oder `V`), `Leertaste m`, Namen eintippen – der Block wird eine
+**Methode extrahieren**: Codeblock markieren (`v` oder `V`), `Leertaste c m`, Namen eintippen – der Block wird eine
 neue Methode (Java) bzw. Funktion (TypeScript), an seiner Stelle steht der Aufruf; Parameter und Rückgabewert
 bestimmt der Language Server. Bietet er mehrere Ziele an (TypeScript: Modul, innere Funktion, Methode der Klasse),
 wählt man aus einer Liste; leerer Name behält seinen Vorschlag.
-**Auto-Import**: `Leertaste i` importiert alles, was in der Datei fehlt (Fehler „cannot be resolved“ bzw. „Cannot
+**Auto-Import**: `Leertaste c i` importiert alles, was in der Datei fehlt (Fehler „cannot be resolved“ bzw. „Cannot
 find name“). Gibt es nur einen Kandidaten, wird er genommen; bei mehreren (z. B. `List`: `java.util`, `java.awt` …)
 wählt man aus einer Liste (Java: `java.util` oben, interne JDK-Pakete unten), „nicht importieren“ überspringt.
 **Alle Aktionen an der Stelle** (Quickfixes, Importe, Refactorings des Servers): `Alt+ENTER`, auch mit Auswahl.
@@ -209,7 +209,7 @@ Die Konsole (`:`) zeigt beim Start, welche Generatoren gefunden wurden und wohin
 Swagger 2; `openapi.view = off` öffnet sie normal). Links ein Baum: Info, Server, Pfade mit ihren Operationen (farbig nach
 Methode, mit `operationId` und `summary`), Parametern, Request-Body und Antworten, Schemas mit Feldern (`*` = Pflicht,
 `-> X` = `$ref`, „unbenutzt“/„3x benutzt“), die übrigen Komponenten, Tags und die gefundenen Probleme. Rechts der
-YAML-Text des gewählten Knotens. **`Leertaste y`** wechselt jederzeit zwischen Ansicht und normalem Puffer (gleiche Datei,
+YAML-Text des gewählten Knotens. **`Leertaste o y`** (in der Ansicht `Leertaste y`) wechselt jederzeit zwischen Ansicht und normalem Puffer (gleiche Datei,
 gleicher Undo-Verlauf); `ENTER` bearbeitet den gewählten Knoten im Puffer.
 
 | Taste | |
@@ -241,7 +241,7 @@ läuft oder ESC kommt, BACKSPACE geht aus einem Untermenü (`b` Branch, `r` Pull
 
 | Taste | |
 |---|---|
-| Leertaste b (oder g b b) | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; ein neuer Name bietet „+ neuen Branch erstellen“ an (`git switch -c`); `g b t` / `g b j` für TS- bzw. Java-Repo |
+| Leertaste g b b | Branch wechseln: Liste, zuletzt benutzte Branches oben (aus dem Reflog), tippen filtert; ein neuer Name bietet „+ neuen Branch erstellen“ an (`git switch -c`); `g b t` / `g b j` für TS- bzw. Java-Repo |
 | Leertaste g p / g P | pull / push (push legt bei neuen Branches den Upstream an) |
 | Leertaste g c | commit: Fenster für die Nachricht; ist nichts vorgemerkt, wird alles committet |
 | Leertaste g d | Datei mit einem Commit vergleichen: Liste aus dem Verlauf der Datei (auch über Umbenennungen), tippen filtert, Branch/Tag/Commit eintippen geht auch; verglichen wird der Text im Editor, auch ungespeichert |
@@ -310,7 +310,7 @@ Bearer-Token.
 
 ## Terminal
 
-`Leertaste t` öffnet ein Terminal als eigenen Tab (beliebig viele). Im Normal-Mode ist die Ausgabe ein normaler Text
+`Leertaste o t` öffnet ein Terminal als eigenen Tab (beliebig viele). Im Normal-Mode ist die Ausgabe ein normaler Text
 (markieren, kopieren, suchen); `i` springt in die Eingabezeile unten, ENTER führt aus, ↑/↓ oder Strg+K/J durch den
 Verlauf, Strg+H/L bewegen in der Zeile, Strg+C bricht den laufenden Befehl ab, ESC zurück in den Text. Es läuft eine
 Shell (Windows `cmd.exe`, sonst die Login-Shell), `cd` und Variablen bleiben erhalten. Ohne Pseudo-Terminal laufen
@@ -336,7 +336,7 @@ Eingabezeile:
 
 Die Tasten der Liste stehen in `mode termcomplete` der `keymap.config`.
 
-## Formatieren: `Leertaste f`
+## Formatieren: `Leertaste c f`
 
 - TypeScript/JavaScript mit **prettier** (`ts.format`, Vorgabe `prettier --stdin-filepath {file}`; installieren mit
   `npm install -D prettier` im Projekt).
@@ -363,11 +363,11 @@ In `config.txt`: `db.driver = ojdbc11.jar` und beliebig viele Konten
 
 | Taste | |
 |---|---|
-| Leertaste q | neue, leere SQL-Datei für schnelle Abfragen (Konto wie zuletzt) |
-| Strg+Enter | Statement am Cursor ausführen; im Visual-Mode (`v`/`V` markieren) die Auswahl, auch mit F5 oder Leertaste s s |
+| Leertaste s q | neue, leere SQL-Datei für schnelle Abfragen (Konto wie zuletzt) |
+| Strg+Enter | Statement am Cursor ausführen; im Visual-Mode (`v`/`V` markieren) die Auswahl, auch mit F5 oder Leertaste s s; Leertaste s f die ganze Datei, Leertaste s k das Konto |
 | F5 | ganze Datei ausführen |
 | F6 | Konto für diese Datei wählen (steht unten rechts: `DB dev`) |
-| F4 / Leertaste o | in die Ergebnistabelle dieser Datei (jede SQL-Datei hat ihre eigene): `hjkl`, `y` Zelle, `Y` ganze Zeile kommagetrennt, `Strg+C r Ziffer` Zeile kommagetrennt in eine Speicherbank, `Strg+A` alles kopieren, ENTER Zelle ganz zeigen; ESC zurück in den Text (die Tabelle bleibt), `q` oder Leertaste O schließt sie |
+| F4 / Leertaste s o | in die Ergebnistabelle dieser Datei (jede SQL-Datei hat ihre eigene): `hjkl`, `y` Zelle, `Y` ganze Zeile kommagetrennt, `Strg+C r Ziffer` Zeile kommagetrennt in eine Speicherbank, `Strg+A` alles kopieren, ENTER Zelle ganz zeigen; ESC zurück in den Text (die Tabelle bleibt), `q` oder Leertaste s O schließt sie |
 | K (oder k über der ersten Zeile) | Kopfzeile; ENTER öffnet das Menü der Spalte: enthält, ist gleich, größer/kleiner, beginnt mit, leer/nicht leer, sortieren, Filter entfernen (`f` direkt, `F` alle Filter weg) |
 | Strg+Leertaste, `.` | SQL-Vervollständigung aus den Metadaten des Kontos (Tabellen, Views, Spalten, nach `alias.` die Spalten der Tabelle); Leertaste s m lädt sie neu |
 | Leertaste s c / s r / s x | Commit / Rollback / Abbrechen (`db.autocommit = off` ist die Vorgabe) |
@@ -479,6 +479,28 @@ Am Ende stehen die Befehle ohne Taste (in der Befehlszeile aufrufbar).
 c.put("scroll", this::rollen);
 ```
 
+## Leertaste: Kategorien in der Statuszeile
+
+Alle Befehle hinter der Leertaste sind nach Kategorien geordnet. Im Normalmodus stehen die Kategorien immer in der
+Statuszeile (`␣` und dahinter `g Git`, `c Code`, `s SQL`, `a Anwendung`, `d Debug`, `o Öffnen`); im Visual-Mode die
+für die Auswahl (`s SQL`, `c Code`). Die Leertaste öffnet das Menü, eine Kategorie zeigt ihre Tasten mit Funktion.
+**Unterkategorien sind farbig** (violette Taste, Titel mit `»`), direkte Befehle haben eine dunkle Taste. Das Menü
+bleibt offen bis zu einem Befehl oder ESC, BACKSPACE geht eine Ebene höher. Wird es neben einer langen Meldung zu
+eng, stehen nur die Tasten da; `statuszeile.kategorien = off` in `config.txt` blendet die Leiste aus.
+
+| Kategorie | Tasten |
+|---|---|
+| `g` Git | `s` Status, `c` Commit, `p`/`P` Pull/Push, `d`/`D` Diff, `m` Merge-Editor, `M` Branch mergen, `B` Blame, `R` Reset, Unterkategorien `b` Branch und `r` Pull Requests |
+| `c` Code | `f` formatieren, `r` umbenennen, `i` Importe, `a` Code Actions, `h` Doku, `e`/`E` nächster/voriger Fehler, `c` Aufrufer, `d` Definition, `I` Implementierung, `u` Verwendungen; im Visual-Mode `m` Methode auslagern |
+| `s` SQL | `s` Statement, `f` ganze Datei, `q` neue SQL-Datei, `k` Konto, `o`/`O` Ergebnis/zu, `c`/`r`/`x` Commit/Rollback/Abbrechen, `m` Metadaten neu |
+| `a` Anwendung | `a` starten, `d` mit Debugger, `p` Profil, `b` bauen und starten, `x` stoppen, `g` OpenAPI generieren |
+| `d` Debug | `d` starten, `a` anhängen, `b`/`B` Haltepunkt/alle weg, `c` weiter, `n`/`i`/`o` Schritte, `x` stoppen, `p` Panel, `s` Debug-Tasten |
+| `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
+
+Frühere Kürzel ohne Kategorie sind umgezogen: `Leertaste f` → `c f`, `r` → `c r`, `i` → `c i`, `h` → `c h`, `e` → `c e`,
+`c` → `c c`, `m` → `c m`, `b` → `g b b`, `t` → `o t`, `y` → `o y`, `q` → `s q`, `o`/`O` → `s o`/`s O`. Stehen die alten
+Zeilen noch in der eigenen `keymap.config` (sie begann als Kopie der Vorgabe), werden sie übergangen.
+
 ## Weitere Tasten
 
 | Taste | Befehl |
@@ -487,13 +509,13 @@ c.put("scroll", this::rollen);
 | `:` | Terminal (`open`, `w`, `q`, `workdir`, `run npm test`, `help`, Zeilennummer …) |
 | gd / F12, Strg+O | Definition, zurück; in Ausgaben (Terminal, Logs) springt `gd` auf einer Stacktrace-Zeile (`at demo.Kasse.summe(Kasse.java:21)`, `at fn (/pfad/x.ts:12:5)`) oder `Datei:Zeile` (Maven `Kasse.java:[21,13]`, tsc `app.ts(3,7)`) in die Datei des Projekts; Zeilen aus JDK und Bibliotheken meldet es als „nicht im Projekt“ |
 | gi / Strg+F12 | zur Implementierung (Interface, abstrakte Methode, auch auf dem Interface-Namen); bei mehreren eine Auswahlliste mit Klasse, Zeile und Datei (tippen filtert, ENTER springt), bei genau einer direkt hin |
-| K, gr, F2, Leertaste f | Hover, Referenzen, Umbenennen, Formatieren |
-| v/V … Leertaste m | markierten Block in eine neue Methode auslagern |
-| Leertaste i, Alt+ENTER | fehlende Importe (Auswahl bei mehreren Kandidaten), alle Code Actions an der Stelle |
+| K, gr, F2, Leertaste c f | Hover, Referenzen, Umbenennen, Formatieren |
+| v/V … Leertaste c m | markierten Block in eine neue Methode auslagern |
+| Leertaste c i, Alt+ENTER (Leertaste c a) | fehlende Importe (Auswahl bei mehreren Kandidaten), alle Code Actions an der Stelle |
 | Strg+J / Strg+K | nächste / vorige Methode |
-| Leertaste b | Branch wechseln oder neuen erstellen |
+| Leertaste g b b | Branch wechseln oder neuen erstellen |
 | Strg+L / Strg+H | nur die aktuelle Zeile wortweise nach rechts / links schieben; verlässt der Cursor die Zeile, steht sie wieder normal |
-| Leertaste t | Terminal-Tab |
+| Leertaste o t | Terminal-Tab |
 | Strg+H/J/K/L | wo h/j/k/l getippt werden (Suchfeld im Dateimanager, Terminal, Listen): bewegen |
 | Strg+Enter, F5, F6 | SQL: Statement, Datei, Konto |
 | ]d / [d | nächster / vorheriger Fehler |

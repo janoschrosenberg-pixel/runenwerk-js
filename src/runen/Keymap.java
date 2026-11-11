@@ -158,6 +158,16 @@ final class Keymap {
         return lesen(pfad, null);
     }
 
+    /**
+     * Fruehere Vorgaben (Mode|Folge|Befehl), die in die Leertaste-Kategorien gewandert sind. Eine eigene
+     * keymap.config beginnt als Kopie der Vorgabe; diese Zeilen darin werden still uebergangen, damit sie die
+     * Kategorien nicht verdecken (SPACE c war callHierarchy, ist jetzt das Menue Code).
+     */
+    private static final Set<String> FRUEHER = Set.of("normal|SPACE b|gitBranch", "normal|SPACE t|terminal", "normal|SPACE o|resultFocus",
+            "normal|SPACE O|resultClose", "normal|SPACE q|sqlScratch", "normal|SPACE c|callHierarchy", "normal|SPACE f|format",
+            "normal|SPACE y|openapiView", "normal|SPACE r|rename", "normal|SPACE i|autoImport", "normal|SPACE h|hover",
+            "normal|SPACE e|gotoError", "visual|SPACE m|extractMethod");
+
     private void zeilenLesen(List<String> zeilen, String datei) {
         String modus = null, lay = null;
         // offene Menues im Mode (innerstes zuletzt): ihre Folgen
@@ -267,6 +277,7 @@ final class Keymap {
                 eintragen(md.menus.get(menuPfad.get(menuPfad.size() - 1)), folge(links), name);
             }
             String f = vor + folge(links);
+            if (!datei.startsWith("Vorgabe") && menuPfad.isEmpty() && FRUEHER.contains(modus + "|" + f + "|" + rechts)) continue;
             if (md.menus.containsKey(f)) {
                 fehler.add(datei + ":" + nr + ": " + f + " ist ein Menue - " + links + " = " + rechts + " gilt nicht (Zeile loeschen oder eine andere Taste nehmen)");
                 continue;

@@ -41,6 +41,8 @@ final class Editor {
     static final int[] LOOK_GRUEN = {0x020702, 0x061006, 0x0A2412, 0x33E070, 0x8CFFB0, 0x1D7A3D, 0xFF3B5C, 0xFFB000, 0x071A0C, 0x010401, 0x7FD4FF,
             0x1E5A2E, 0x2A4A10, 0x14401F, 0x5CFFE6};
     static int E_GRUND, E_RASTER, E_LEISTE, E_TEXT, E_HELL, E_MATT, E_FEHLER, E_WARN, E_ZEILE, E_KONSOLE, E_INFO, E_AUSWAHL, E_TREFFER, E_TASTE, E_AKZENT;
+    /** Kategorien und Unterkategorien in Menues der Statuszeile (abgesetzt von direkten Befehlen) */
+    static final int E_MENU = 0xC77DFF;
     /** Look hacker: Rahmen mit Eckwinkeln, Lineal, Raster, Uhr */
     static boolean HUD = true;
 
@@ -3016,24 +3018,26 @@ final class Editor {
                 + (index.laeuft ? "Index..." : "Index " + index.dateien.size()) + "   " + (HUD ? String.format("LN %04d COL %03d", cz + 1, cs + 1) : (cz + 1) + ":" + (cs + 1)) + " ";
         int rw = scr.textWidth(r);
         scr.text(W - rw - cw, my, r, E_TEXT);
-        scr.clip(x + 2 * cw, sy, W - rw - 3 * cw - x, unten());
-        if (meldung != null) {
-            scr.text(x + 2 * cw, my, meldung, meldungFarbe);
-        } else {
-            boolean gezeigt = false;
+        // Hinweis: Meldung, sonst Fehler der Zeile, sonst git blame
+        String hw = meldung;
+        int hf = meldungFarbe;
+        if (hw == null) {
             for (Doc.Diag g : d.diags) {
                 if (g.zeile() == cz) {
-                    scr.text(x + 2 * cw, my, g.text(), g.schwere() == 1 ? E_FEHLER : E_WARN);
-                    gezeigt = true;
+                    hw = g.text();
+                    hf = g.schwere() == 1 ? E_FEHLER : E_WARN;
                     break;
                 }
             }
-            // git blame: Commit der aktuellen Zeile
-            if (!gezeigt && d.blame != null && cz < d.blame.kurz.length && d.blame.kurz[cz] != null) {
-                String bt = d.blame.kurz[cz] + " " + d.blame.autor[cz] + (d.blame.datum[cz].isEmpty() ? "" : ", " + d.blame.datum[cz]) + ": " + d.blame.nachricht[cz];
-                scr.text(x + 2 * cw, my, bt, E_INFO);
-            }
         }
+        if (hw == null && d.blame != null && cz < d.blame.kurz.length && d.blame.kurz[cz] != null) {
+            hw = d.blame.kurz[cz] + " " + d.blame.autor[cz] + (d.blame.datum[cz].isEmpty() ? "" : ", " + d.blame.datum[cz]) + ": " + d.blame.nachricht[cz];
+            hf = E_INFO;
+        }
+        int ende = W - rw - 2 * cw;
+        x = kategorienMalen(x + 2 * cw, my, ende, hw == null ? 0 : Math.min(scr.textWidth(hw), 50 * cw)) - 2 * cw;
+        scr.clip(x + 2 * cw, sy, ende - cw - x, unten());
+        if (hw != null) scr.text(x + 2 * cw, my, hw, hf);
         scr.noClip();
         meldungFarbe = meldung == null ? E_WARN : meldungFarbe;
     }
@@ -3109,7 +3113,43 @@ final class Editor {
         };
     }
 
-    /** Statuszeile: Taste hell, Funktion daneben; rechts die letzte Meldung */
+    /**
+     * Kategorien der Leertaste (menu SPACE in keymap.config) in der Statuszeile ab x0, wenn kein Menue offen ist:
+     * erst mit Titeln, sonst nur die Tasten; passt es nicht neben den Hinweis (Breite frei), gar nicht.
+     * Gibt das neue x zurueck.
+     */
+    private int kategorienMalen(int x0, int my, int ende, int frei) {
+        if (!kf.an("statuszeile.kategorien", true) || km.menu(modus, "SPACE") == null) return x0;
+        List<String[]> e = km.menuEintraege(modus, "SPACE");
+        if (e.isEmpty()) return x0;
+        int cw = scr.cw;
+        String vor = " \u2423 ";
+        for (int kurz = 0; kurz < 2; kurz++) {
+            int b = scr.textWidth(vor) + cw;
+            for (String[] t : e) b += scr.textWidth(" " + t[0] + " ") + (kurz == 0 ? cw / 2 + scr.textWidth(titelOhnePfeil(t[1])) + 2 * cw : cw);
+            if (x0 + b + frei > ende) continue;
+            int x = x0, lh = scr.lh;
+            int vw = scr.textWidth(vor);
+            scr.rect(x, my, vw, lh, E_TASTE);
+            scr.text(x, my, vor, E_HELL);
+            x += vw + cw;
+            for (String[] t : e) {
+                boolean menue = t[2].equals("menu");
+                int kw = scr.textWidth(" " + t[0] + " ");
+                scr.rect(x, my, kw, lh, menue ? E_MENU : E_TASTE);
+                scr.text(x, my, " " + t[0] + " ", menue ? E_GRUND : E_HELL);
+                x += kw;
+                x = kurz == 0 ? scr.text(x + cw / 2, my, titelOhnePfeil(t[1]), menue ? E_MENU : E_TEXT) + 2 * cw : x + cw;
+            }
+            return x;
+        }
+        return x0;
+    }
+
+    private static String titelOhnePfeil(String t) {
+        return t.endsWith(" \u00bb") ? t.substring(0, t.length() - 2) : t;
+    }
+
     /** Titel des offenen Menues mit den Titeln darueber ("Git > Branch") */
     private String menuTitel() {
         StringBuilder t = new StringBuilder();
@@ -3167,10 +3207,11 @@ final class Editor {
             }
             for (String[] t : zeilen.get(i)) {
                 int kw = scr.textWidth(" " + t[0] + " ");
+                // Unterkategorie: Taste farbig gefuellt, Titel farbig mit », direkter Befehl wie gehabt
                 boolean menue = t[2].equals("menu");
-                scr.rect(xx, yy, kw, lh, menue ? 0x1E3A5A : E_TASTE);
-                scr.text(xx, yy, " " + t[0] + " ", E_HELL);
-                xx = scr.text(xx + kw + cw / 2, yy, t[1], menue ? E_INFO : E_TEXT) + 2 * cw;
+                scr.rect(xx, yy, kw, lh, menue ? E_MENU : E_TASTE);
+                scr.text(xx, yy, " " + t[0] + " ", menue ? E_GRUND : E_HELL);
+                xx = scr.text(xx + kw + cw / 2, yy, t[1], menue ? E_MENU : E_TEXT) + 2 * cw;
             }
         }
     }

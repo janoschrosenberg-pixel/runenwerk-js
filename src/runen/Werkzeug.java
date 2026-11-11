@@ -1582,7 +1582,7 @@ final class Werkzeug {
         boolean gefiltert = !t.filter.isEmpty();
         String anzahl = gefiltert ? zl.size() + " von " + erg.zeilen().size() + " Zeilen (gefiltert)" : erg.meldung();
         String titel = " ERGEBNIS [" + erg.konto() + "] " + anzahl
-                + (fokus ? "  (hjkl, K Kopfzeile, ENTER Filter/Wert, y Zelle, Y Zeile (Komma), ESC zurueck, q zu) " : "  (F4: hinein, Leertaste O: zu) ");
+                + (fokus ? "  (hjkl, K Kopfzeile, ENTER Filter/Wert, y Zelle, Y Zeile (Komma), ESC zurueck, q zu) " : "  (F4: hinein, Leertaste s O: zu) ");
         s.rect(3 * cw, y0 - lh / 2, s.textWidth(titel), lh, E_KONSOLE);
         s.text(3 * cw, y0 - lh / 2, titel, E_HELL);
         List<String> sp = erg.spalten();
