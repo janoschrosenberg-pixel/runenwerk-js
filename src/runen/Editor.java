@@ -817,6 +817,18 @@ final class Editor {
         // Speicherbaenke: Strg+C/Strg+V mit Ziffer; 0 Standardregister, 1 Systemzwischenablage, 2-9 eigene
         /** @binding Kopiert in Speicherbank 0-9 (1 = Systemzwischenablage, 0 = Standardregister wie p): Auswahl, Zeile, Eingabefeld oder Zelle */
         reg("bankCopy", a -> bankKopieren(bankNr(a)));
+        /** @binding Ergebnistabelle: kopiert die ganze Zeile kommagetrennt in Speicherbank 0-9 */
+        reg("bankCopyRow", a -> {
+            int n = bankNr(a);
+            if (n < 0) return;
+            String z = wz.zeileKommagetrennt();
+            if (z == null) {
+                meldung = "keine Zeile gewaehlt (Kopfzeile)";
+                return;
+            }
+            vim.bankSetzen(n, new Vim.Reg(z, Vim.ZEICHEN));
+            meldung = "Zeile (kommagetrennt) -> " + bankName(n);
+        });
         /** @binding Kopiert eine Speicherbank in eine andere (erste Ziffer von, zweite nach) */
         reg("bankTransfer", this::bankUmkopieren);
         /** @binding Fuegt Speicherbank 0-9 ein (1 = Systemzwischenablage, 0 = zuletzt Geloeschtes/Kopiertes) */

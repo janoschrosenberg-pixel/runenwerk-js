@@ -1378,6 +1378,18 @@ final class Werkzeug {
         return b.toString();
     }
 
+    /** die gewaehlte Zeile kommagetrennt (Werte mit Komma, Anfuehrungszeichen oder Umbruch in "..."), null auf der Kopfzeile */
+    String zeileKommagetrennt() {
+        Tabelle t = tabelle();
+        if (t == null || t.ez < 0 || t.ez >= t.zeilen().size()) return null;
+        List<String> werte = new ArrayList<>();
+        for (String v : nullLeer(t.zeilen().get(t.ez))) {
+            boolean quoten = v.indexOf(',') >= 0 || v.indexOf('"') >= 0 || v.indexOf('\n') >= 0 || v.indexOf('\r') >= 0;
+            werte.add(quoten ? '"' + v.replace("\"", "\"\"") + '"' : v);
+        }
+        return String.join(",", werte);
+    }
+
     /** Strg+C in der Auswahlliste: der gewaehlte Eintrag (bei "neu erstellen" der getippte Name) */
     String auswahlText() {
         if (auswahlListe.isEmpty()) return auswahlFilter.toString();
@@ -1419,7 +1431,7 @@ final class Werkzeug {
         boolean gefiltert = !t.filter.isEmpty();
         String anzahl = gefiltert ? zl.size() + " von " + erg.zeilen().size() + " Zeilen (gefiltert)" : erg.meldung();
         String titel = " ERGEBNIS [" + erg.konto() + "] " + anzahl
-                + (fokus ? "  (hjkl, K Kopfzeile, ENTER Filter/Wert, y Zelle, Y Zeile, ESC zurueck, q zu) " : "  (F4: hinein, Leertaste O: zu) ");
+                + (fokus ? "  (hjkl, K Kopfzeile, ENTER Filter/Wert, y Zelle, Y Zeile (Komma), ESC zurueck, q zu) " : "  (F4: hinein, Leertaste O: zu) ");
         s.rect(3 * cw, y0 - lh / 2, s.textWidth(titel), lh, E_KONSOLE);
         s.text(3 * cw, y0 - lh / 2, titel, E_HELL);
         List<String> sp = erg.spalten();
@@ -2875,12 +2887,17 @@ final class Werkzeug {
             Editor.zwischenablage(v);
             ed.meldung = tabelle().ez < 0 ? "Spalte kopiert (Werte untereinander)" : "Zelle kopiert";
         });
-        /** @binding Ergebnistabelle: kopiert die Zeile (Tab-getrennt) */
+        /** @binding Ergebnistabelle: kopiert die Zeile kommagetrennt (Zwischenablage und Register) */
         c.put("resultYankRow", a -> {
-            Tabelle t = tabelle();
-            if (t == null || t.ez < 0 || t.ez >= t.zeilen().size()) return;
-            Editor.zwischenablage(String.join("\t", nullLeer(t.zeilen().get(t.ez))));
-            ed.meldung = "Zeile kopiert (Tab-getrennt)";
+            String z = zeileKommagetrennt();
+            if (z == null) {
+                ed.meldung = "keine Zeile gewaehlt (Kopfzeile)";
+                return;
+            }
+            Vim.Reg r = new Vim.Reg(z, Vim.ZEICHEN);
+            ed.vim.bankSetzen(Vim.BANK_SYSTEM, r);
+            ed.vim.bankSetzen(Vim.BANK_REGISTER, r);
+            ed.meldung = "Zeile kopiert (kommagetrennt)";
         });
         /** @binding Ergebnistabelle: kopiert alles mit Kopf (Tab-getrennt) */
         c.put("resultYankAll", a -> {

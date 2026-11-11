@@ -366,7 +366,7 @@ In `config.txt`: `db.driver = ojdbc11.jar` und beliebig viele Konten
 | Strg+Enter | Statement am Cursor ausführen; im Visual-Mode (`v`/`V` markieren) die Auswahl, auch mit F5 oder Leertaste s s |
 | F5 | ganze Datei ausführen |
 | F6 | Konto für diese Datei wählen (steht unten rechts: `DB dev`) |
-| F4 / Leertaste o | in die Ergebnistabelle dieser Datei (jede SQL-Datei hat ihre eigene): `hjkl`, `y` Zelle, `Y` Zeile, `Strg+A` alles kopieren, ENTER Zelle ganz zeigen; ESC zurück in den Text (die Tabelle bleibt), `q` oder Leertaste O schließt sie |
+| F4 / Leertaste o | in die Ergebnistabelle dieser Datei (jede SQL-Datei hat ihre eigene): `hjkl`, `y` Zelle, `Y` ganze Zeile kommagetrennt, `Strg+C r Ziffer` Zeile kommagetrennt in eine Speicherbank, `Strg+A` alles kopieren, ENTER Zelle ganz zeigen; ESC zurück in den Text (die Tabelle bleibt), `q` oder Leertaste O schließt sie |
 | K (oder k über der ersten Zeile) | Kopfzeile; ENTER öffnet das Menü der Spalte: enthält, ist gleich, größer/kleiner, beginnt mit, leer/nicht leer, sortieren, Filter entfernen (`f` direkt, `F` alle Filter weg) |
 | Strg+Leertaste, `.` | SQL-Vervollständigung aus den Metadaten des Kontos (Tabellen, Views, Spalten, nach `alias.` die Spalten der Tabelle); Leertaste s m lädt sie neu |
 | Leertaste s c / s r / s x | Commit / Rollback / Abbrechen (`db.autocommit = off` ist die Vorgabe) |
@@ -442,7 +442,7 @@ das zuletzt Gelöschte oder Kopierte (wie `p`); `2`–`9` sind eigene Ablagen im
 | Terminal-Eingabe, `:`-Zeile, Fenster (Commit-Nachricht, Arbeitsordner …) | Eingabe | in die Eingabe |
 | Auswahlliste (Branch, Konto, Profil …) | gewählter Eintrag | in den Filter (z. B. neuer Branch-Name) |
 | Dateimanager | Name der gewählten Datei (der volle Pfad zusätzlich in Bank 0), ohne Auswahl der Suchtext | ins Suchfeld |
-| Ergebnistabelle | Zelle; auf der Kopfzeile die ganze Spalte | – |
+| Ergebnistabelle | Zelle; auf der Kopfzeile die ganze Spalte; `Strg+C r Ziffer`: ganze Zeile kommagetrennt | – |
 | Debug-Panel | Wert der Variable | – |
 
 Umkopieren: `Strg+C b VON NACH` kopiert eine Bank in eine andere, z. B. `Strg+C b 0 5` legt den vollen Pfad aus
