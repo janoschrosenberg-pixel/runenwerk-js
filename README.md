@@ -247,9 +247,10 @@ läuft oder ESC kommt, BACKSPACE geht aus einem Untermenü (`b` Branch, `r` Pull
 | Leertaste g d | Datei mit einem Commit vergleichen: Liste aus dem Verlauf der Datei (auch über Umbenennungen), tippen filtert, Branch/Tag/Commit eintippen geht auch; verglichen wird der Text im Editor, auch ungespeichert |
 | Leertaste g D | Datei mit HEAD vergleichen |
 | Leertaste g r r / g r n | Pull Requests im SCM-Manager: Liste bzw. neuer Pull Request (siehe unten) |
-| Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `d` Diff gegen HEAD, `s` vormerken, `u` zurücknehmen, `x` verwerfen (gestaged und nicht gestaged, mit Rückfrage; neue Dateien werden gelöscht), `c` commit, `m` merge, ESC schließt |
+| Leertaste g s | status unten: `j`/`k`, ENTER öffnet, `d` Diff gegen HEAD, `s` vormerken, `u` zurücknehmen, `x` verwerfen (gestaged und nicht gestaged, mit Rückfrage; neue Dateien werden gelöscht), `c` commit, `m` Merge-Editor, `M` Branch mergen, ESC schließt |
 | Leertaste g R | reset --hard (nur nach Eintippen von `ja`) |
 | Leertaste g m | Merge-Editor für Konflikte |
+| Leertaste g M | Branch mergen: Branch wählen, `git merge`; bei Konflikten fragt ein Dialog pro Datei: `a` aktuelle Datei behalten, `i` ankommende übernehmen (beides löst den Konflikt und merkt die Datei vor, auf einer Seite gelöschte Dateien werden entfernt), `k` Konflikt bestehen lassen. Bleibt kein Konflikt übrig, wird der Merge committet; sonst löst der Merge-Editor den Rest, ein neues Leertaste g M fragt die offenen Dateien erneut ab |
 | Leertaste g B | git blame an/aus: links neben den Zeilennummern Commit, Autor und Datum, unten die Commit-Nachricht der aktuellen Zeile; neue Zeilen erscheinen als „nicht committet“ |
 
 **Merge-Editor** nach dem Vorbild von Emacs Ediff: oben **A** (deine Seite) und **B** (ihre Seite), unten **C**, das

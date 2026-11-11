@@ -274,6 +274,148 @@ final class Werkzeug {
         });
     }
 
+    // ---------------------------------------------------------------- git merge BRANCH mit Konfliktdialog
+    /** Branch waehlen und mergen; laeuft schon ein Merge mit Konflikten, gleich die Konflikte abfragen */
+    private void mergeStarten() {
+        Path repo = repoFuer("");
+        if (repo == null || ungespeichert(repo)) return;
+        ed.meldung = "Branches werden gelesen ...";
+        hintergrund(() -> {
+            List<String> offen = Git.konflikte(repo);
+            List<String> l = offen.isEmpty() ? Git.branches(repo) : List.of();
+            SwingUtilities.invokeLater(() -> {
+                ed.meldung = null;
+                String jetzt = Git.branch(repo);
+                if (!offen.isEmpty()) {
+                    ed.meldung = "Merge laeuft noch: " + offen.size() + " Dateien mit Konflikt";
+                    konfliktFragen(repo, mergeQuelle(repo), new ArrayList<>(offen), 0, 0);
+                } else {
+                    List<String> andere = new ArrayList<>(l);
+                    andere.remove(jetzt);
+                    if (andere.isEmpty()) ed.fehler("keine anderen Branches in " + Editor.name(repo));
+                    else auswahl("Welchen Branch in " + jetzt + " mergen? (" + Editor.name(repo) + ")", andere, null, b -> mergen(repo, b));
+                }
+                ed.neuMalen.run();
+            });
+        });
+    }
+
+    /** true mit Fehlermeldung, wenn im Repo ungespeicherte Texte offen sind */
+    private boolean ungespeichert(Path repo) {
+        for (Doc t : ed.tabs) {
+            if (!t.geaendert || t.pfad == null || !t.pfad.startsWith(repo)) continue;
+            if (gleichWiePlatte(t)) {
+                t.geaendert = false;
+                continue;
+            }
+            ed.fehler("erst speichern: " + ed.relativ(t.pfad) + " ist geaendert");
+            return true;
+        }
+        return false;
+    }
+
+    /** Name des ankommenden Branches eines laufenden Merges (aus MERGE_MSG), sonst MERGE_HEAD */
+    private static String mergeQuelle(Path repo) {
+        Git.Lauf p = Git.git(repo, "rev-parse", "--git-path", "MERGE_MSG");
+        try {
+            if (p.code() == 0) {
+                String z = Files.readString(repo.resolve(p.ausgabe().strip())).split("\\R")[0];
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("Merge (?:remote-tracking )?branch(?:es)? '([^']+)'").matcher(z);
+                if (m.find()) return m.group(1);
+            }
+        } catch (IOException | RuntimeException e) {
+            // kein Name, dann MERGE_HEAD
+        }
+        return "MERGE_HEAD";
+    }
+
+    private void mergen(Path repo, String branch) {
+        gitLauf(repo, "merge " + branch, new String[] {"merge", "--no-edit", branch}, l -> {
+            neuLaden(repo);
+            ed.index.neuEinlesen();
+            List<String> k = Git.konflikte(repo);
+            if (l.code() == 0) ed.meldung = "merge " + branch + ": " + letzteZeile(l.ausgabe().isEmpty() ? "fertig" : l.ausgabe());
+            else if (!k.isEmpty()) konfliktFragen(repo, branch, new ArrayList<>(k), 0, 0);
+            else ed.fehler("merge fehlgeschlagen: " + letzteZeile(l.ausgabe()));
+        });
+    }
+
+    static final String AKTUELL = "[a] aktuelle Datei behalten", ANKOMMEND = "[i] ankommende Datei uebernehmen", BLEIBT = "[k] Konflikt bestehen lassen";
+
+    /** Dialog fuer die i-te Konfliktdatei; danach die naechste, am Ende Commit oder Hinweis */
+    private void konfliktFragen(Path repo, String quelle, List<String> dateien, int i, int geloest) {
+        if (i >= dateien.size()) {
+            mergeAbschliessen(repo, quelle, geloest);
+            return;
+        }
+        String f = dateien.get(i);
+        Path p = repo.resolve(f);
+        // Datei mit den Konfliktmarkern hinter dem Dialog zeigen
+        if (Files.isRegularFile(p)) {
+            Doc d = ed.oeffnen(p);
+            if (d != null) {
+                int m = d.t.indexOf("<<<<<<<");
+                if (m >= 0) d.cursor = m;
+            }
+        }
+        String jetzt = Git.branch(repo);
+        ed.meldung = "Merge-Konflikt: a = aktuelle Datei, i = ankommende, k = Konflikt lassen (oder Pfeile und ENTER)";
+        auswahlTasten("Konflikt " + (i + 1) + "/" + dateien.size() + ": " + f + " - ESC laesst diesen und alle weiteren offen",
+                List.of(AKTUELL + " (" + jetzt + ")", ANKOMMEND + " (" + quelle + ")", BLEIBT + " (spaeter im Merge-Editor)"), w -> {
+                    if (w.startsWith(BLEIBT)) {
+                        konfliktFragen(repo, quelle, dateien, i + 1, geloest);
+                        return;
+                    }
+                    boolean unsere = w.startsWith(AKTUELL);
+                    hintergrund(() -> {
+                        Git.Lauf l = konfliktLoesen(repo, f, unsere);
+                        SwingUtilities.invokeLater(() -> {
+                            ed.farbig("  " + f + ": " + (unsere ? "aktuelle Datei (" + jetzt + ")" : "ankommende Datei (" + quelle + ")"), l.code() == 0 ? E_TEXT : E_FEHLER);
+                            if (l.code() != 0) {
+                                ed.farbig(l.ausgabe(), E_FEHLER);
+                                ed.fehler("nicht geloest: " + f + " - " + letzteZeile(l.ausgabe()));
+                            }
+                            for (Doc t : ed.tabs) if (p.equals(t.pfad)) t.geaendert = false;
+                            neuLaden(repo);
+                            konfliktFragen(repo, quelle, dateien, i + 1, geloest + (l.code() == 0 ? 1 : 0));
+                            ed.neuMalen.run();
+                        });
+                    });
+                });
+    }
+
+    /**
+     * Konflikt einer Datei mit einer Seite loesen: Stufe 2 (aktuell) bzw. 3 (ankommend) auschecken und
+     * vormerken; fehlt die Datei auf dieser Seite (dort geloescht), wird sie entfernt.
+     */
+    static Git.Lauf konfliktLoesen(Path repo, String datei, boolean unsere) {
+        Git.Lauf st = Git.git(repo, "ls-files", "-u", "--", datei);
+        if (st.code() != 0) return st;
+        String stufe = unsere ? "2" : "3";
+        boolean da = false;
+        for (String z : st.ausgabe().split("\\R")) {
+            String[] t = z.split("\\s+");
+            if (t.length >= 3 && t[2].equals(stufe)) da = true;
+        }
+        if (!da) return Git.git(repo, "rm", "-q", "--", datei);
+        Git.Lauf co = Git.git(repo, "checkout", unsere ? "--ours" : "--theirs", "--", datei);
+        if (co.code() != 0) return co;
+        return Git.git(repo, "add", "--", datei);
+    }
+
+    private void mergeAbschliessen(Path repo, String quelle, int geloest) {
+        List<String> rest = Git.konflikte(repo);
+        ed.index.neuEinlesen();
+        if (!rest.isEmpty()) {
+            ed.meldung = geloest + " geloest, " + rest.size() + " Dateien mit Konflikt offen - Leertaste g m oeffnet den Merge-Editor, Leertaste g M fragt erneut";
+            return;
+        }
+        gitLauf(repo, "commit", new String[] {"commit", "--no-edit"}, l -> {
+            if (l.code() == 0) ed.meldung = "merge " + quelle + " abgeschlossen und committet: " + l.ausgabe().split("\\R")[0];
+            else ed.fehler("Merge-Commit fehlgeschlagen: " + letzteZeile(l.ausgabe()));
+        });
+    }
+
     private void alleSpeichern(Path repo) {
         int a = ed.aktiv;
         for (int i = 0; i < ed.tabs.size(); i++) {
@@ -1123,7 +1265,16 @@ final class Werkzeug {
         nachladenUhr.start();
     }
 
+    /** Auswahl mit Schnelltasten: Eintraege "[x] Text", die Taste x waehlt sofort (ohne Filter) */
+    void auswahlTasten(String titel, List<String> eintraege, Consumer<String> aktion) {
+        auswahl(titel, eintraege, null, aktion);
+        schnell = true;
+    }
+
+    private boolean schnell;
+
     void auswahl(String titel, List<String> eintraege, String vorwahl, Consumer<String> aktion) {
+        schnell = false;
         neuText = null;
         neuAktion = null;
         auswahlNachladen = null;
@@ -2690,6 +2841,8 @@ final class Werkzeug {
             if (l.size() == 1) los.accept(l.get(0));
             else auswahl("Konflikte in " + Editor.name(repo) + " (" + l.size() + " Dateien)", l, null, los);
         });
+        /** @binding git merge BRANCH: Branch waehlen; bei Konflikten pro Datei aktuell, ankommend oder Konflikt lassen; ohne offene Konflikte wird committet */
+        c.put("gitMergeBranch", a -> mergeStarten());
         /** @binding git blame an/aus: wer hat welche Zeile wann geaendert */
         c.put("gitBlame", a -> blameUmschalten());
         /** @binding git pull */
@@ -2770,6 +2923,16 @@ final class Werkzeug {
         // Auswahlliste
         /** @binding Auswahlliste: tippt das Zeichen und filtert */
         c.put("pickerChar", a -> {
+            if (schnell) {
+                for (int i = 0; i < auswahlListe.size(); i++) {
+                    if (auswahlListe.get(i).startsWith("[" + a + "]")) {
+                        auswahlWahl = i;
+                        ed.befehl("pickerAccept", "");
+                        return;
+                    }
+                }
+                return;
+            }
             auswahlFilter.append(a);
             filtern();
             nachladen();
