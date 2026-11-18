@@ -2961,7 +2961,11 @@ final class Werkzeug {
         });
         // Datenbank
         /** @binding SQL: fuehrt das Statement am Cursor bzw. die Auswahl aus */
-        c.put("sqlRun", a -> sqlLaufen(false));
+        c.put("sqlRun", a -> {
+            // im Mattermost-Chat sendet Strg+Enter die Nachricht
+            if (ed.d().chat != null) ed.mm.senden(ed.d());
+            else sqlLaufen(false);
+        });
         /** @binding SQL: fuehrt die ganze Datei aus */
         c.put("sqlRunFile", a -> sqlLaufen(true));
         /** @binding SQL: Datenbankkonto der Datei wechseln */

@@ -116,6 +116,8 @@ final class Doc {
     Werkzeug.Blame blame;
         /** Terminal-Tab (sonst null) */
     Terminal term;
+    /** Mattermost-Kanal (Chat-Tab, sonst null) */
+    Mattermost.Chat chat;
         /** Ergebnistabelle der letzten Abfrage in dieser Datei */
     Werkzeug.Tabelle tabelle;
 

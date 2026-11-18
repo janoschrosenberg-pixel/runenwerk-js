@@ -496,10 +496,52 @@ Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 | `a` Anwendung | `a` starten, `d` mit Debugger, `p` Profil, `b` bauen und starten, `x` stoppen, `g` OpenAPI generieren |
 | `d` Debug | `d` starten, `a` anhängen, `b`/`B` Haltepunkt/alle weg, `c` weiter, `n`/`i`/`o` Schritte, `x` stoppen, `p` Panel, `s` Debug-Tasten |
 | `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
+| `n` Neu | `n` Datei hier, `o` Datei in Ordner, `j` Java-Typ, `r` React-Komponente, `u` Komponente aus JSX (siehe „Dateien anlegen“) |
+| `m` Mattermost | `m` Kanal öffnen, `u` nächster ungelesener, `s` senden, `r` neu laden, `c` neu anmelden (siehe „Mattermost“) |
 
 Frühere Kürzel ohne Kategorie sind umgezogen: `Leertaste f` → `c f`, `r` → `c r`, `i` → `c i`, `h` → `c h`, `e` → `c e`,
 `c` → `c c`, `m` → `c m`, `b` → `g b b`, `t` → `o t`, `y` → `o y`, `q` → `s q`, `o`/`O` → `s o`/`s O`. Stehen die alten
 Zeilen noch in der eigenen `keymap.config` (sie begann als Kopie der Vorgabe), werden sie übergangen.
+
+## Dateien anlegen (Leertaste n)
+
+| Taste | |
+|---|---|
+| Leertaste n n | **neue Datei neben der aktuellen**: Name eintippen (auch `unter/ordner/name.ts`), ENTER legt sie an und öffnet sie. `.java` bekommt Paket und Klassenrumpf, `Name.tsx`/`Name.jsx` einen Komponentenrumpf |
+| Leertaste n o | **neue Datei in einem Ordner des Projekts**: erst die Ordnerliste (der Ordner der aktuellen Datei steht oben und ist gewählt, tippen filtert unscharf, ein neuer Pfad bietet „+ neuer Ordner“ an), dann der Name. `node_modules`, `target`, `build`, `dist` und versteckte Ordner fehlen in der Liste |
+| Leertaste n j | **Java-Typ** wie in IntelliJ: `c` Klasse, `i` Interface, `r` Record, `e` Enum, `a` Annotation, `x` Exception, `A` abstrakte Klasse; dann Ordner (nur Quellordner `src/.../java`) und Name. Das Paket kommt aus dem Pfad hinter `src/main/java` bzw. `src/test/java`, sonst aus einer Java-Datei im Ordner |
+| Leertaste n r | **React-Komponente**: Ordner, Name (wird groß geschrieben), `Name.tsx` (bzw. `.jsx` ohne TypeScript) mit `import React`, Props-Interface und Funktion mit Default-Export |
+| Leertaste n u | **fehlende Komponente aus der Verwendung**: Cursor auf `<Adresse name={name} alter={13} />` (auch auf `</Adresse>`): legt `Adresse.tsx` neben der Datei an, mit allen Attributen als Props und fügt `import Adresse from './Adresse';` in die aktuelle Datei ein |
+
+Die Typen der Props: Literale direkt (`"x"` string, `{13}` number, Attribut ohne Wert boolean, Arrays, Pfeilfunktionen,
+Vergleiche), Bezeichner, Felder und Aufrufe über den TypeScript Language Server (Hover, bei Aufrufen der Rückgabetyp).
+Typen aus anderen Dateien (`Kunde`) bekommen den Import aus der aktuellen Datei; was sich nicht ermitteln oder
+importieren lässt (z. B. ein nicht exportierter lokaler Typ), wird `any`. Nicht-selbstschließende Tags bekommen
+`children`. Gibt es die Komponente schon im Projekt, sagt der Editor wo (`Leertaste c i` importiert sie).
+
+## Mattermost (Leertaste m)
+
+In `config.txt`:
+
+```
+mattermost.server = https://chat.example.org
+mattermost.user = name
+mattermost.password = geheim
+# oder statt Benutzer und Passwort ein persönliches Zugriffstoken:
+# mattermost.token = ...
+mattermost.interval = 30
+```
+
+Beim Start meldet sich der Editor an (REST-API v4) und fragt alle `mattermost.interval` Sekunden die Kanäle ab.
+Oben in der Tab-Leiste steht `MM` (alles gelesen), farbig hinterlegt `MM 3 neu` bzw. `MM 3 neu @1` bei Erwähnungen
+(rot), `MM !` bei einem Fehler (Leertaste m m zeigt ihn). Stumm geschaltete Kanäle zählen nur Erwähnungen.
+
+`Leertaste m m` listet die Kanäle (ungelesene zuerst, Direktnachrichten als `@name`, tippen filtert) und öffnet den
+gewählten als **Chat-Tab**. Der Tab ist ein normaler Puffer mit allen Vim-Befehlen: oben der Verlauf (Uhrzeit, Name,
+Text), unter der Trennlinie der Entwurf. **Strg+Enter** (oder `Leertaste m s`) sendet den Entwurf; neue Nachrichten
+kommen alle paar Sekunden dazu, Entwurf und Cursor bleiben dabei stehen. Ein sichtbarer Chat gilt als gelesen.
+`Leertaste m u` öffnet den nächsten Kanal mit Ungelesenem, `Leertaste m r` lädt sofort neu, `Leertaste m c` meldet
+sich nach Änderungen an `mattermost.*` neu an, `:q` schließt den Chat.
 
 ## Weitere Tasten
 

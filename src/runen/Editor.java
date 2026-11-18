@@ -117,6 +117,10 @@ final class Editor {
     final CodeAktion codeAktion = new CodeAktion(this);
     final Vim vim;
     final Werkzeug wz;
+    /** Dateien, Java-Typen und React-Komponenten anlegen (Leertaste n) */
+    final Anlegen anlegen;
+    /** Mattermost (Leertaste m) */
+    final Mattermost mm;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
 
     // Einstellungen (config.txt neben der Jar)
@@ -199,6 +203,8 @@ final class Editor {
         fm = new FileManager(this);
         vim = new Vim(this);
         wz = new Werkzeug(this);
+        anlegen = new Anlegen(this);
+        mm = new Mattermost(this);
         oa = new OpenApi(this);
         unterschied = new Unterschied(this);
         scm = new Scm(this);
@@ -219,6 +225,8 @@ final class Editor {
         fm.befehle(cmds);
         vim.befehle(cmds);
         wz.befehle(cmds);
+        anlegen.befehle(cmds);
+        mm.befehle(cmds);
         oa.befehle(cmds);
         unterschied.befehle(cmds);
         scm.befehle(cmds);
@@ -293,6 +301,7 @@ final class Editor {
             popupOpen("TypeScript-Arbeitsbereich waehlen (wird in config.txt gespeichert):", "workdir", ts != null ? ts : System.getProperty("user.home"));
         }
         print("RUNENWERK JS - Editor fuer TypeScript, React, Java und SQL. help zeigt die Befehle. Konfiguration: " + kf.pfad);
+        mm.starten();
     }
 
     private static Path aufloesenVon(Path basis, String s) {
@@ -1283,7 +1292,12 @@ final class Editor {
         /** @binding Eingabefenster: bestaetigt die Eingabe */
         reg("popupRun", a -> {
             String b = popupBefehl, e = popupEingabe.toString();
+            java.util.function.Consumer<String> ak = popupAktion;
             popupClose();
+            if (ak != null) {
+                ak.accept(e);
+                return;
+            }
             farbig("runen> " + b + " " + e, E_HELL);
             befehl(b, e);
         });
@@ -1766,7 +1780,7 @@ final class Editor {
 
     private void close(boolean trotzdem) {
         Doc d = d();
-        if (d.geaendert && !trotzdem) {
+        if (d.geaendert && d.chat == null && !trotzdem) {
             meldung = "ungespeichert - forceClose (q!) schliesst trotzdem";
             return;
         }
@@ -1780,7 +1794,7 @@ final class Editor {
     void quit(boolean trotzdem) {
         if (!trotzdem) {
             for (int i = 0; i < tabs.size(); i++) {
-                if (tabs.get(i).geaendert) {
+                if (tabs.get(i).geaendert && tabs.get(i).chat == null) {
                     aktiv = i;
                     meldung = "ungespeicherte Aenderungen in " + tabs.get(i).name() + " - quit! beendet trotzdem";
                     return;
@@ -1910,7 +1924,16 @@ final class Editor {
     }
 
     // ================================================================ Fenster mit Eingabe
+    /** Eingabefenster, dessen Eingabe (nach ENTER) an aktion geht statt an einen Befehl */
+    java.util.function.Consumer<String> popupAktion;
+
+    void popupFrage(String titel, String vorgabe, java.util.function.Consumer<String> aktion) {
+        popupOpen(titel, "", vorgabe);
+        popupAktion = aktion;
+    }
+
     void popupOpen(String titel, String befehl, String vorgabe) {
+        popupAktion = null;
         if (!popupOffen) popupVorModus = modus;
         popupOffen = true;
         popupTitel = titel;
@@ -1921,6 +1944,7 @@ final class Editor {
     }
 
     void popupClose() {
+        popupAktion = null;
         popupOffen = false;
         if (modus.equals("popup")) modus = popupVorModus;
     }
@@ -2273,7 +2297,7 @@ final class Editor {
         });
     }
 
-    private static String hoverText(Object c) {
+    static String hoverText(Object c) {
         if (c == null) return "";
         if (c instanceof String s) return s;
         if (c instanceof List<?> l) {
@@ -2738,9 +2762,9 @@ final class Editor {
         scr.noClip();
         scr.clear(E_GRUND);
         // Terminal-Tabs und .log: Ausgabe-Farben (Maven, Logs, Stacktraces), eigener Code gegen den Index geprueft
-        String sp = d.term != null ? "log" : d.sprache();
+        String sp = d.term != null ? "log" : d.chat != null ? "chat" : d.sprache();
         if (sp != null && d.farbenVersion != d.version && d.t.length() < 4_000_000) {
-            d.farben = sp.equals("log") ? Ausgabe.faerben(d.t, eigeneDatei()) : Highlight.faerben(d.t, sp);
+            d.farben = sp.equals("log") ? Ausgabe.faerben(d.t, eigeneDatei()) : sp.equals("chat") ? Mattermost.faerben(d.t, mm.ich()) : Highlight.faerben(d.t, sp);
             d.farbenVersion = d.version;
         }
         oa.pruefenFalls(d);
@@ -2757,7 +2781,20 @@ final class Editor {
         String uhr = HUD ? java.time.LocalTime.now().withNano(0).toString() + " " : "";
         if (HUD && uhr.length() == 6) uhr = uhr.trim() + ":00 ";
         int uw = HUD ? scr.textWidth("  " + uhr) : 0;
-        int rx = W - scr.textWidth(rechts) - 8 - uw;
+        // Mattermost: ungelesene Nachrichten
+        String mmt = mm.anzeige();
+        int mmw = mmt == null ? 0 : scr.textWidth(" " + mmt + " ") + 2 * cw;
+        int rx = W - scr.textWidth(rechts) - 8 - uw - mmw;
+        if (mmt != null) {
+            boolean neu = mm.ungelesen + mm.erwaehnt > 0;
+            int mx = rx + scr.textWidth(rechts), mf = mmt.equals("MM !") ? E_FEHLER : neu ? (mm.erwaehnt > 0 ? E_FEHLER : E_WARN) : E_MATT;
+            if (neu) {
+                scr.rect(mx, 2, scr.textWidth(" " + mmt + " "), bh - 4, mf);
+                scr.text(mx, ty, " " + mmt + " ", E_GRUND);
+            } else {
+                scr.text(mx, ty, " " + mmt + " ", mf);
+            }
+        }
         int x;
         if (HUD) {
             String kennung = " RUNENWERK//JS ";

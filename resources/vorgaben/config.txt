@@ -165,3 +165,13 @@ compileFast = npx tsc --noEmit
 java.compile = mvn -q compile
 # Dateien beim Start oeffnen (mehrere open-Zeilen erlaubt)
 # open = src/App.tsx
+
+# Mattermost (Leertaste m): Server, Benutzer und Passwort (oder ein persoenliches Zugriffstoken); beim Start wird
+# angemeldet, oben in der Tab-Leiste stehen die ungelesenen Nachrichten. interval: Sekunden zwischen den Abfragen
+# (mit offenem Chat-Tab hoechstens 5), history: Nachrichten je Chat-Tab
+# mattermost.server = https://chat.example.org
+# mattermost.user = name
+# mattermost.password = geheim
+# mattermost.token =
+mattermost.interval = 30
+mattermost.history = 100
