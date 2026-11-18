@@ -497,7 +497,7 @@ Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 | `d` Debug | `d` starten, `a` anhängen, `b`/`B` Haltepunkt/alle weg, `c` weiter, `n`/`i`/`o` Schritte, `x` stoppen, `p` Panel, `s` Debug-Tasten |
 | `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
 | `n` Neu | `n` Datei hier, `o` Datei in Ordner, `j` Java-Typ, `r` React-Komponente, `u` Komponente aus JSX (siehe „Dateien anlegen“) |
-| `m` Mattermost | `m` Kanal öffnen, `u` nächster ungelesener, `s` senden, `r` neu laden, `c` neu anmelden (siehe „Mattermost“) |
+| `m` Mattermost | `m` Kanal öffnen, `u` nächster ungelesener, `s` senden, `e` Emoji einfügen, `r` neu laden, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
 
 Frühere Kürzel ohne Kategorie sind umgezogen: `Leertaste f` → `c f`, `r` → `c r`, `i` → `c i`, `h` → `c h`, `e` → `c e`,
 `c` → `c c`, `m` → `c m`, `b` → `g b b`, `t` → `o t`, `y` → `o y`, `q` → `s q`, `o`/`O` → `s o`/`s O`. Stehen die alten
@@ -532,9 +532,20 @@ mattermost.password = geheim
 mattermost.interval = 30
 ```
 
-Beim Start meldet sich der Editor an (REST-API v4) und fragt alle `mattermost.interval` Sekunden die Kanäle ab.
-Oben in der Tab-Leiste steht `MM` (alles gelesen), farbig hinterlegt `MM 3 neu` bzw. `MM 3 neu @1` bei Erwähnungen
-(rot), `MM !` bei einem Fehler (Leertaste m m zeigt ihn). Stumm geschaltete Kanäle zählen nur Erwähnungen.
+Beim Start meldet sich der Editor an (REST-API v4) und öffnet den **Websocket** (`/api/v4/websocket`): neue
+Nachrichten, Reaktionen und der Lesestand kommen sofort an. Reißt die Verbindung ab, verbindet er nach ein paar
+Sekunden neu und fragt bis dahin alle `mattermost.interval` Sekunden ab. `mattermost.live = off` schaltet den
+Websocket ab, `mattermost.websocket` setzt eine eigene Adresse (z. B. hinter einem Proxy).
+Oben in der Tab-Leiste steht `MM` (alles gelesen, live), `MM~` (alles gelesen, ohne Websocket), farbig hinterlegt
+`MM 3 neu` bzw. `MM 3 neu @1` bei Erwähnungen (rot), `MM !` bei einem Fehler (Leertaste m m zeigt ihn,
+`Leertaste m i` den Stand von Anmeldung und Websocket). Stumm geschaltete Kanäle zählen nur Erwähnungen.
+
+**Emojis**: Kurznamen in Nachrichten (`:tada:`, `:+1:`) erscheinen als farbiges Emoji, Reaktionen stehen unter der
+Nachricht (`[👍 2  🎉 1]`); eigene Emojis des Servers bleiben als `:name:` (farbig) stehen. **Strg+E** im Insert-Mode
+(oder `Leertaste m e`) öffnet die Emoji-Auswahl: ein Raster mit Suchfeld (tippen sucht in Namen und Aliasen),
+**Strg+H/J/K/L** oder die Pfeile wählen, ENTER fügt das Emoji an der Cursorstelle ein, ESC schließt. Zuletzt benutzte
+stehen vorn (`emoji-zuletzt.txt` neben `config.txt`), eigene Emojis des Servers kommen als `:name:` hinzu. Die
+Auswahl geht in jedem Puffer; Emojis werden überall farbig über zwei Spalten gezeichnet.
 
 `Leertaste m m` listet die Kanäle (ungelesene zuerst, Direktnachrichten als `@name`, tippen filtert) und öffnet den
 gewählten als **Chat-Tab**. Der Tab ist ein normaler Puffer mit allen Vim-Befehlen: oben der Verlauf (Uhrzeit, Name,

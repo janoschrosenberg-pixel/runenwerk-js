@@ -33,7 +33,7 @@ final class Mattermost {
     /** Kanal mit Zaehlern (unveraenderlich, wird je Abfrage neu gebaut) */
     record Kanal(String id, String team, String art, String name, String anzeige, int ungelesen, int erwaehnt, long letzte) {}
 
-    record Post(String id, String user, String text, long zeit, String typ) {}
+    record Post(String id, String user, String text, long zeit, String typ, Map<String, Integer> reaktionen) {}
 
     /** Chat-Tab eines Kanals */
     static final class Chat {
@@ -59,6 +59,14 @@ final class Mattermost {
     private Thread faden;
     private final Object wecker = new Object();
     private volatile boolean jetzt;
+    /** eigene Emojis des Servers (Namen) */
+    volatile List<String> eigeneEmojis = List.of();
+    /** Websocket fuer Live-Updates (null, wenn nicht verbunden) */
+    private volatile java.net.http.WebSocket ws;
+    private volatile boolean wsVerbindet;
+    /** Live-Updates ueber den Websocket laufen */
+    volatile boolean live;
+    volatile String wsFehler;
 
     Mattermost(Editor ed) {
         this.ed = ed;
@@ -79,6 +87,7 @@ final class Mattermost {
         if (!server.startsWith("http")) server = "https://" + server;
         token = null;
         status = "verbinde";
+        wsSchliessen();
         if (faden == null) {
             faden = new Thread(this::schleife, "mattermost");
             faden.setDaemon(true);
@@ -103,9 +112,10 @@ final class Mattermost {
                 status = "Fehler: " + e;
                 ed.protokoll("Mattermost", e);
             }
+            wsVerbinden();
             int s = Math.max(5, ed.kf.zahl("mattermost.interval", 30));
             boolean chat = !chatTabs().isEmpty();
-            long warten = (chat ? Math.min(s, 5) : s) * 1000L;
+            long warten = (live ? Math.max(s, 300) : chat ? Math.min(s, 5) : s) * 1000L;
             synchronized (wecker) {
                 if (!jetzt) {
                     try {
@@ -179,7 +189,110 @@ final class Mattermost {
         ichId = Json.str(Json.get(j, "id"));
         ich = Json.str(Json.get(j, "username"));
         if (ichId != null && ich != null) namen.put(ichId, ich);
+        // eigene Emojis des Servers (fuer die Emoji-Auswahl)
+        List<String> eig = new ArrayList<>();
+        for (int seite = 0; seite < 10; seite++) {
+            Antwort e = anfrage("GET", "/emoji?per_page=200&sort=name&page=" + seite, null);
+            if (e.code() != 200) break;
+            List<Object> l = Json.list(Json.parse(e.text()));
+            for (Object x : l) if (Json.str(Json.get(x, "name")) != null) eig.add(Json.str(Json.get(x, "name")));
+            if (l.size() < 200) break;
+        }
+        eigeneEmojis = eig;
         return true;
+    }
+
+    // ================================================================ Websocket
+    private static final java.util.Set<String> EREIGNISSE = java.util.Set.of("posted", "post_edited", "post_deleted", "channel_viewed", "reaction_added",
+            "reaction_removed", "channel_created", "channel_updated", "channel_deleted", "direct_added", "group_added", "user_added", "user_removed",
+            "multiple_channels_viewed", "thread_read_changed");
+
+    /** Websocket aufbauen (mattermost.live = off: nur abfragen); bei Ereignissen sofort neu laden */
+    private void wsVerbinden() {
+        if (ws != null || wsVerbindet || token == null || !ed.kf.an("mattermost.live", true)) return;
+        String u = ed.kf.get("mattermost.websocket", "").strip();
+        if (u.isEmpty()) u = server.replaceFirst("^http", "ws") + "/api/v4/websocket";
+        wsVerbindet = true;
+        String tk = token;
+        try {
+            http.newWebSocketBuilder().header("Authorization", "Bearer " + tk).connectTimeout(Duration.ofSeconds(15)).buildAsync(URI.create(u), new Lauscher())
+                    .whenComplete((w, e) -> {
+                        wsVerbindet = false;
+                        if (e != null) {
+                            live = false;
+                            wsFehler = e.getCause() != null ? e.getCause().toString() : e.toString();
+                            return;
+                        }
+                        ws = w;
+                        live = true;
+                        wsFehler = null;
+                        w.sendText(Json.write(Json.obj("seq", 1, "action", "authentication_challenge", "data", Json.obj("token", tk))), true);
+                        SwingUtilities.invokeLater(ed.neuMalen);
+                    });
+        } catch (IllegalArgumentException e) {
+            wsVerbindet = false;
+            wsFehler = e.getMessage();
+        }
+    }
+
+    private void wsSchliessen() {
+        java.net.http.WebSocket w = ws;
+        ws = null;
+        live = false;
+        if (w != null) w.abort();
+    }
+
+    /** Verbindung weg: in ein paar Sekunden neu verbinden (ueber die Abfrage-Schleife) */
+    private void wsWeg(String grund) {
+        ws = null;
+        live = false;
+        wsFehler = grund;
+        hintergrund(() -> {
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException e) {
+                return;
+            }
+            wecken();
+        });
+        SwingUtilities.invokeLater(ed.neuMalen);
+    }
+
+    private final class Lauscher implements java.net.http.WebSocket.Listener {
+        private final StringBuilder teil = new StringBuilder();
+
+        @Override
+        public java.util.concurrent.CompletionStage<?> onText(java.net.http.WebSocket w, CharSequence data, boolean last) {
+            teil.append(data);
+            if (last) {
+                String t = teil.toString();
+                teil.setLength(0);
+                ereignis(t);
+            }
+            w.request(1);
+            return null;
+        }
+
+        @Override
+        public java.util.concurrent.CompletionStage<?> onClose(java.net.http.WebSocket w, int code, String reason) {
+            if (w == ws) wsWeg("geschlossen (" + code + (reason == null || reason.isEmpty() ? "" : ": " + reason) + ")");
+            return null;
+        }
+
+        @Override
+        public void onError(java.net.http.WebSocket w, Throwable e) {
+            if (w == ws) wsWeg(e.toString());
+        }
+    }
+
+    /** Ereignis vom Websocket: Nachrichten, Lesestand, Reaktionen -> sofort neu laden */
+    void ereignis(String text) {
+        try {
+            String ev = Json.str(Json.get(Json.parse(text), "event"));
+            if (ev != null && EREIGNISSE.contains(ev)) wecken();
+        } catch (RuntimeException e) {
+            // kein JSON
+        }
     }
 
     /** ein Durchlauf: anmelden falls noetig, Kanaele mit Zaehlern lesen, offene Chats neu laden */
@@ -341,7 +454,12 @@ final class Mattermost {
             String u = Json.str(Json.get(p, "user_id"));
             wer.add(u);
             aenderung = Math.max(aenderung, lang(Json.get(p, "update_at")));
-            posts.add(new Post((String) id, u, Json.str(Json.get(p, "message")), lang(Json.get(p, "create_at")), Json.str(Json.get(p, "type"))));
+            Map<String, Integer> re = new LinkedHashMap<>();
+            for (Object r : Json.list(Json.get(p, "metadata", "reactions"))) {
+                String en = Json.str(Json.get(r, "emoji_name"));
+                if (en != null) re.merge(en, 1, Integer::sum);
+            }
+            posts.add(new Post((String) id, u, Json.str(Json.get(p, "message")), lang(Json.get(p, "create_at")), Json.str(Json.get(p, "type")), re));
         }
         posts.sort((x, y) -> Long.compare(x.zeit(), y.zeit()));
         namenHolen(wer);
@@ -395,10 +513,18 @@ final class Mattermost {
             }
             String wer = p.typ() != null && p.typ().startsWith("system_") ? "*" : namen.getOrDefault(p.user(), "?");
             String kopf = UHR.format(zeit) + " " + wer + ": ";
-            String[] z = (p.text() == null ? "" : p.text()).split("\n", -1);
+            String[] z = Emojis.ersetzen(p.text() == null ? "" : p.text()).split("\n", -1);
             b.append(kopf).append(z[0]).append('\n');
             String ein = " ".repeat(6);
             for (int i = 1; i < z.length; i++) b.append(ein).append(z[i]).append('\n');
+            if (!p.reaktionen().isEmpty()) {
+                List<String> r = new ArrayList<>();
+                for (Map.Entry<String, Integer> e : p.reaktionen().entrySet()) {
+                    String zc = Emojis.zeichen(e.getKey());
+                    r.add((zc != null ? zc : ":" + e.getKey() + ":") + " " + e.getValue());
+                }
+                b.append(ein).append("[").append(String.join("  ", r)).append("]\n");
+            }
         }
         if (posts.isEmpty()) b.append("\n(noch keine Nachrichten)\n");
         b.append('\n');
@@ -504,7 +630,7 @@ final class Mattermost {
         if (server == null || server.isEmpty()) return null;
         if (status.equals("verbinde")) return "MM ...";
         if (!status.equals("ok")) return "MM !";
-        if (ungelesen == 0 && erwaehnt == 0) return "MM";
+        if (ungelesen == 0 && erwaehnt == 0) return live ? "MM" : "MM~";
         return "MM " + ungelesen + " neu" + (erwaehnt > 0 ? " @" + erwaehnt : "");
     }
 
@@ -567,6 +693,12 @@ final class Mattermost {
             starten();
             ed.meldung = eingerichtet() ? "Mattermost: verbinde mit " + server : "mattermost.server fehlt in config.txt";
         });
+        /** @binding Mattermost: Verbindungsstand (Anmeldung, Websocket) zeigen */
+        c.put("mmStatus", a -> {
+            ed.meldung = !eingerichtet() ? "Mattermost ist nicht eingerichtet" : "Mattermost " + server + ": " + status + (ich.isEmpty() ? "" : " als " + ich)
+                    + ", Live-Updates " + (live ? "an (Websocket)" : "aus" + (wsFehler != null ? " - " + wsFehler : "") + " (alle " + ed.kf.zahl("mattermost.interval", 30) + " s abfragen)")
+                    + ", " + eigeneEmojis.size() + " eigene Emojis";
+        });
     }
 
     private boolean bereit() {
@@ -595,6 +727,8 @@ final class Mattermost {
                 java.util.Arrays.fill(f, i, e, Ausgabe.KOPF);
             } else if (z.startsWith("--- ") || z.equals(TRENN)) {
                 java.util.Arrays.fill(f, i, e, Ausgabe.LEISE);
+            } else if (z.startsWith("      [") && z.endsWith("]")) {
+                java.util.Arrays.fill(f, i, e, Ausgabe.LEISE);
             } else if (z.matches("\\d\\d:\\d\\d \\S+: .*|\\d\\d:\\d\\d \\S+:")) {
                 java.util.Arrays.fill(f, i, i + 5, Ausgabe.LEISE);
                 int d = z.indexOf(": ", 6);
@@ -602,10 +736,15 @@ final class Mattermost {
                 String wer = z.substring(6, d);
                 java.util.Arrays.fill(f, i + 6, i + d + 1, wer.equals(ich) ? Ausgabe.EIGEN : wer.equals("*") ? Ausgabe.LEISE : Ausgabe.ORT);
             }
+            // :eigenes_emoji: (nicht umgewandelt) farbig
+            java.util.regex.Matcher em = EIGEN.matcher(z);
+            while (em.find()) if (f[i + em.start()] != Ausgabe.KOPF) java.util.Arrays.fill(f, i + em.start(), i + em.end(), Ausgabe.INFO);
             i = e + 1;
         }
         return f;
     }
+
+    private static final java.util.regex.Pattern EIGEN = java.util.regex.Pattern.compile(":[a-z0-9_+-]+:");
 
     String ich() {
         return ich;

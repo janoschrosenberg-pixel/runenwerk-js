@@ -121,6 +121,8 @@ final class Editor {
     final Anlegen anlegen;
     /** Mattermost (Leertaste m) */
     final Mattermost mm;
+    /** Emoji-Auswahl (Strg+E im Insert-Mode) */
+    final EmojiWahl emoji;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
 
     // Einstellungen (config.txt neben der Jar)
@@ -205,6 +207,7 @@ final class Editor {
         wz = new Werkzeug(this);
         anlegen = new Anlegen(this);
         mm = new Mattermost(this);
+        emoji = new EmojiWahl(this);
         oa = new OpenApi(this);
         unterschied = new Unterschied(this);
         scm = new Scm(this);
@@ -227,6 +230,7 @@ final class Editor {
         wz.befehle(cmds);
         anlegen.befehle(cmds);
         mm.befehle(cmds);
+        emoji.befehle(cmds);
         oa.befehle(cmds);
         unterschied.befehle(cmds);
         scm.befehle(cmds);
@@ -2941,7 +2945,10 @@ final class Editor {
                         int farbe = d.farben != null && d.farbenVersion == d.version && p < d.farben.length ? FARBEN[d.farben[p]] : E_TEXT;
                         int cp = c;
                         if (Character.isHighSurrogate(c) && p + 1 < e) cp = Character.toCodePoint(c, d.t.charAt(p + 1));
-                        if (!Character.isLowSurrogate(c)) scr.glyph(tx + (v - links) * cw, y, cp, farbe);
+                        // Emojis farbig ueber ihre zwei Spalten; Zeichen vor U+FE0F (Emoji-Darstellung) ebenso
+                        if (Screen.emoji(cp)) scr.emoji(tx + (v - links) * cw, y, cp, 2);
+                        else if (p + 1 < e && d.t.charAt(p + 1) == '\uFE0F' && cp > 0x2000) scr.emoji(tx + (v - links) * cw, y, cp, 2);
+                        else if (!Character.isLowSurrogate(c) && c != '\uFE0F' && c != '\u200D') scr.glyph(tx + (v - links) * cw, y, cp, farbe);
                     }
                     v = nv;
                 }
@@ -3012,6 +3019,7 @@ final class Editor {
         if (fm.offen) fm.malen(scr, bh + 2, H - unten());
         if (popupOffen) popupMalen();
         if (wz.auswahlOffen) wz.auswahlMalen();
+        if (emoji.offen) emoji.malen();
         // ------------------------------------------------ Statuszeile
         int sy = H - unten();
         scr.rect(0, sy - 2, W, 2, HUD ? E_TEXT : E_MATT);
@@ -3146,6 +3154,7 @@ final class Editor {
             case "pullrequests" -> "PULL REQUESTS";
             case "prdiff" -> prAnsicht.lokal ? "DIFF" : "PULL REQUEST";
             case "picker" -> "AUSWAHL";
+            case "emoji" -> "EMOJI";
             default -> modus;
         };
     }

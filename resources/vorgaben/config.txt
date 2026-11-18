@@ -175,3 +175,7 @@ java.compile = mvn -q compile
 # mattermost.token =
 mattermost.interval = 30
 mattermost.history = 100
+# Live-Updates ueber den Websocket (off: nur alle interval Sekunden abfragen); websocket: eigene Adresse, sonst
+# ws(s)://SERVER/api/v4/websocket
+mattermost.live = on
+# mattermost.websocket =

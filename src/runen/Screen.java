@@ -62,6 +62,7 @@ final class Screen {
         asc = pad + fm.getAscent();
         g.dispose();
         glyphen.clear();
+        emojis.clear();
         schnell = new byte[0x3000][];
     }
 
@@ -180,6 +181,54 @@ final class Screen {
         }
     }
 
+    // ---------------------------------------------------------------- Emojis (farbig, zwei Zellen breit)
+    private final Map<Integer, int[]> emojis = new HashMap<>();
+
+    /** Emoji ausserhalb der Grundebene (Smileys, Gesten, Symbole, Tiere ...); werden farbig gezeichnet */
+    static boolean emoji(int cp) {
+        return cp >= 0x1F000 && cp <= 0x1FAFF && !(cp >= 0x1F3FB && cp <= 0x1F3FF);
+    }
+
+    /** Emoji farbig in zellen Zellen ab x (Bild je Zeichen zwischengespeichert, Alpha gemischt) */
+    void emoji(int x, int y, int cp, int zellen) {
+        int bw = cw * zellen;
+        if (x >= cx1 || y >= cy1 || x + bw <= cx0 || y + lh <= cy0) return;
+        int[] b = emojis.get(cp * 4 + zellen);
+        if (b == null) {
+            BufferedImage gi = new BufferedImage(bw, lh, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = gi.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            String t = new String(Character.toChars(cp));
+            int gr = Math.max(6, Math.min(bw, lh) * 8 / 10);
+            Font f = new Font(Font.DIALOG, Font.PLAIN, gr);
+            FontMetrics fm = g.getFontMetrics(f);
+            // passt es nicht in die Zellen, kleiner
+            while (gr > 6 && (fm.stringWidth(t) > bw || fm.getAscent() + fm.getDescent() > lh + 2)) {
+                gr--;
+                f = new Font(Font.DIALOG, Font.PLAIN, gr);
+                fm = g.getFontMetrics(f);
+            }
+            g.setFont(f);
+            g.setColor(java.awt.Color.WHITE);
+            int ty = (lh - (fm.getAscent() + fm.getDescent())) / 2 + fm.getAscent();
+            g.drawString(t, Math.max(0, (bw - fm.stringWidth(t)) / 2), ty);
+            g.dispose();
+            b = ((DataBufferInt) gi.getRaster().getDataBuffer()).getData().clone();
+            emojis.put(cp * 4 + zellen, b);
+        }
+        int x0 = Math.max(cx0, x), y0 = Math.max(cy0, y);
+        int x1 = Math.min(cx1, x + bw), y1 = Math.min(cy1, y + lh);
+        for (int yy = y0; yy < y1; yy++) {
+            int bo = (yy - y) * bw - x, o = yy * w;
+            for (int xx = x0; xx < x1; xx++) {
+                int c = b[bo + xx], a = c >>> 24;
+                if (a == 0) continue;
+                px[o + xx] = a == 255 ? c & 0xFFFFFF : mischen(px[o + xx], c & 0xFFFFFF, a);
+            }
+        }
+    }
+
     /** Text in Zellen; gibt das x hinter dem Text zurueck */
     int text(int x, int y, CharSequence s, int farbe) {
         for (int k = 0; k < s.length(); k++) {
@@ -188,6 +237,12 @@ final class Screen {
             if (Character.isHighSurrogate(c) && k + 1 < s.length()) {
                 cp = Character.toCodePoint(c, s.charAt(++k));
             }
+            if (emoji(cp)) {
+                emoji(x, y, cp, 2);
+                x += 2 * cw;
+                continue;
+            }
+            if (cp == 0xFE0F || cp == 0x200D) continue;
             glyph(x, y, cp == '\t' ? ' ' : cp, farbe);
             x += cw;
         }
@@ -195,6 +250,16 @@ final class Screen {
     }
 
     int textWidth(CharSequence s) {
-        return s.toString().codePointCount(0, s.length()) * cw;
+        int n = 0;
+        for (int k = 0; k < s.length(); k++) {
+            char c = s.charAt(k);
+            if (c == 0xFE0F || c == 0x200D) continue;
+            if (Character.isHighSurrogate(c) && k + 1 < s.length()) {
+                n += emoji(Character.toCodePoint(c, s.charAt(++k))) ? 2 : 1;
+            } else {
+                n++;
+            }
+        }
+        return n * cw;
     }
 }
