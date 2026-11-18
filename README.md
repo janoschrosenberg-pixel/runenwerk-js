@@ -497,7 +497,7 @@ Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 | `d` Debug | `d` starten, `a` anhängen, `b`/`B` Haltepunkt/alle weg, `c` weiter, `n`/`i`/`o` Schritte, `x` stoppen, `p` Panel, `s` Debug-Tasten |
 | `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
 | `n` Neu | `n` Datei hier, `o` Datei in Ordner, `j` Java-Typ, `r` React-Komponente, `u` Komponente aus JSX (siehe „Dateien anlegen“) |
-| `m` Mattermost | `m` Kanal öffnen, `u` nächster ungelesener, `s` senden, `e` Emoji einfügen, `r` neu laden, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
+| `m` Mattermost | `m` Kanal öffnen, `u` nächster ungelesener, `s` senden, `+` reagieren, `e` Emoji einfügen, `r` neu laden, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
 
 Frühere Kürzel ohne Kategorie sind umgezogen: `Leertaste f` → `c f`, `r` → `c r`, `i` → `c i`, `h` → `c h`, `e` → `c e`,
 `c` → `c c`, `m` → `c m`, `b` → `g b b`, `t` → `o t`, `y` → `o y`, `q` → `s q`, `o`/`O` → `s o`/`s O`. Stehen die alten
@@ -546,6 +546,10 @@ Nachricht (`[👍 2  🎉 1]`); eigene Emojis des Servers bleiben als `:name:` (
 **Strg+H/J/K/L** oder die Pfeile wählen, ENTER fügt das Emoji an der Cursorstelle ein, ESC schließt. Zuletzt benutzte
 stehen vorn (`emoji-zuletzt.txt` neben `config.txt`), eigene Emojis des Servers kommen als `:name:` hinzu. Die
 Auswahl geht in jedem Puffer; Emojis werden überall farbig über zwei Spalten gezeichnet.
+
+**Reagieren**: Cursor auf eine Nachricht im Chat (auch auf ihre Folge- oder Reaktionszeile), `Leertaste m +` öffnet
+dieselbe Emoji-Auswahl, ENTER reagiert mit dem gewählten Emoji. Eigene Reaktionen tragen ein `*` (`[👍 2*]`);
+dasselbe Emoji noch einmal nimmt die eigene Reaktion zurück.
 
 `Leertaste m m` listet die Kanäle (ungelesene zuerst, Direktnachrichten als `@name`, tippen filtert) und öffnet den
 gewählten als **Chat-Tab**. Der Tab ist ein normaler Puffer mit allen Vim-Befehlen: oben der Verlauf (Uhrzeit, Name,

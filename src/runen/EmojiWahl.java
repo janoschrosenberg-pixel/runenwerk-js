@@ -27,6 +27,9 @@ final class EmojiWahl {
     private int spalten = 12;
     private final List<String> zuletzt = new ArrayList<>();
     private boolean geladen;
+    /** statt Einfuegen: das gewaehlte Emoji hierher (z. B. Reaktion in Mattermost); null = einfuegen */
+    private java.util.function.Consumer<Emojis.Emoji> aktion;
+    private String zweck;
 
     EmojiWahl(Editor ed) {
         this.ed = ed;
@@ -36,7 +39,17 @@ final class EmojiWahl {
         return ed.konfig.resolve("emoji-zuletzt.txt");
     }
 
+    /** Auswahl, deren Emoji an aktion geht (Titel zweck) statt eingefuegt zu werden */
+    void oeffnen(String zweck, java.util.function.Consumer<Emojis.Emoji> aktion) {
+        oeffnen();
+        this.zweck = zweck;
+        this.aktion = aktion;
+        ed.meldung = zweck + ": tippen sucht, Strg+H/J/K/L oder Pfeile waehlen, ENTER waehlt, ESC schliesst";
+    }
+
     void oeffnen() {
+        aktion = null;
+        zweck = null;
         if (!geladen) {
             geladen = true;
             try {
@@ -92,11 +105,23 @@ final class EmojiWahl {
         if (liste.isEmpty()) return;
         Emojis.Emoji e = liste.get(wahl);
         Doc d = ziel;
+        java.util.function.Consumer<Emojis.Emoji> ak = aktion;
         zu();
+        if (ak != null) {
+            merken(e);
+            ak.accept(e);
+            return;
+        }
         if (d == null || !ed.tabs.contains(d)) return;
         String s = e.zeichen() != null ? e.zeichen() : ":" + e.name() + ":";
         if (!vorModus.equals("insert")) d.merken();
         d.einfuegen(d.cursor, s);
+        merken(e);
+        ed.meldung = ":" + e.name() + ": eingefuegt";
+    }
+
+    /** zuletzt benutzt (vorn in der Liste, emoji-zuletzt.txt) */
+    private void merken(Emojis.Emoji e) {
         zuletzt.remove(e.name());
         zuletzt.add(0, e.name());
         while (zuletzt.size() > 24) zuletzt.remove(zuletzt.size() - 1);
@@ -105,7 +130,6 @@ final class EmojiWahl {
         } catch (IOException ex) {
             // Verlauf nur fuer diese Sitzung
         }
-        ed.meldung = ":" + e.name() + ": eingefuegt";
     }
 
     private void bewegen(int dx, int dy) {
@@ -151,7 +175,7 @@ final class EmojiWahl {
         int zelle = 4 * cw;
         spalten = Math.max(4, Math.min(16, (s.w - 8 * cw) / zelle));
         int zeilen = Math.max(1, Math.min(8, (liste.size() + spalten - 1) / spalten));
-        String titel = "Emoji (" + liste.size() + ")  tippen sucht  Strg+H/J/K/L waehlt  ENTER fuegt ein  ESC zu";
+        String titel = (zweck != null ? zweck : "Emoji") + " (" + liste.size() + ")  tippen sucht  Strg+H/J/K/L waehlt  ENTER " + (aktion != null ? "waehlt" : "fuegt ein") + "  ESC zu";
         int w = Math.min(s.w - 2 * cw, Math.max(spalten * zelle + 4 * cw, s.textWidth(titel) + 4 * cw)), h = (zeilen + 4) * lh + 24;
         int x = (s.w - w) / 2, y = (s.h - h) / 3;
         s.rect(x + 6, y + 6, w, h, 0);

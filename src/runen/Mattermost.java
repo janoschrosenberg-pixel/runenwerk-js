@@ -33,7 +33,7 @@ final class Mattermost {
     /** Kanal mit Zaehlern (unveraenderlich, wird je Abfrage neu gebaut) */
     record Kanal(String id, String team, String art, String name, String anzeige, int ungelesen, int erwaehnt, long letzte) {}
 
-    record Post(String id, String user, String text, long zeit, String typ, Map<String, Integer> reaktionen) {}
+    record Post(String id, String user, String text, long zeit, String typ, Map<String, Integer> reaktionen, java.util.Set<String> meine) {}
 
     /** Chat-Tab eines Kanals */
     static final class Chat {
@@ -41,6 +41,10 @@ final class Mattermost {
         String titel;
         /** Kennung des zuletzt gezeigten Stands (letzte Post-ID und Aenderungszeit) */
         String stand = "";
+        /** Zeile des Verlaufs -> Post-ID (null fuer Kopf, Tagestrenner, Leerzeilen) */
+        List<String> zeilen = List.of();
+        /** Post-ID -> eigene Reaktionen (Emoji-Namen) */
+        Map<String, java.util.Set<String>> meine = Map.of();
 
         Chat(String kanal, String titel) {
             this.kanal = kanal;
@@ -455,20 +459,28 @@ final class Mattermost {
             wer.add(u);
             aenderung = Math.max(aenderung, lang(Json.get(p, "update_at")));
             Map<String, Integer> re = new LinkedHashMap<>();
+            java.util.Set<String> mein = new java.util.LinkedHashSet<>();
             for (Object r : Json.list(Json.get(p, "metadata", "reactions"))) {
                 String en = Json.str(Json.get(r, "emoji_name"));
-                if (en != null) re.merge(en, 1, Integer::sum);
+                if (en == null) continue;
+                re.merge(en, 1, Integer::sum);
+                if (ichId != null && ichId.equals(Json.str(Json.get(r, "user_id")))) mein.add(en);
             }
-            posts.add(new Post((String) id, u, Json.str(Json.get(p, "message")), lang(Json.get(p, "create_at")), Json.str(Json.get(p, "type")), re));
+            posts.add(new Post((String) id, u, Json.str(Json.get(p, "message")), lang(Json.get(p, "create_at")), Json.str(Json.get(p, "type")), re, mein));
         }
         posts.sort((x, y) -> Long.compare(x.zeit(), y.zeit()));
         namenHolen(wer);
         String stand = (posts.isEmpty() ? "" : posts.get(posts.size() - 1).id()) + "/" + posts.size() + "/" + aenderung;
-        String verlauf = verlauf(c, posts);
+        List<String> zeilen = new ArrayList<>();
+        String verlauf = verlauf(c, posts, zeilen);
+        Map<String, java.util.Set<String>> meine = new HashMap<>();
+        for (Post p : posts) meine.put(p.id(), p.meine());
         SwingUtilities.invokeLater(() -> {
             if (!ed.tabs.contains(d)) return;
             if (!stand.equals(c.stand)) {
                 c.stand = stand;
+                c.zeilen = zeilen;
+                c.meine = meine;
                 zeigen(d, verlauf);
             }
             // sichtbarer Chat gilt als gelesen
@@ -501,8 +513,9 @@ final class Mattermost {
     private static final DateTimeFormatter UHR = DateTimeFormatter.ofPattern("HH:mm");
 
     /** Verlauf als Text: Kopfzeile, Tagestrenner, "HH:mm name: Text" (Folgezeilen eingerueckt) */
-    String verlauf(Chat c, List<Post> posts) {
-        StringBuilder b = new StringBuilder("# " + c.titel + "   (Strg+Enter sendet, Leertaste m r laedt neu, :q schliesst)\n");
+    String verlauf(Chat c, List<Post> posts, List<String> zeilen) {
+        StringBuilder b = new StringBuilder("# " + c.titel + "   (Strg+Enter sendet, Leertaste m + reagiert, Leertaste m r laedt neu, :q schliesst)\n");
+        zeilen.add(null);
         LocalDate tag = null;
         ZoneId zone = ZoneId.systemDefault();
         for (Post p : posts) {
@@ -510,20 +523,28 @@ final class Mattermost {
             if (!zeit.toLocalDate().equals(tag)) {
                 tag = zeit.toLocalDate();
                 b.append("\n--- ").append(tag).append(" ---\n");
+                zeilen.add(null);
+                zeilen.add(null);
             }
             String wer = p.typ() != null && p.typ().startsWith("system_") ? "*" : namen.getOrDefault(p.user(), "?");
             String kopf = UHR.format(zeit) + " " + wer + ": ";
             String[] z = Emojis.ersetzen(p.text() == null ? "" : p.text()).split("\n", -1);
             b.append(kopf).append(z[0]).append('\n');
+            zeilen.add(p.id());
             String ein = " ".repeat(6);
-            for (int i = 1; i < z.length; i++) b.append(ein).append(z[i]).append('\n');
+            for (int i = 1; i < z.length; i++) {
+                b.append(ein).append(z[i]).append('\n');
+                zeilen.add(p.id());
+            }
             if (!p.reaktionen().isEmpty()) {
                 List<String> r = new ArrayList<>();
                 for (Map.Entry<String, Integer> e : p.reaktionen().entrySet()) {
                     String zc = Emojis.zeichen(e.getKey());
-                    r.add((zc != null ? zc : ":" + e.getKey() + ":") + " " + e.getValue());
+                    // eigene Reaktion mit * (Leertaste m + mit demselben Emoji nimmt sie zurueck)
+                    r.add((zc != null ? zc : ":" + e.getKey() + ":") + " " + e.getValue() + (p.meine().contains(e.getKey()) ? "*" : ""));
                 }
                 b.append(ein).append("[").append(String.join("  ", r)).append("]\n");
+                zeilen.add(p.id());
             }
         }
         if (posts.isEmpty()) b.append("\n(noch keine Nachrichten)\n");
@@ -619,6 +640,50 @@ final class Mattermost {
         });
     }
 
+    /** Post der Cursorzeile im Chat (auch Folge- und Reaktionszeilen), sonst null */
+    static String postBei(Doc d) {
+        if (d.chat == null) return null;
+        int z = d.zeileVon(d.cursor);
+        List<String> l = d.chat.zeilen;
+        return z < l.size() ? l.get(z) : null;
+    }
+
+    void reagierenStarten(Doc d) {
+        if (d.chat == null) {
+            ed.fehler("nur im Chat-Tab (Leertaste m m oeffnet einen Kanal)");
+            return;
+        }
+        String post = postBei(d);
+        if (post == null) {
+            ed.fehler("Cursor auf eine Nachricht stellen, dann Leertaste m +");
+            return;
+        }
+        Chat c = d.chat;
+        ed.emoji.oeffnen("Reaktion auf die Nachricht", e -> reagieren(d, c, post, e.name()));
+    }
+
+    /** Reaktion setzen oder, wenn sie schon von mir ist, zuruecknehmen */
+    void reagieren(Doc d, Chat c, String post, String emoji) {
+        boolean weg = c.meine.getOrDefault(post, java.util.Set.of()).contains(emoji);
+        String zc = Emojis.zeichen(emoji);
+        String anz = zc != null ? zc : ":" + emoji + ":";
+        ed.meldung = (weg ? "Reaktion " + anz + " wird entfernt ..." : "Reaktion " + anz + " ...");
+        hintergrund(() -> {
+            Antwort a = weg ? anfrage("DELETE", "/users/" + ichId + "/posts/" + post + "/reactions/" + java.net.URLEncoder.encode(emoji, StandardCharsets.UTF_8), null)
+                    : anfrage("POST", "/reactions", Json.obj("user_id", ichId, "post_id", post, "emoji_name", emoji));
+            SwingUtilities.invokeLater(() -> {
+                if (a.code() == 200 || a.code() == 201) {
+                    ed.meldung = weg ? "Reaktion " + anz + " entfernt" : "reagiert mit " + anz;
+                    c.stand = "";
+                    hintergrund(() -> laden(d));
+                } else {
+                    ed.fehler("Reaktion nicht gesetzt: " + fehlerText(a));
+                }
+                ed.neuMalen.run();
+            });
+        });
+    }
+
     private static void hintergrund(Runnable r) {
         Thread t = new Thread(r, "mattermost");
         t.setDaemon(true);
@@ -675,6 +740,8 @@ final class Mattermost {
             }
             ed.meldung = "Mattermost: nichts ungelesen";
         });
+        /** @binding Mattermost: auf die Nachricht unter dem Cursor mit einem Emoji reagieren (Auswahl; dasselbe Emoji noch einmal nimmt die Reaktion zurueck) */
+        c.put("mmReact", a -> reagierenStarten(ed.d()));
         /** @binding Mattermost: Entwurf des Chat-Tabs senden (auch Strg+Enter im Chat) */
         c.put("mmSend", a -> senden(ed.d()));
         /** @binding Mattermost: Kanaele und offene Chats sofort neu laden */
