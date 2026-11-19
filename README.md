@@ -583,7 +583,7 @@ jira.project = PROJ
 |---|---|
 | Leertaste j m | **meine Tickets**: alle mir zugewiesenen, offenen Tickets, nach Status gruppiert (Schlüssel, Typ, Priorität, Titel). `jira.mine.jql` ändert die Abfrage |
 | Leertaste j s | **Sprint-Board**: aktiver Sprint des Boards von `jira.project` (Scrum-Board bevorzugt, `jira.board = ID` wählt eins fest) mit den Spalten des Boards, Karten mit Schlüssel, Bearbeiter und Titel, Zeitraum, Resttage, Sprint-Ziel, Fortschrittsbalken und einer Übersicht nach Bearbeiter |
-| Leertaste j o | **Ticket öffnen**: Schlüssel eintippen (vorbelegt mit dem Schlüssel unter dem Cursor; eine Zahl allein ergänzt `jira.project`). Eigener Puffer mit Typ, Status, Priorität, Bearbeiter, Melder, Daten, Labels, Komponenten, Beschreibung, Unteraufgaben, Verknüpfungen und Kommentaren |
+| Leertaste j o | **Ticket öffnen**: Schlüssel eintippen (vorbelegt mit dem Schlüssel unter dem Cursor; eine Zahl allein ergänzt `jira.project`). Eigener Puffer mit Typ, Status, Priorität, Bearbeiter, Melder, Daten, Labels, Komponenten, Beschreibung, Unteraufgaben, Verknüpfungen und Kommentaren. **Akzeptanzkriterien** stehen als eigener Abschnitt unter der Beschreibung: jedes Feld, dessen Name „Akzeptanz“, „Acceptance“, „Abnahme“ oder „Checkliste“ enthält (Textlisten mit `*`/`#` werden zu `- Punkt`, Checklisten zu `[x]`/`[ ]`); `jira.acceptance = customfield_12345` (oder der Feldname) legt das Feld fest |
 | Leertaste j r | den Jira-Puffer neu laden |
 | Leertaste j b | Ticket unter dem Cursor (oder des Puffers) im Browser |
 

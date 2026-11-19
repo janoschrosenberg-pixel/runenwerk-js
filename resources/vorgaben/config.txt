@@ -189,3 +189,6 @@ mattermost.live = on
 # jira.token =
 # jira.project = PROJ
 # jira.board =
+# Akzeptanzkriterien: Felder mit "Akzeptanz", "Acceptance", "Abnahme" oder "Checkliste" im Namen werden gezeigt;
+# jira.acceptance = customfield_12345 (oder der Feldname, mehrere mit Komma) legt sie fest
+# jira.acceptance =

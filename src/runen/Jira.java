@@ -248,7 +248,8 @@ final class Jira {
 
     String ticketText(String key) {
         Antwort a = anfrage("GET", "/rest/api/2/issue/" + key
-                + "?fields=summary,status,assignee,reporter,priority,issuetype,description,comment,created,updated,labels,components,fixVersions,parent,subtasks,issuelinks,duedate",
+                // alle Felder mit Namen: Akzeptanzkriterien stehen meist in einem eigenen Feld (customfield_...)
+                + "?fields=*all&expand=names",
                 null);
         if (a.code() != 200) return "Fehler: " + key + ": " + fehlerText(a) + "\n";
         Object i = Json.parse(a.text());
@@ -271,6 +272,16 @@ final class Jira {
         abschnitt(b, "Beschreibung");
         String desc = feld(i, "description");
         b.append(desc.isBlank() ? "(keine Beschreibung)" : desc.replace("\r", "").strip()).append('\n');
+        // Akzeptanzkriterien: Felder, deren Name danach klingt, oder jira.acceptance (IDs oder Namen, mit Komma)
+        Map<String, Object> namen = new LinkedHashMap<>();
+        if (Json.get(i, "names") instanceof Map<?, ?> nm) for (Map.Entry<?, ?> e : nm.entrySet()) namen.put(String.valueOf(e.getKey()), e.getValue());
+        for (Map.Entry<String, Object> e : namen.entrySet()) {
+            if (!akzeptanzFeld(e.getKey(), String.valueOf(e.getValue()))) continue;
+            List<String> punkte = kriterien(Json.get(i, "fields", e.getKey()));
+            if (punkte.isEmpty()) continue;
+            abschnitt(b, String.valueOf(e.getValue()) + " (" + punkte.size() + ")");
+            for (String z : punkte) b.append(z).append('\n');
+        }
         List<Object> subs = Json.list(Json.get(i, "fields", "subtasks"));
         if (!subs.isEmpty()) {
             abschnitt(b, "Unteraufgaben (" + subs.size() + ")");
@@ -295,6 +306,63 @@ final class Jira {
         }
         if (kom.isEmpty()) b.append("(keine Kommentare)\n");
         return b.toString();
+    }
+
+    private static final Pattern AKZEPTANZ = Pattern.compile("(?i)akzeptanz|acceptance|abnahme|definition of done|checklist|checkliste");
+
+    /** ist das Feld (ID, Name) eines mit Akzeptanzkriterien? */
+    boolean akzeptanzFeld(String id, String name) {
+        String fest = ed.kf.get("jira.acceptance", "").strip();
+        if (!fest.isEmpty()) {
+            for (String f : fest.split(",")) if (f.strip().equalsIgnoreCase(id) || f.strip().equalsIgnoreCase(name)) return true;
+            return false;
+        }
+        return id.startsWith("customfield_") && AKZEPTANZ.matcher(name).find();
+    }
+
+    /**
+     * Akzeptanzkriterien als Zeilen: Text (Wiki-Liste mit * oder #, auch nummeriert) wird zu "- Punkt", Checklisten
+     * (Listen von Objekten mit name/text/value und checked/isChecked/status) zu "[x] Punkt" bzw. "[ ] Punkt"
+     */
+    static List<String> kriterien(Object wert) {
+        List<String> r = new ArrayList<>();
+        if (wert == null) return r;
+        if (wert instanceof String t) {
+            for (String z : t.replace("\r", "").split("\n")) {
+                String s = z.stripTrailing();
+                if (s.isBlank()) continue;
+                Matcher m = Pattern.compile("^\\s*([*#-]+)\\s+(.*)$").matcher(s);
+                if (m.find()) r.add("  ".repeat(Math.max(0, m.group(1).length() - 1)) + "- " + m.group(2).strip());
+                else r.add(s.strip());
+            }
+            return r;
+        }
+        if (wert instanceof List<?> l) {
+            for (Object o : l) {
+                if (o instanceof Map<?, ?>) {
+                    String text = null;
+                    for (String k : new String[] {"name", "text", "value", "summary", "title"}) if (text == null && Json.get(o, k) != null) text = String.valueOf(Json.get(o, k));
+                    if (text == null) text = String.valueOf(o);
+                    Object c = Json.get(o, "checked");
+                    if (c == null) c = Json.get(o, "isChecked");
+                    if (c == null) c = Json.get(o, "done");
+                    String st = Json.str(Json.get(o, "status", "name"));
+                    if (st == null) st = Json.str(Json.get(o, "status"));
+                    boolean erledigt = Boolean.TRUE.equals(c) || st != null && st.matches("(?i)done|erledigt|checked|ok");
+                    boolean offen = Boolean.FALSE.equals(c) || st != null && !erledigt;
+                    r.add((erledigt ? "[x] " : offen ? "[ ] " : "- ") + text.strip());
+                } else if (o != null) {
+                    r.add("- " + o);
+                }
+            }
+            return r;
+        }
+        if (wert instanceof Map<?, ?>) {
+            Object v = Json.get(wert, "value");
+            if (v != null) return kriterien(v);
+        }
+        r.add(String.valueOf(wert));
+        return r;
     }
 
     private static void abschnitt(StringBuilder b, String t) {
@@ -561,6 +629,9 @@ final class Jira {
                 Matcher fm = Pattern.compile("(?:^|   )([A-Z][\\w ]{1,20}):").matcher(z);
                 while (fm.find()) java.util.Arrays.fill(f, i + fm.start(1), i + fm.end(1) + 1, Ausgabe.INFO);
             }
+            // Checklisten: erledigt gruen, offen gelb
+            if (z.startsWith("[x] ")) java.util.Arrays.fill(f, i, i + 3, Ausgabe.ERFOLG);
+            else if (z.startsWith("[ ] ")) java.util.Arrays.fill(f, i, i + 3, Ausgabe.WARN);
             Matcher m = SCHLUESSEL.matcher(z);
             while (m.find()) java.util.Arrays.fill(f, i + m.start(), i + m.end(), Ausgabe.ORT);
             vorige = z;
