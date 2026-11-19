@@ -179,3 +179,13 @@ mattermost.history = 100
 # ws(s)://SERVER/api/v4/websocket
 mattermost.live = on
 # mattermost.websocket =
+
+# Jira (Leertaste j): Server, Benutzer und Passwort (Jira Cloud: E-Mail und API-Token als Passwort; oder ein
+# persoenliches Zugriffstoken als jira.token), Projekt fuer das Sprint-Board; jira.board waehlt ein Board fest
+# (ID), jira.mine.jql aendert die Abfrage fuer "meine Tickets"
+# jira.server = https://jira.example.org
+# jira.user = name
+# jira.password = geheim
+# jira.token =
+# jira.project = PROJ
+# jira.board =

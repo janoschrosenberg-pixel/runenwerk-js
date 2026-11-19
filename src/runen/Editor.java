@@ -123,6 +123,8 @@ final class Editor {
     final Mattermost mm;
     /** Emoji-Auswahl (Strg+E im Insert-Mode) */
     final EmojiWahl emoji;
+    /** Jira (Leertaste j) */
+    final Jira jira;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
 
     // Einstellungen (config.txt neben der Jar)
@@ -208,6 +210,7 @@ final class Editor {
         anlegen = new Anlegen(this);
         mm = new Mattermost(this);
         emoji = new EmojiWahl(this);
+        jira = new Jira(this);
         oa = new OpenApi(this);
         unterschied = new Unterschied(this);
         scm = new Scm(this);
@@ -231,6 +234,7 @@ final class Editor {
         anlegen.befehle(cmds);
         mm.befehle(cmds);
         emoji.befehle(cmds);
+        jira.befehle(cmds);
         oa.befehle(cmds);
         unterschied.befehle(cmds);
         scm.befehle(cmds);
@@ -1370,7 +1374,7 @@ final class Editor {
         reg("completeClose", a -> vorschlagZu());
         /** @binding Vervollstaendigung: tippt das Zeichen und filtert */
         reg("completeChar", a -> {
-            if (!a.isEmpty() && Highlight.ident(a.charAt(0))) {
+            if (!a.isEmpty() && (Highlight.ident(a.charAt(0)) || d().chat != null && Mattermost.nameZeichen(a.charAt(0)))) {
                 merken("tippen");
                 d().einfuegen(d().cursor, a);
                 filtern();
@@ -1498,6 +1502,11 @@ final class Editor {
         }
         d.einfuegen(d.cursor, a);
         d.spalteMerk = -1;
+        // Mattermost-Chat: @ schlaegt die Mitglieder des Kanals vor
+        if (c == '@' && d.chat != null && autoVervollst) {
+            mm.erwaehnen(d);
+            return;
+        }
         if (c == '.' && autoVervollst && ((lspFuer(d) != null && lspFuer(d).an()) || ("sql".equals(d.sprache()) && !wz.db.konten.isEmpty()))) {
             vervollstaendigen();
         }
@@ -2559,6 +2568,10 @@ final class Editor {
 
     // ---------------------------------------------------------------- Vervollstaendigung
     private void vervollstaendigen() {
+        if (d().chat != null) {
+            if (!mm.erwaehnen(d())) meldung = "im Chat: nach @ werden Namen vorgeschlagen";
+            return;
+        }
         if ("sql".equals(d().sprache())) {
             wz.sqlVervollstaendigen();
             return;
@@ -2768,7 +2781,7 @@ final class Editor {
         // Terminal-Tabs und .log: Ausgabe-Farben (Maven, Logs, Stacktraces), eigener Code gegen den Index geprueft
         String sp = d.term != null ? "log" : d.chat != null ? "chat" : d.sprache();
         if (sp != null && d.farbenVersion != d.version && d.t.length() < 4_000_000) {
-            d.farben = sp.equals("log") ? Ausgabe.faerben(d.t, eigeneDatei()) : sp.equals("chat") ? Mattermost.faerben(d.t, mm.ich()) : Highlight.faerben(d.t, sp);
+            d.farben = sp.equals("log") ? Ausgabe.faerben(d.t, eigeneDatei()) : sp.equals("chat") ? Mattermost.faerben(d.t, mm.ich()) : sp.equals("jira") ? Jira.faerben(d.t) : Highlight.faerben(d.t, sp);
             d.farbenVersion = d.version;
         }
         oa.pruefenFalls(d);

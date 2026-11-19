@@ -45,6 +45,8 @@ final class Mattermost {
         List<String> zeilen = List.of();
         /** Post-ID -> eigene Reaktionen (Emoji-Namen) */
         Map<String, java.util.Set<String>> meine = Map.of();
+        /** Mitglieder des Kanals: {Benutzername, voller Name} (fuer @-Vervollstaendigung) */
+        volatile List<String[]> mitglieder = List.of();
 
         Chat(String kanal, String titel) {
             this.kanal = kanal;
@@ -443,6 +445,7 @@ final class Mattermost {
 
     private void laden(Doc d) {
         Chat c = d.chat;
+        if (c.mitglieder.isEmpty()) c.mitglieder = nutzer("in_channel=" + c.kanal + "&");
         Antwort a = anfrage("GET", "/channels/" + c.kanal + "/posts?per_page=" + Math.max(10, ed.kf.zahl("mattermost.history", 100)), null);
         if (a.code() != 200) {
             status = fehlerText(a);
@@ -640,6 +643,107 @@ final class Mattermost {
         });
     }
 
+    // ================================================================ Personen
+    /** Benutzer (aktiv, ohne mich): {Benutzername, voller Name}; filter z. B. "in_channel=ID&" */
+    List<String[]> nutzer(String filter) {
+        List<String[]> r = new ArrayList<>();
+        for (int seite = 0; seite < 20; seite++) {
+            Antwort a = anfrage("GET", "/users?" + filter + "per_page=200&page=" + seite, null);
+            if (a.code() != 200) break;
+            List<Object> l = Json.list(Json.parse(a.text()));
+            for (Object u : l) {
+                String id = Json.str(Json.get(u, "id")), n = Json.str(Json.get(u, "username"));
+                if (n == null || lang(Json.get(u, "delete_at")) > 0) continue;
+                if (id != null) namen.put(id, n);
+                String voll = ((Json.str(Json.get(u, "first_name")) == null ? "" : Json.str(Json.get(u, "first_name"))) + " "
+                        + (Json.str(Json.get(u, "last_name")) == null ? "" : Json.str(Json.get(u, "last_name")))).strip();
+                if (voll.isEmpty() && Json.str(Json.get(u, "nickname")) != null) voll = Json.str(Json.get(u, "nickname"));
+                if (id != null && id.equals(ichId)) continue;
+                r.add(new String[] {n, voll, id});
+            }
+            if (l.size() < 200) break;
+        }
+        r.sort((x, y) -> x[0].compareToIgnoreCase(y[0]));
+        return r;
+    }
+
+    static boolean nameZeichen(char c) {
+        return Character.isLetterOrDigit(c) || c == '.' || c == '_' || c == '-';
+    }
+
+    /** nach @ im Entwurf: Mitglieder des Kanals vorschlagen (Vorschlagsliste wie bei Code); false, wenn kein @-Wort */
+    boolean erwaehnen(Doc d) {
+        if (d.chat == null) return false;
+        int anf = d.cursor;
+        while (anf > 0 && nameZeichen(d.at(anf - 1))) anf--;
+        if (anf == 0 || d.at(anf - 1) != '@') return false;
+        List<Map<String, Object>> l = new ArrayList<>();
+        for (String[] m : d.chat.mitglieder) l.add(Json.obj("item", Json.obj("label", m[0], "filterText", m[0] + " " + m[1].toLowerCase(), "detail", m[1], "insertText", m[0] + " ")));
+        l.add(Json.obj("item", Json.obj("label", "here", "filterText", "here", "detail", "alle, die gerade online sind", "insertText", "here ")));
+        l.add(Json.obj("item", Json.obj("label", "channel", "filterText", "channel", "detail", "alle im Kanal", "insertText", "channel ")));
+        l.add(Json.obj("item", Json.obj("label", "all", "filterText", "all", "detail", "alle im Kanal", "insertText", "all ")));
+        if (d.chat.mitglieder.isEmpty()) {
+            // noch nicht geladen: im Hintergrund holen, Liste kommt beim naechsten @
+            Chat c = d.chat;
+            hintergrund(() -> c.mitglieder = nutzer("in_channel=" + c.kanal + "&"));
+        }
+        ed.vorschlaegeZeigen(l, anf);
+        return true;
+    }
+
+    private volatile List<String[]> alleNutzer = List.of();
+
+    /** private Nachricht: Person waehlen (tippen filtert), Direktkanal anlegen bzw. finden, als Chat-Tab oeffnen */
+    void direktStarten() {
+        if (!bereit()) return;
+        Runnable zeigen = () -> {
+            List<String> e = new ArrayList<>();
+            Map<String, String[]> zu = new HashMap<>();
+            for (String[] u : alleNutzer) {
+                String t = "@" + u[0] + (u[1].isEmpty() ? "" : "  (" + u[1] + ")");
+                e.add(t);
+                zu.put(t, u);
+            }
+            ed.wz.auswahl("Mattermost: private Nachricht an (" + e.size() + " Personen)", e, null, t -> direkt(zu.get(t)));
+            ed.neuMalen.run();
+        };
+        if (!alleNutzer.isEmpty()) {
+            zeigen.run();
+            // im Hintergrund auffrischen
+            hintergrund(() -> alleNutzer = nutzer("active=true&"));
+            return;
+        }
+        ed.meldung = "Mattermost: Personen werden geladen ...";
+        hintergrund(() -> {
+            alleNutzer = nutzer("active=true&");
+            SwingUtilities.invokeLater(() -> {
+                ed.meldung = null;
+                zeigen.run();
+            });
+        });
+    }
+
+    void direkt(String[] u) {
+        if (u == null || u[2] == null) return;
+        ed.meldung = "Direktnachricht an @" + u[0] + " ...";
+        hintergrund(() -> {
+            Antwort a = anfrage("POST", "/channels/direct", List.of(ichId, u[2]));
+            SwingUtilities.invokeLater(() -> {
+                if (a.code() != 200 && a.code() != 201) {
+                    ed.fehler("Direktnachricht nicht moeglich: " + fehlerText(a));
+                    return;
+                }
+                Object c = Json.parse(a.text());
+                String id = Json.str(Json.get(c, "id"));
+                namen.put(u[2], u[0]);
+                oeffnen(new Kanal(id, Json.str(Json.get(c, "team_id")), "D", Json.str(Json.get(c, "name")), "@" + u[0], 0, 0, lang(Json.get(c, "last_post_at"))));
+                ed.meldung = "private Nachricht an @" + u[0] + ": unter die Trennlinie schreiben, Strg+Enter sendet";
+                ed.neuMalen.run();
+                wecken();
+            });
+        });
+    }
+
     /** Post der Cursorzeile im Chat (auch Folge- und Reaktionszeilen), sonst null */
     static String postBei(Doc d) {
         if (d.chat == null) return null;
@@ -729,6 +833,8 @@ final class Mattermost {
             }
             ed.wz.auswahl("Mattermost: Kanal oeffnen (" + ungelesen + " ungelesen)", e, null, s -> oeffnen(zu.get(s)));
         });
+        /** @binding Mattermost: private Nachricht an eine Person (Person waehlen, Direktkanal als Chat-Tab) */
+        c.put("mmDirect", a -> direktStarten());
         /** @binding Mattermost: naechsten Kanal mit ungelesenen Nachrichten oeffnen */
         c.put("mmUnread", a -> {
             if (!bereit()) return;

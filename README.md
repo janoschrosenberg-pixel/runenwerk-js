@@ -497,7 +497,8 @@ Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 | `d` Debug | `d` starten, `a` anhängen, `b`/`B` Haltepunkt/alle weg, `c` weiter, `n`/`i`/`o` Schritte, `x` stoppen, `p` Panel, `s` Debug-Tasten |
 | `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
 | `n` Neu | `n` Datei hier, `o` Datei in Ordner, `j` Java-Typ, `r` React-Komponente, `u` Komponente aus JSX (siehe „Dateien anlegen“) |
-| `m` Mattermost | `m` Kanal öffnen, `u` nächster ungelesener, `s` senden, `+` reagieren, `e` Emoji einfügen, `r` neu laden, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
+| `j` Jira | `m` meine Tickets, `s` Sprint-Board, `o` Ticket öffnen, `r` neu laden, `b` im Browser (siehe „Jira“) |
+| `m` Mattermost | `m` Kanal öffnen, `d` private Nachricht, `u` nächster ungelesener, `s` senden, `+` reagieren, `e` Emoji einfügen, `r` neu laden, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
 
 Frühere Kürzel ohne Kategorie sind umgezogen: `Leertaste f` → `c f`, `r` → `c r`, `i` → `c i`, `h` → `c h`, `e` → `c e`,
 `c` → `c c`, `m` → `c m`, `b` → `g b b`, `t` → `o t`, `y` → `o y`, `q` → `s q`, `o`/`O` → `s o`/`s O`. Stehen die alten
@@ -547,6 +548,13 @@ Nachricht (`[👍 2  🎉 1]`); eigene Emojis des Servers bleiben als `:name:` (
 stehen vorn (`emoji-zuletzt.txt` neben `config.txt`), eigene Emojis des Servers kommen als `:name:` hinzu. Die
 Auswahl geht in jedem Puffer; Emojis werden überall farbig über zwei Spalten gezeichnet.
 
+**Namen erwähnen**: `@` im Entwurf öffnet die Vorschlagsliste mit den Mitgliedern des Kanals (Benutzername und
+voller Name, tippen filtert auch über Vor- und Nachnamen, dazu `@here`, `@channel`, `@all`); ENTER oder TAB setzt
+den Namen ein, ESC schließt die Liste. Strg+Leertaste nach einem angefangenen `@name` öffnet sie wieder.
+
+**Private Nachricht**: `Leertaste m d` listet alle aktiven Personen (tippen filtert), ENTER legt den Direktkanal an
+(bzw. findet ihn) und öffnet ihn als Chat-Tab.
+
 **Reagieren**: Cursor auf eine Nachricht im Chat (auch auf ihre Folge- oder Reaktionszeile), `Leertaste m +` öffnet
 dieselbe Emoji-Auswahl, ENTER reagiert mit dem gewählten Emoji. Eigene Reaktionen tragen ein `*` (`[👍 2*]`);
 dasselbe Emoji noch einmal nimmt die eigene Reaktion zurück.
@@ -557,6 +565,30 @@ Text), unter der Trennlinie der Entwurf. **Strg+Enter** (oder `Leertaste m s`) s
 kommen alle paar Sekunden dazu, Entwurf und Cursor bleiben dabei stehen. Ein sichtbarer Chat gilt als gelesen.
 `Leertaste m u` öffnet den nächsten Kanal mit Ungelesenem, `Leertaste m r` lädt sofort neu, `Leertaste m c` meldet
 sich nach Änderungen an `mattermost.*` neu an, `:q` schließt den Chat.
+
+## Jira (Leertaste j)
+
+In `config.txt`:
+
+```
+jira.server = https://jira.example.org
+jira.user = name
+jira.password = geheim
+# Jira Cloud: E-Mail als jira.user und ein API-Token als jira.password; oder ein persönliches Zugriffstoken:
+# jira.token = ...
+jira.project = PROJ
+```
+
+| Taste | |
+|---|---|
+| Leertaste j m | **meine Tickets**: alle mir zugewiesenen, offenen Tickets, nach Status gruppiert (Schlüssel, Typ, Priorität, Titel). `jira.mine.jql` ändert die Abfrage |
+| Leertaste j s | **Sprint-Board**: aktiver Sprint des Boards von `jira.project` (Scrum-Board bevorzugt, `jira.board = ID` wählt eins fest) mit den Spalten des Boards, Karten mit Schlüssel, Bearbeiter und Titel, Zeitraum, Resttage, Sprint-Ziel, Fortschrittsbalken und einer Übersicht nach Bearbeiter |
+| Leertaste j o | **Ticket öffnen**: Schlüssel eintippen (vorbelegt mit dem Schlüssel unter dem Cursor; eine Zahl allein ergänzt `jira.project`). Eigener Puffer mit Typ, Status, Priorität, Bearbeiter, Melder, Daten, Labels, Komponenten, Beschreibung, Unteraufgaben, Verknüpfungen und Kommentaren |
+| Leertaste j r | den Jira-Puffer neu laden |
+| Leertaste j b | Ticket unter dem Cursor (oder des Puffers) im Browser |
+
+Die Jira-Puffer sind schreibgeschützt; **ENTER auf einem Schlüssel** (`PROJ-12`, im Board auf jeder Zeile einer
+Karte) öffnet das Ticket, Strg+O springt zurück, `q` schließt.
 
 ## Weitere Tasten
 

@@ -331,6 +331,7 @@ final class Unterschied {
         });
         /** @binding Diff-Ansicht: springt in die Datei an die Zeile (sonst wie ENTER) */
         c.put("diffJump", a -> {
+            if (ed.jira.springen(ed.d())) return;
             if (!springen(ed.d())) ed.befehl("motion", "ENTER");
         });
         /** @binding Diff-Ansicht: naechster Abschnitt */

@@ -118,6 +118,8 @@ final class Doc {
     Terminal term;
     /** Mattermost-Kanal (Chat-Tab, sonst null) */
     Mattermost.Chat chat;
+    /** Jira-Puffer: "meine", "sprint" oder "ticket:KEY" (sonst null) */
+    String jira;
         /** Ergebnistabelle der letzten Abfrage in dieser Datei */
     Werkzeug.Tabelle tabelle;
 
