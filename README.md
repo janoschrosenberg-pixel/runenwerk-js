@@ -414,6 +414,10 @@ steht farbig neben dem Mode in der Statuszeile (EN cyan, DE gelb, PROG pink). Be
   Z X C V B      `~  1!  2@  3#  \|        N M            $%  |~
   ```
 
+  Im prog-Layout zeigt der Hintergrund des Textes die ganze Tastatur mit ihrer Belegung (blass, unten im Bild):
+  mittig das Zeichen ohne Shift, oben links das mit Shift, oben rechts die Aufschrift der Taste; die von prog
+  umbelegten Tasten sind heller umrandet. `layout.prog.bild = off` in `config.txt` blendet sie aus.
+
 `Strg`-Befehle bleiben in jedem Layout auf denselben Buchstaben. Bei prog gilt der Buchstabe von en_US.
 
 In `keymap.config`:

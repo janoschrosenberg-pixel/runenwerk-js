@@ -179,6 +179,23 @@ final class Tastatur {
         return BASIS.get(basis)[pos & 1].charAt(pos >> 1);
     }
 
+    /** Belegung einer Taste im aktiven Layout (mit eigenen Ersetzungen): {ohne Shift, mit Shift} */
+    char[] taste(int pos) {
+        char[] r = new char[2];
+        for (int sh = 0; sh < 2; sh++) {
+            int c = belegung(pos * 2 + sh);
+            Integer e = eigen.get(c);
+            r[sh] = (char) (e != null ? e : c);
+        }
+        return r;
+    }
+
+    /** Beschriftung der Taste auf der Tastatur (Layout des Systems, sonst en_US) */
+    char aufschrift(int pos) {
+        String[] t = BASIS.get(system != null && BASIS.containsKey(system) ? system : "en_US");
+        return Character.toUpperCase(t[0].charAt(pos));
+    }
+
     /** getipptes Zeichen (keyTyped) im aktiven Layout; -1 = verwerfen */
     int zeichen(int c) {
         if (nachTot) {

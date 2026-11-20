@@ -2883,6 +2883,8 @@ final class Editor {
             oa.malen(oben - 4, scr.h - unten() - 2);
         } else {
             grund(oben - 4, n * lh + 4);
+            // PROG-Layout: Tastenbelegung blass im Hintergrund
+            if (tb.basis.equals("prog") && kf.an("layout.prog.bild", true) && d.term == null) tastaturBild(tx, oben, W - tx, n * lh);
             boolean genau = !suche.equals(suche.toLowerCase());
             String sucheK = !sucheZeigen ? "" : genau ? suche : suche.toLowerCase();
             if (visuell) vim.anker = Math.max(0, Math.min(vim.anker, d.t.length()));
@@ -3106,6 +3108,42 @@ final class Editor {
         if (hw != null) scr.text(x + 2 * cw, my, hw, hf);
         scr.noClip();
         meldungFarbe = meldung == null ? E_WARN : meldungFarbe;
+    }
+
+    /** Zeilen der Tastatur: erste Position, Anzahl Tasten, Versatz in Tastenbreiten (ISO-Tastatur) */
+    private static final double[][] TASTENREIHEN = {{0, 13, 0}, {13, 13, 1.5}, {26, 11, 1.75}, {37, 11, 1.25}};
+
+    /**
+     * Tastatur mit der Belegung des aktiven Layouts, blass im Textbereich (unten mittig): je Taste mittig das Zeichen
+     * ohne Shift, oben links das mit Shift, oben rechts klein die Aufschrift; anders als en_US belegte Tasten heller
+     */
+    private void tastaturBild(int x0, int y0, int w, int h) {
+        int cw = scr.cw, lh = scr.lh;
+        int kh = 2 * lh + 6;
+        int kw = (int) Math.min(w / 15.6, kh * 1.6);
+        if (kw < 4 * cw || 4 * kh + 3 * 4 + 2 * lh > h) return;
+        int gesamtB = (int) (14.5 * kw), gesamtH = 4 * kh + 3 * 4;
+        int x = x0 + (w - gesamtB) / 2, y = y0 + h - gesamtH - lh;
+        int rahmen = Screen.mix(E_GRUND, E_TEXT, 40), rahmenHell = Screen.mix(E_GRUND, E_TEXT, 90), fuell = Screen.mix(E_GRUND, E_TEXT, 14);
+        int zeichen = Screen.mix(E_GRUND, E_HELL, 70), zeichenHell = Screen.mix(E_GRUND, E_HELL, 150), shift = Screen.mix(E_GRUND, E_TEXT, 85),
+                aufschr = Screen.mix(E_GRUND, E_TEXT, 55);
+        scr.text(x, y - lh - 2, "PROG-Layout  (Strg+G schaltet weiter, layout.prog.bild = off blendet aus)", aufschr);
+        String en = Tastatur.EN_N, enS = Tastatur.EN_S;
+        for (int r = 0; r < TASTENREIHEN.length; r++) {
+            int erst = (int) TASTENREIHEN[r][0], anz = (int) TASTENREIHEN[r][1];
+            int ky = y + r * (kh + 4);
+            for (int k = 0; k < anz; k++) {
+                int pos = erst + k;
+                int kx = x + (int) ((TASTENREIHEN[r][2] + k) * kw);
+                char[] b = tb.taste(pos);
+                boolean anders = b[0] != en.charAt(pos) || b[1] != enS.charAt(pos);
+                if (anders) scr.rect(kx + 1, ky + 1, kw - 6, kh - 2, fuell);
+                scr.frame(kx, ky, kw - 4, kh, anders ? rahmenHell : rahmen);
+                scr.text(kx + cw / 2, ky + 3, String.valueOf(b[1]), shift);
+                scr.text(kx + kw - 4 - cw - cw / 2, ky + 3, String.valueOf(tb.aufschrift(pos)), aufschr);
+                scr.text(kx + (kw - 4 - cw) / 2, ky + kh - lh - 3, String.valueOf(b[0]), anders ? zeichenHell : zeichen);
+            }
+        }
     }
 
     /** zurueck in den Terminal-Mode, sobald die Vorschlagsliste zu ist */

@@ -203,3 +203,6 @@ jira.journal.interval = 60
 # update.restart = off: nach dem Update nicht selbst neu starten
 update.check = on
 update.restart = on
+
+# im PROG-Layout die Tastenbelegung blass im Hintergrund zeigen
+layout.prog.bild = on
