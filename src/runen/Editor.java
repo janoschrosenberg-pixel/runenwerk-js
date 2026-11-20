@@ -326,6 +326,7 @@ final class Editor {
 
     void konfigLesen() {
         kf.lesen();
+        Netz.konfig = kf;
         for (String f : kf.fehler) farbig(f, E_WARN);
         schriftGroesse = Math.max(6, Math.min(72, kf.zahl("font.size", 15)));
         String look = kf.get("look", "hacker");

@@ -26,7 +26,10 @@ final class Aktualisierung {
     static final String QUELLE = "https://api.github.com/repos/janoschrosenberg-pixel/runenwerk-js/releases/latest";
 
     private final Editor ed;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    /** Verbindung ins Internet: proxy aus config.txt, sonst der Proxy des Systems */
+    private HttpClient http() {
+        return Netz.client(ed.kf, "update", true, Duration.ofSeconds(10), HttpClient.Redirect.NORMAL);
+    }
     private volatile boolean laeuft;
 
     record Release(String tag, String version, String url, long groesse, String notizen) {}
@@ -84,7 +87,7 @@ final class Aktualisierung {
         try {
             HttpRequest r = HttpRequest.newBuilder(URI.create(quelle())).timeout(Duration.ofSeconds(15)).header("Accept", "application/vnd.github+json")
                     .header("User-Agent", "RUNENWERK-JS").GET().build();
-            HttpResponse<String> a = http.send(r, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> a = http().send(r, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (a.statusCode() != 200) {
                 fehler[0] = "HTTP " + a.statusCode();
                 return null;
@@ -105,7 +108,7 @@ final class Aktualisierung {
             fehler[0] = tag + " hat keine runenjs.jar";
             return null;
         } catch (IOException | RuntimeException e) {
-            fehler[0] = e.getMessage() == null ? e.toString() : e.getMessage();
+            fehler[0] = Netz.fehler(e, quelle(), ed.kf, "update", true);
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -219,7 +222,7 @@ final class Aktualisierung {
         try {
             HttpRequest q = HttpRequest.newBuilder(URI.create(r.url())).timeout(Duration.ofMinutes(10)).header("User-Agent", "RUNENWERK-JS")
                     .header("Accept", "application/octet-stream").GET().build();
-            HttpResponse<Path> a = http.send(q, HttpResponse.BodyHandlers.ofFile(neu));
+            HttpResponse<Path> a = http().send(q, HttpResponse.BodyHandlers.ofFile(neu));
             if (a.statusCode() != 200) {
                 Files.deleteIfExists(neu);
                 return "HTTP " + a.statusCode();
@@ -249,7 +252,7 @@ final class Aktualisierung {
             } catch (IOException ex) {
                 // bleibt liegen
             }
-            return e.getMessage() == null ? e.toString() : e.getMessage();
+            return Netz.fehler(e, r.url(), ed.kf, "update", true);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "unterbrochen";

@@ -206,3 +206,9 @@ update.restart = on
 
 # im PROG-Layout die Tastenbelegung blass im Hintergrund zeigen
 layout.prog.bild = on
+
+# Proxy fuer Verbindungen ins Internet (Update, Downloads): ohne Eintrag der Proxy des Systems (macOS-Netzwerk-
+# einstellungen, Windows-Interneteinstellungen, HTTPS_PROXY). Automatische Konfiguration (PAC) wertet Java nicht aus,
+# dann den Proxy hier eintragen. Werte: host:port, http://benutzer:passwort@host:port, system, off.
+# Interne Dienste laufen direkt, ausser mit mattermost.proxy, jira.proxy, scm.proxy (gleiche Werte).
+# proxy = proxy.example.org:8080

@@ -19,11 +19,22 @@ import java.util.zip.GZIPInputStream;
 
 /** Herunterladen (jdtls, js-debug) und .tar.gz entpacken, ohne fremde Bibliotheken. */
 final class Laden {
-    private static final HttpClient HTTP = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).connectTimeout(Duration.ofSeconds(20)).build();
+    /** Downloads aus dem Internet: proxy aus config.txt (oder download.proxy), sonst der Proxy des Systems */
+    private static HttpClient http() {
+        return Netz.client(Netz.konfig, "download", true, Duration.ofSeconds(20), HttpClient.Redirect.ALWAYS);
+    }
+
+    private static <T> HttpResponse<T> senden(HttpRequest r, HttpResponse.BodyHandler<T> h) throws IOException, InterruptedException {
+        try {
+            return http().send(r, h);
+        } catch (IOException e) {
+            throw new IOException(Netz.fehler(e, r.uri().toString(), Netz.konfig, "download", true), e);
+        }
+    }
 
     static String text(String url) throws IOException, InterruptedException {
         HttpRequest r = HttpRequest.newBuilder(URI.create(url)).header("User-Agent", "runenjs").header("Accept", "application/vnd.github+json").build();
-        HttpResponse<String> a = HTTP.send(r, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> a = senden(r, HttpResponse.BodyHandlers.ofString());
         if (a.statusCode() != 200) throw new IOException(url + ": HTTP " + a.statusCode());
         return a.body();
     }
@@ -31,7 +42,7 @@ final class Laden {
     /** Datei laden und nach ziel entpacken; fortschritt bekommt Text wie "12 MB" */
     static void tarGz(String url, Path ziel, Consumer<String> fortschritt) throws IOException, InterruptedException {
         HttpRequest r = HttpRequest.newBuilder(URI.create(url)).header("User-Agent", "runenjs").build();
-        HttpResponse<InputStream> a = HTTP.send(r, HttpResponse.BodyHandlers.ofInputStream());
+        HttpResponse<InputStream> a = senden(r, HttpResponse.BodyHandlers.ofInputStream());
         if (a.statusCode() != 200) throw new IOException(url + ": HTTP " + a.statusCode());
         Files.createDirectories(ziel);
         try (InputStream roh = a.body(); InputStream in = new GZIPInputStream(new BufferedInputStream(new Zaehler(roh, fortschritt)), 1 << 16)) {

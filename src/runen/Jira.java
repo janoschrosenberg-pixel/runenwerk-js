@@ -31,7 +31,18 @@ import javax.swing.SwingUtilities;
  */
 final class Jira {
     private final Editor ed;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    private HttpClient httpClient;
+    private String httpStand;
+
+    /** Client fuer diesen Dienst: ohne jira.proxy wie bisher, mit Eintrag ueber den Proxy (neu gebaut, wenn er sich aendert) */
+    private synchronized HttpClient http() {
+        String st = Netz.stand(ed.kf, "jira", false);
+        if (httpClient == null || !st.equals(httpStand)) {
+            httpClient = Netz.client(ed.kf, "jira", false, Duration.ofSeconds(15), HttpClient.Redirect.NORMAL);
+            httpStand = st;
+        }
+        return httpClient;
+    }
     static final Pattern SCHLUESSEL = Pattern.compile("\\b[A-Z][A-Z0-9_]+-\\d+\\b");
 
     /** Board-Puffer: welche Spalte des Rasters welches Ticket zeigt */
@@ -74,7 +85,7 @@ final class Jira {
             }
             if (body != null) b.header("Content-Type", "application/json").method(methode, HttpRequest.BodyPublishers.ofString(Json.write(body), StandardCharsets.UTF_8));
             else b.method(methode, HttpRequest.BodyPublishers.noBody());
-            HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> r = http().send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             return new Antwort(r.statusCode(), r.body());
         } catch (IOException | IllegalArgumentException e) {
             return new Antwort(-1, e.getMessage() == null ? e.toString() : e.getMessage());

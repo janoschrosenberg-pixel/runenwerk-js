@@ -635,6 +635,24 @@ installiert, der Neustart bleibt dir überlassen. `:updateCheck` sucht jederzeit
 übersprungenen Version). `update.check = off` schaltet die Prüfung beim Start ab, `update.restart = off` den
 automatischen Neustart. Heruntergeladen wird nur von GitHub.
 
+### Proxy
+
+Verbindungen ins Internet (Update, Downloads wie js-debug) gehen über den Proxy des Systems: macOS-Netzwerk-
+einstellungen, Windows-Interneteinstellungen oder `HTTPS_PROXY`/`HTTP_PROXY`. Eine automatische Proxy-Konfiguration
+(PAC-Datei) wertet Java nicht aus; dann den Proxy in `config.txt` eintragen:
+
+```
+proxy = proxy.firma.de:8080
+# mit Anmeldung (Sonderzeichen als %XX, z. B. @ = %40):
+# proxy = http://benutzer:passwort@proxy.firma.de:8080
+# proxy = off       ohne Proxy, proxy = system   Proxy des Systems (Vorgabe)
+```
+
+Interne Dienste (Mattermost, Jira, SCM-Manager) laufen weiter direkt; brauchen sie einen Proxy, gilt
+`mattermost.proxy`, `jira.proxy` bzw. `scm.proxy` mit denselben Werten. Schlägt eine Verbindung fehl, nennt die
+Meldung den Weg (direkt oder über welchen Proxy) und den Grund (keine Verbindung, Name unbekannt, Proxy-Anmeldung
+abgelehnt, TLS-Fehler bei einem Firmen-Proxy mit eigenem Zertifikat).
+
 ## Weitere Tasten
 
 | Taste | Befehl |
