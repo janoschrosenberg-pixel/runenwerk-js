@@ -621,6 +621,16 @@ OPS-2   Review     seit 09:00            Server neu starten
 Die Jira-Puffer sind schreibgeschützt; **ENTER auf einem Schlüssel** (`PROJ-12`, im Board auf jeder Zeile einer
 Karte) öffnet das Ticket, Strg+O springt zurück, `q` schließt.
 
+## Update
+
+Beim Start fragt der Editor im Hintergrund das neueste Release auf GitHub ab. Ist es neuer als die laufende Version,
+erscheint eine Frage mit den Überschriften der Release-Notizen: `j` lädt `runenjs.jar`, prüft Größe und Inhalt,
+ersetzt die laufende Jar (die bisherige bleibt als `runenjs.jar.alt` daneben) und startet mit derselben Befehlszeile
+neu; `n` fragt beim nächsten Start wieder, `u` überspringt diese Version. Mit ungespeicherten Änderungen wird nur
+installiert, der Neustart bleibt dir überlassen. `:updateCheck` sucht jederzeit von Hand (auch nach einer
+übersprungenen Version). `update.check = off` schaltet die Prüfung beim Start ab, `update.restart = off` den
+automatischen Neustart. Heruntergeladen wird nur von GitHub.
+
 ## Weitere Tasten
 
 | Taste | Befehl |

@@ -125,6 +125,8 @@ final class Editor {
     final EmojiWahl emoji;
     /** Jira (Leertaste j) */
     final Jira jira;
+    /** Selbst-Update ueber die GitHub-Releases */
+    final Aktualisierung aktualisierung;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
 
     // Einstellungen (config.txt neben der Jar)
@@ -211,6 +213,7 @@ final class Editor {
         mm = new Mattermost(this);
         emoji = new EmojiWahl(this);
         jira = new Jira(this);
+        aktualisierung = new Aktualisierung(this);
         oa = new OpenApi(this);
         unterschied = new Unterschied(this);
         scm = new Scm(this);
@@ -235,6 +238,7 @@ final class Editor {
         mm.befehle(cmds);
         emoji.befehle(cmds);
         jira.befehle(cmds);
+        aktualisierung.befehle(cmds);
         oa.befehle(cmds);
         unterschied.befehle(cmds);
         scm.befehle(cmds);
@@ -311,6 +315,7 @@ final class Editor {
         print("RUNENWERK JS - Editor fuer TypeScript, React, Java und SQL. help zeigt die Befehle. Konfiguration: " + kf.pfad);
         mm.starten();
         jira.starten();
+        aktualisierung.beimStart();
     }
 
     private static Path aufloesenVon(Path basis, String s) {

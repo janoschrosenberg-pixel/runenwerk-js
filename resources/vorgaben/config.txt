@@ -198,3 +198,8 @@ mattermost.live = on
 # eine Datei je Tag (jira-tage/JJJJ-MM-TT.txt neben config.txt; jira.journal = Ordner oder off)
 # jira.journal =
 jira.journal.interval = 60
+
+# Update: beim Start nach einer neuen Version suchen (GitHub-Releases) und nachfragen; :updateCheck sucht von Hand.
+# update.restart = off: nach dem Update nicht selbst neu starten
+update.check = on
+update.restart = on
