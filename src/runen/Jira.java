@@ -7,6 +7,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -640,8 +642,169 @@ final class Jira {
         return f;
     }
 
+    // ================================================================ Tagebuch
+    /** Ordner fuer die Tagesdateien (jira.journal, Vorgabe jira-tage neben config.txt); null = aus */
+    Path tagebuchOrdner() {
+        String o = ed.kf.get("jira.journal", "").strip();
+        if (o.equalsIgnoreCase("off")) return null;
+        return o.isEmpty() ? ed.konfig.resolve("jira-tage") : ed.aufloesen(o);
+    }
+
+    Path tagesDatei(LocalDate tag) {
+        Path o = tagebuchOrdner();
+        return o == null ? null : o.resolve(tag + ".txt");
+    }
+
+    private Thread tagebuchFaden;
+
+    /** beim Start: stuendlich (jira.journal.interval Minuten) erfassen, solange der Editor laeuft */
+    void starten() {
+        if (!eingerichtet() || tagebuchOrdner() == null || tagebuchFaden != null) return;
+        tagebuchFaden = new Thread(() -> {
+            while (true) {
+                try {
+                    erfassen();
+                } catch (RuntimeException e) {
+                    ed.protokoll("Jira-Tagebuch", e);
+                }
+                try {
+                    Thread.sleep(Math.max(5, ed.kf.zahl("jira.journal.interval", 60)) * 60_000L);
+                } catch (InterruptedException e) {
+                    return;
+                }
+            }
+        }, "jira-tagebuch");
+        tagebuchFaden.setDaemon(true);
+        tagebuchFaden.start();
+    }
+
+    /** Zeile der Tagesdatei: Schluessel, Status, seit, bis (oder null), Titel */
+    record Eintrag(String key, String status, String seit, String bis, String titel) {}
+
+    private static final Pattern ZEILE = Pattern.compile("^(\\S+)  +(.+?)  +seit (\\d\\d:\\d\\d)(?: bis (\\d\\d:\\d\\d))?  +(.*)$");
+
+    static List<Eintrag> lesen(String text) {
+        List<Eintrag> r = new ArrayList<>();
+        for (String z : text.split("\n")) {
+            Matcher m = ZEILE.matcher(z);
+            if (m.find() && SCHLUESSEL.matcher(m.group(1)).matches()) r.add(new Eintrag(m.group(1), m.group(2).strip(), m.group(3), m.group(4), m.group(5)));
+        }
+        return r;
+    }
+
+    /**
+     * meine Tickets in Bearbeitung (Status-Kategorie "In Arbeit") in die Datei des Tages: neue mit "seit", bekannte
+     * aktualisiert, nicht mehr bearbeitete mit "bis" (sie bleiben fuer den Tag stehen). Meldung oder Fehlertext.
+     */
+    synchronized String erfassen() {
+        Path datei = tagesDatei(LocalDate.now());
+        if (datei == null) return "Jira-Tagebuch ist aus (jira.journal = off)";
+        String jql = ed.kf.get("jira.journal.jql", "assignee = currentUser() AND resolution = Unresolved ORDER BY updated DESC");
+        Antwort a = suche(jql, "summary,status");
+        if (a.code() != 200) return "Fehler: " + fehlerText(a);
+        Map<String, String[]> jetzt = new LinkedHashMap<>();
+        for (Object i : Json.list(Json.get(Json.parse(a.text()), "issues"))) {
+            if (!"indeterminate".equals(feld(i, "status", "statusCategory", "key"))) continue;
+            jetzt.put(Json.str(Json.get(i, "key")), new String[] {feld(i, "status", "name"), feld(i, "summary").replace('\n', ' ')});
+        }
+        String uhr = java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+        List<Eintrag> alt = new ArrayList<>();
+        try {
+            if (Files.exists(datei)) alt = lesen(Files.readString(datei, StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return "Fehler: " + datei + ": " + e.getMessage();
+        }
+        Map<String, Eintrag> neu = new LinkedHashMap<>();
+        for (Eintrag e : alt) {
+            String[] j = jetzt.get(e.key());
+            if (j != null) neu.put(e.key(), new Eintrag(e.key(), j[0], e.seit(), null, j[1]));
+            else neu.put(e.key(), new Eintrag(e.key(), e.status(), e.seit(), e.bis() != null ? e.bis() : uhr, e.titel()));
+        }
+        for (Map.Entry<String, String[]> j : jetzt.entrySet()) if (!neu.containsKey(j.getKey())) neu.put(j.getKey(), new Eintrag(j.getKey(), j.getValue()[0], uhr, null, j.getValue()[1]));
+        int bk = 6, bs = 6;
+        for (Eintrag e : neu.values()) {
+            bk = Math.max(bk, e.key().length());
+            bs = Math.max(bs, e.status().length());
+        }
+        StringBuilder b = new StringBuilder("# " + LocalDate.now() + " - meine Tickets in Bearbeitung (zuletzt erfasst " + uhr + ")\n\n");
+        for (Eintrag e : neu.values()) {
+            String zeit = "seit " + e.seit() + (e.bis() != null ? " bis " + e.bis() : "");
+            b.append(e.key()).append(" ".repeat(bk - e.key().length() + 2)).append(e.status()).append(" ".repeat(bs - e.status().length() + 2)).append(zeit)
+                    .append(" ".repeat(Math.max(2, 21 - zeit.length()))).append(e.titel()).append('\n');
+        }
+        if (neu.isEmpty()) b.append("(nichts in Bearbeitung)\n");
+        try {
+            Files.createDirectories(datei.getParent());
+            Files.writeString(datei, b.toString(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "Fehler: " + datei + ": " + e.getMessage();
+        }
+        long offen = neu.values().stream().filter(e -> e.bis() == null).count();
+        return "Jira-Tagebuch " + datei.getFileName() + ": " + offen + " in Bearbeitung" + (neu.size() > offen ? ", " + (neu.size() - offen) + " heute erledigt oder abgegeben" : "");
+    }
+
+    /** Tagesdatei oeffnen (schreibgeschuetzt geht nicht: es ist eine normale Datei; neu laden, falls offen und unveraendert) */
+    private void tagOeffnen(Path p) {
+        for (Doc t : ed.tabs) {
+            if (p.equals(t.pfad) && !t.geaendert) {
+                try {
+                    t.nurLesen = false;
+                    int c = t.cursor;
+                    t.setText(Doc.laden(p).t.toString());
+                    t.cursor = Math.min(c, t.t.length());
+                    t.geaendert = false;
+                } catch (IOException e) {
+                    // bleibt wie es ist
+                }
+            }
+        }
+        ed.springMerken();
+        ed.oeffnen(p);
+    }
+
     // ================================================================ Befehle
     void befehle(Map<String, Editor.Cmd> c) {
+        /** @binding Jira-Tagebuch: jetzt erfassen, welche meiner Tickets in Bearbeitung sind, und die Datei des Tages oeffnen */
+        c.put("jiraJournal", a -> {
+            if (!bereit()) return;
+            if (tagebuchOrdner() == null) {
+                ed.fehler("Jira-Tagebuch ist aus (jira.journal = off in config.txt)");
+                return;
+            }
+            ed.meldung = "Jira-Tagebuch wird erfasst ...";
+            hintergrund(() -> {
+                String m = erfassen();
+                SwingUtilities.invokeLater(() -> {
+                    if (m.startsWith("Fehler")) ed.fehler(m);
+                    else {
+                        tagOeffnen(tagesDatei(LocalDate.now()));
+                        ed.meldung = m;
+                    }
+                    ed.neuMalen.run();
+                });
+            });
+        });
+        /** @binding Jira-Tagebuch: einen frueheren Tag waehlen (neueste zuerst) und seine Datei oeffnen */
+        c.put("jiraJournalDays", a -> {
+            Path o = tagebuchOrdner();
+            if (o == null || !Files.isDirectory(o)) {
+                ed.fehler("noch keine Tagesdateien" + (o == null ? " (jira.journal = off)" : " in " + o));
+                return;
+            }
+            List<String> tage = new ArrayList<>();
+            try (var l = Files.list(o)) {
+                l.map(x -> x.getFileName().toString()).filter(n -> n.matches("\\d{4}-\\d\\d-\\d\\d\\.txt")).sorted(java.util.Comparator.reverseOrder())
+                        .forEach(n -> tage.add(n.substring(0, 10)));
+            } catch (IOException e) {
+                ed.fehler("nicht gelesen: " + o);
+                return;
+            }
+            if (tage.isEmpty()) {
+                ed.fehler("noch keine Tagesdateien in " + o);
+                return;
+            }
+            ed.wz.auswahl("Jira-Tagebuch: Tag waehlen (" + tage.size() + ")", tage, null, t -> tagOeffnen(o.resolve(t + ".txt")));
+        });
         /** @binding Jira: mir zugewiesene, offene Tickets (nach Status gruppiert; ENTER oeffnet) */
         c.put("jiraMine", a -> meine(false));
         /** @binding Jira: Board des aktiven Sprints (Spalten wie in Jira, Fortschritt; ENTER oeffnet ein Ticket) */

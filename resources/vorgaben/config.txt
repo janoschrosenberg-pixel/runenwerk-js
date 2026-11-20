@@ -194,3 +194,7 @@ mattermost.live = on
 # Akzeptanzkriterien: Felder mit "Akzeptanz", "Acceptance", "Abnahme" oder "Checkliste" im Namen werden gezeigt;
 # jira.acceptance = customfield_12345 (oder der Feldname, mehrere mit Komma) legt sie fest
 # jira.acceptance =
+# Tagebuch: stuendlich (journal.interval Minuten) die mir zugewiesenen Tickets mit Status-Kategorie "In Arbeit" in
+# eine Datei je Tag (jira-tage/JJJJ-MM-TT.txt neben config.txt; jira.journal = Ordner oder off)
+# jira.journal =
+jira.journal.interval = 60

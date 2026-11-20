@@ -310,6 +310,7 @@ final class Editor {
         }
         print("RUNENWERK JS - Editor fuer TypeScript, React, Java und SQL. help zeigt die Befehle. Konfiguration: " + kf.pfad);
         mm.starten();
+        jira.starten();
     }
 
     private static Path aufloesenVon(Path basis, String s) {

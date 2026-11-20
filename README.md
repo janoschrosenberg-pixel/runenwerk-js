@@ -497,7 +497,7 @@ Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 | `d` Debug | `d` starten, `a` anhängen, `b`/`B` Haltepunkt/alle weg, `c` weiter, `n`/`i`/`o` Schritte, `x` stoppen, `p` Panel, `s` Debug-Tasten |
 | `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
 | `n` Neu | `n` Datei hier, `o` Datei in Ordner, `j` Java-Typ, `r` React-Komponente, `u` Komponente aus JSX (siehe „Dateien anlegen“) |
-| `j` Jira | `m` meine Tickets, `s` Sprint-Board, `o` Ticket öffnen, `r` neu laden, `b` im Browser (siehe „Jira“) |
+| `j` Jira | `m` meine Tickets, `s` Sprint-Board, `o` Ticket öffnen, `r` neu laden, `b` im Browser, `t` Tagebuch heute, `T` Tagebuch: Tag wählen (siehe „Jira“) |
 | `m` Mattermost | `m` Kanal öffnen, `d` private Nachricht, `u` nächster ungelesener, `s` senden, `+` reagieren, `e` Emoji einfügen, `r` neu laden, `p` Personenliste neu, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
 
 Frühere Kürzel ohne Kategorie sind umgezogen: `Leertaste f` → `c f`, `r` → `c r`, `i` → `c i`, `h` → `c h`, `e` → `c e`,
@@ -602,6 +602,21 @@ jira.project = PROJ
 | Leertaste j o | **Ticket öffnen**: Schlüssel eintippen (vorbelegt mit dem Schlüssel unter dem Cursor; eine Zahl allein ergänzt `jira.project`). Eigener Puffer mit Typ, Status, Priorität, Bearbeiter, Melder, Daten, Labels, Komponenten, Beschreibung, Unteraufgaben, Verknüpfungen und Kommentaren. **Akzeptanzkriterien** stehen als eigener Abschnitt unter der Beschreibung: jedes Feld, dessen Name „Akzeptanz“, „Acceptance“, „Abnahme“ oder „Checkliste“ enthält (Textlisten mit `*`/`#` werden zu `- Punkt`, Checklisten zu `[x]`/`[ ]`); `jira.acceptance = customfield_12345` (oder der Feldname) legt das Feld fest |
 | Leertaste j r | den Jira-Puffer neu laden |
 | Leertaste j b | Ticket unter dem Cursor (oder des Puffers) im Browser |
+| Leertaste j t | **Tagebuch**: jetzt erfassen und die Datei von heute öffnen |
+| Leertaste j T | Tagebuch: einen früheren Tag wählen (neueste zuerst) |
+
+**Tagebuch**: Solange der Editor läuft, schreibt er beim Start und dann jede Stunde (`jira.journal.interval` Minuten)
+die mir zugewiesenen Tickets mit Status-Kategorie „In Arbeit“ in eine Datei je Tag: `jira-tage/JJJJ-MM-TT.txt` neben
+`config.txt` (`jira.journal = Ordner` wählt einen anderen, `off` schaltet es ab). Jede Zeile: Schlüssel, Status,
+`seit HH:MM` (zuerst gesehen), Titel. Ist ein Ticket später am Tag nicht mehr in Arbeit, bleibt es mit
+`seit … bis HH:MM` stehen; kommt es zurück, fällt das `bis` wieder weg. Eine Anfrage je Erfassung.
+
+```
+# 2026-11-20 - meine Tickets in Bearbeitung (zuletzt erfasst 15:00)
+
+DEMO-7  In Arbeit  seit 09:00 bis 13:00  Login reparieren
+OPS-2   Review     seit 09:00            Server neu starten
+```
 
 Die Jira-Puffer sind schreibgeschützt; **ENTER auf einem Schlüssel** (`PROJ-12`, im Board auf jeder Zeile einer
 Karte) öffnet das Ticket, Strg+O springt zurück, `q` schließt.
