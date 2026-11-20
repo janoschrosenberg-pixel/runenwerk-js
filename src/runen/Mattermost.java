@@ -6,6 +6,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -15,42 +17,63 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.SwingUtilities;
 
 /**
- * Mattermost ueber die REST-API v4: beim Start anmelden (mattermost.server, mattermost.user, mattermost.password
- * oder mattermost.token in config.txt), regelmaessig die ungelesenen Nachrichten zaehlen (oben in der Tab-Leiste),
- * Kanaele als Chat-Tab oeffnen. Der Tab ist ein normaler Puffer (alle Vim-Befehle): oben der Verlauf, unter der
- * Trennlinie der Entwurf; Strg+Enter (oder Leertaste m s) sendet ihn.
+ * Mattermost ueber die REST-API v4, sparsam mit dem Server:
+ * <ul>
+ * <li>Kanaele und Zaehler kommen aus einem Abgleich beim Start, nach einem Neuverbinden und sonst selten
+ * (mit Websocket alle 10 Minuten, ohne alle mattermost.interval Sekunden, mindestens 60).</li>
+ * <li>Der Websocket liefert neue Nachrichten, Aenderungen, Reaktionen und den Lesestand mit Inhalt; sie werden
+ * direkt eingearbeitet, ohne neue Anfragen.</li>
+ * <li>Nachrichten gibt es nur fuer den einen gewaehlten Kanal (Chat-Tab). Ohne gewaehlten Kanal werden keine
+ * Nachrichten geladen; ein anderer Kanal ersetzt den aktuellen.</li>
+ * <li>Die Personenliste wird einmal geladen und in mattermost-nutzer.tsv neben config.txt gespeichert;
+ * neu geladen wird sie nur mit Leertaste m p.</li>
+ * <li>Bei Fehlern wird laenger gewartet (5 s, 10 s, ... bis 10 Minuten); eine abgelehnte Anmeldung wird nicht
+ * wiederholt, bis Leertaste m c neu verbindet.</li>
+ * </ul>
  */
 final class Mattermost {
     /** Trennlinie zwischen Verlauf und Entwurf im Chat-Tab */
     static final String TRENN = "------------------------ Nachricht (Strg+Enter sendet) ------------------------";
 
-    /** Kanal mit Zaehlern (unveraenderlich, wird je Abfrage neu gebaut) */
-    record Kanal(String id, String team, String art, String name, String anzeige, int ungelesen, int erwaehnt, long letzte) {}
+    /** Kanal mit Zaehlern (unveraenderlich; Aenderungen bauen einen neuen) */
+    record Kanal(String id, String team, String art, String name, String anzeige, int ungelesen, int erwaehnt, long letzte, boolean stumm) {
+        Kanal mit(int u, int e, long l) {
+            return new Kanal(id, team, art, name, anzeige, u, e, l, stumm);
+        }
+    }
 
-    record Post(String id, String user, String text, long zeit, String typ, Map<String, Integer> reaktionen, java.util.Set<String> meine) {}
+    /** Nachricht; reaktionen als "Benutzer-ID|Emoji" */
+    record Post(String id, String user, String text, long zeit, long geaendert, String typ, Set<String> reaktionen) {}
 
-    /** Chat-Tab eines Kanals */
+    /** der gewaehlte Kanal im Chat-Tab */
     static final class Chat {
         final String kanal;
         String titel;
-        /** Kennung des zuletzt gezeigten Stands (letzte Post-ID und Aenderungszeit) */
-        String stand = "";
+        final Doc doc;
+        /** Nachrichten nach ID (nur im Swing-Faden aendern) */
+        final Map<String, Post> posts = new LinkedHashMap<>();
+        /** groesste Aenderungszeit (fuer ?since= ohne Websocket) */
+        long seit;
+        boolean geladen;
+        volatile boolean zu;
+        volatile long naechsteAbfrage;
         /** Zeile des Verlaufs -> Post-ID (null fuer Kopf, Tagestrenner, Leerzeilen) */
         List<String> zeilen = List.of();
         /** Post-ID -> eigene Reaktionen (Emoji-Namen) */
-        Map<String, java.util.Set<String>> meine = Map.of();
-        /** Mitglieder des Kanals: {Benutzername, voller Name} (fuer @-Vervollstaendigung) */
-        volatile List<String[]> mitglieder = List.of();
+        Map<String, Set<String>> meine = Map.of();
 
-        Chat(String kanal, String titel) {
+        Chat(String kanal, String titel, Doc doc) {
             this.kanal = kanal;
             this.titel = titel;
+            this.doc = doc;
         }
     }
 
@@ -62,17 +85,33 @@ final class Mattermost {
     volatile List<Kanal> kanaele = List.of();
     volatile int ungelesen, erwaehnt;
     private final Map<String, String> namen = new ConcurrentHashMap<>();
-    private Thread faden;
-    private final Object wecker = new Object();
-    private volatile boolean jetzt;
-    /** eigene Emojis des Servers (Namen) */
+    /** alle Personen aus mattermost-nutzer.tsv: {Benutzername, voller Name, ID} */
+    private volatile List<String[]> nutzerListe = List.of();
+    /** eigene Emojis des Servers (einmal je Sitzung geladen) */
     volatile List<String> eigeneEmojis = List.of();
-    /** Websocket fuer Live-Updates (null, wenn nicht verbunden) */
-    private volatile java.net.http.WebSocket ws;
-    private volatile boolean wsVerbindet;
+    private volatile boolean emojisGeladen;
     /** Live-Updates ueber den Websocket laufen */
     volatile boolean live;
     volatile String wsFehler;
+    private volatile java.net.http.WebSocket ws;
+    private volatile boolean wsVerbindet, warLive;
+    private volatile long wsNaechster;
+    private int wsStufe, fehlerStufe;
+    /** Anmeldung abgelehnt: keine Versuche mehr bis mmConnect */
+    private volatile boolean gesperrt;
+    private volatile boolean abgleichNoetig, chatNeu;
+    private volatile long abgleichFrueh, letzterAbgleich;
+    /** der gewaehlte Kanal (hoechstens einer) */
+    private volatile Chat aktiv;
+    /** Entwuerfe anderer Kanaele (beim Wechsel aufgehoben) */
+    private final Map<String, String> entwuerfe = new HashMap<>();
+    /** gezaehlte Anfragen an den Server (fuer mmStatus und Tests) */
+    final java.util.concurrent.atomic.AtomicInteger anfragen = new java.util.concurrent.atomic.AtomicInteger();
+    private Thread faden;
+    private final Object wecker = new Object();
+    private volatile boolean jetzt;
+    private javax.swing.Timer gelesenUhr;
+    private String gelesenKanal;
 
     Mattermost(Editor ed) {
         this.ed = ed;
@@ -83,7 +122,7 @@ final class Mattermost {
     }
 
     // ================================================================ Verbindung
-    /** beim Start und mit mmConnect: Einstellungen lesen, Abfrage-Faden starten */
+    /** beim Start und mit mmConnect: Einstellungen lesen, Personen aus der Datei, Abfrage-Faden starten */
     void starten() {
         server = ed.kf.get("mattermost.server", "").strip().replaceAll("/+$", "");
         if (server.isEmpty()) {
@@ -92,8 +131,13 @@ final class Mattermost {
         }
         if (!server.startsWith("http")) server = "https://" + server;
         token = null;
+        gesperrt = false;
+        fehlerStufe = 0;
+        wsStufe = 0;
+        wsNaechster = 0;
         status = "verbinde";
         wsSchliessen();
+        nutzerAusDatei();
         if (faden == null) {
             faden = new Thread(this::schleife, "mattermost");
             faden.setDaemon(true);
@@ -112,18 +156,16 @@ final class Mattermost {
 
     private void schleife() {
         while (true) {
+            long warten;
             try {
-                abfragen();
+                warten = durchlauf();
             } catch (RuntimeException e) {
                 status = "Fehler: " + e;
                 ed.protokoll("Mattermost", e);
+                warten = zurueckfahren();
             }
-            wsVerbinden();
-            int s = Math.max(5, ed.kf.zahl("mattermost.interval", 30));
-            boolean chat = !chatTabs().isEmpty();
-            long warten = (live ? Math.max(s, 300) : chat ? Math.min(s, 5) : s) * 1000L;
             synchronized (wecker) {
-                if (!jetzt) {
+                if (!jetzt && warten > 0) {
                     try {
                         wecker.wait(warten);
                     } catch (InterruptedException e) {
@@ -135,10 +177,95 @@ final class Mattermost {
         }
     }
 
+    /** Wartezeit nach einem Fehler: 5 s, 10 s, 20 s ... hoechstens 10 Minuten */
+    private long zurueckfahren() {
+        long s = Math.min(600, 5L << Math.min(fehlerStufe, 7));
+        fehlerStufe++;
+        SwingUtilities.invokeLater(ed.neuMalen);
+        return s * 1000;
+    }
+
+    private int abstand() {
+        return Math.max(30, ed.kf.zahl("mattermost.interval", 30));
+    }
+
+    /** ein Schritt der Schleife; gibt die Wartezeit bis zum naechsten in Millisekunden zurueck */
+    long durchlauf() {
+        if (server == null || server.isEmpty() || gesperrt) return 3_600_000;
+        if (token == null) {
+            int r = anmelden();
+            if (r == 2) {
+                gesperrt = true;
+                SwingUtilities.invokeLater(ed.neuMalen);
+                return 3_600_000;
+            }
+            if (r == 1) return zurueckfahren();
+            abgleichNoetig = true;
+            abgleichFrueh = 0;
+            chatNeu = true;
+            if (!emojisGeladen) emojisLaden();
+            if (nutzerListe.isEmpty()) nutzerLaden();
+        }
+        long t = System.currentTimeMillis();
+        if (abgleichNoetig && t >= abgleichFrueh) {
+            abgleichNoetig = false;
+            int r = abgleich();
+            if (r == 401) {
+                token = null;
+                return 0;
+            }
+            if (r != 200) {
+                abgleichNoetig = true;
+                return zurueckfahren();
+            }
+            letzterAbgleich = System.currentTimeMillis();
+        }
+        Chat c = aktiv;
+        if (c != null && c.zu) {
+            aktiv = null;
+            c = null;
+        }
+        if (c != null && (chatNeu || !live && t >= c.naechsteAbfrage)) {
+            chatNeu = false;
+            int r = chatLaden(c);
+            if (r == 401) {
+                token = null;
+                return 0;
+            }
+            if (r != 200) {
+                chatNeu = true;
+                return zurueckfahren();
+            }
+            c.naechsteAbfrage = System.currentTimeMillis() + abstand() * 1000L;
+        }
+        fehlerStufe = 0;
+        wsVerbinden();
+        long jetztMs = System.currentTimeMillis();
+        long periode = (live ? 600L : Math.max(60, ed.kf.zahl("mattermost.interval", 30))) * 1000L;
+        long w = letzterAbgleich + periode - jetztMs;
+        if (w <= 0) {
+            abgleichNoetig = true;
+            abgleichFrueh = 0;
+            return 0;
+        }
+        if (abgleichNoetig) w = Math.min(w, Math.max(0, abgleichFrueh - jetztMs));
+        if (c != null && !live) w = Math.min(w, Math.max(0, c.naechsteAbfrage - jetztMs));
+        if (!live && ws == null && ed.kf.an("mattermost.live", true)) w = Math.min(w, Math.max(0, wsNaechster - jetztMs));
+        return Math.max(200, w);
+    }
+
+    /** Abgleich der Kanaele bald (nach Ereignissen wie neuer Kanal): hoechstens einer je 30 Sekunden */
+    void abgleichAnfordern(boolean sofort) {
+        abgleichNoetig = true;
+        abgleichFrueh = sofort ? 0 : Math.max(System.currentTimeMillis(), letzterAbgleich + 30_000);
+        wecken();
+    }
+
     record Antwort(int code, String text, String token) {}
 
     Antwort anfrage(String methode, String pfad, Object body) {
         String url = server + "/api/v4" + pfad;
+        anfragen.incrementAndGet();
         try {
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(30)).header("Accept", "application/json")
                     .header("X-Requested-With", "XMLHttpRequest");
@@ -168,7 +295,8 @@ final class Mattermost {
         return "HTTP " + a.code() + (t.isEmpty() ? "" : ": " + t);
     }
 
-    private boolean anmelden() {
+    /** 0 angemeldet, 1 spaeter noch einmal (Netz, Server), 2 abgelehnt (keine weiteren Versuche) */
+    private int anmelden() {
         String tk = ed.kf.get("mattermost.token", "").strip();
         if (!tk.isEmpty()) {
             token = tk;
@@ -176,26 +304,31 @@ final class Mattermost {
             String u = ed.kf.get("mattermost.user", "").strip(), pw = ed.kf.get("mattermost.password", "");
             if (u.isEmpty() || pw.isEmpty()) {
                 status = "mattermost.user und mattermost.password (oder mattermost.token) fehlen";
-                return false;
+                return 2;
             }
             Antwort a = anfrage("POST", "/users/login", Json.obj("login_id", u, "password", pw));
             if (a.code() != 200 || a.token() == null) {
-                status = "Anmeldung: " + fehlerText(a);
-                return false;
+                boolean abgelehnt = a.code() == 400 || a.code() == 401 || a.code() == 403;
+                status = "Anmeldung: " + fehlerText(a) + (abgelehnt ? " - Leertaste m c versucht es erneut" : "");
+                return abgelehnt ? 2 : 1;
             }
             token = a.token();
         }
         Antwort me = anfrage("GET", "/users/me", null);
         if (me.code() != 200) {
-            status = "Anmeldung: " + fehlerText(me);
+            boolean abgelehnt = me.code() == 401 || me.code() == 403;
+            status = "Anmeldung: " + fehlerText(me) + (abgelehnt ? " - Leertaste m c versucht es erneut" : "");
             token = null;
-            return false;
+            return abgelehnt ? 2 : 1;
         }
         Object j = Json.parse(me.text());
         ichId = Json.str(Json.get(j, "id"));
         ich = Json.str(Json.get(j, "username"));
         if (ichId != null && ich != null) namen.put(ichId, ich);
-        // eigene Emojis des Servers (fuer die Emoji-Auswahl)
+        return 0;
+    }
+
+    private void emojisLaden() {
         List<String> eig = new ArrayList<>();
         for (int seite = 0; seite < 10; seite++) {
             Antwort e = anfrage("GET", "/emoji?per_page=200&sort=name&page=" + seite, null);
@@ -205,17 +338,17 @@ final class Mattermost {
             if (l.size() < 200) break;
         }
         eigeneEmojis = eig;
-        return true;
+        emojisGeladen = true;
     }
 
     // ================================================================ Websocket
-    private static final java.util.Set<String> EREIGNISSE = java.util.Set.of("posted", "post_edited", "post_deleted", "channel_viewed", "reaction_added",
-            "reaction_removed", "channel_created", "channel_updated", "channel_deleted", "direct_added", "group_added", "user_added", "user_removed",
-            "multiple_channels_viewed", "thread_read_changed");
+    /** Ereignisse, nach denen die Kanalliste neu abgeglichen wird (selten) */
+    private static final Set<String> KANAL_EREIGNISSE = Set.of("channel_created", "channel_updated", "channel_deleted", "channel_converted", "direct_added",
+            "group_added", "user_added", "user_removed", "channel_member_updated", "added_to_team", "leave_team");
 
-    /** Websocket aufbauen (mattermost.live = off: nur abfragen); bei Ereignissen sofort neu laden */
+    /** Websocket aufbauen (mattermost.live = off: nur abfragen); nach Fehlschlaegen mit wachsendem Abstand */
     private void wsVerbinden() {
-        if (ws != null || wsVerbindet || token == null || !ed.kf.an("mattermost.live", true)) return;
+        if (ws != null || wsVerbindet || token == null || !ed.kf.an("mattermost.live", true) || System.currentTimeMillis() < wsNaechster) return;
         String u = ed.kf.get("mattermost.websocket", "").strip();
         if (u.isEmpty()) u = server.replaceFirst("^http", "ws") + "/api/v4/websocket";
         wsVerbindet = true;
@@ -225,43 +358,44 @@ final class Mattermost {
                     .whenComplete((w, e) -> {
                         wsVerbindet = false;
                         if (e != null) {
-                            live = false;
-                            wsFehler = e.getCause() != null ? e.getCause().toString() : e.toString();
+                            wsFehlschlag(e.getCause() != null ? e.getCause().toString() : e.toString());
                             return;
                         }
                         ws = w;
                         live = true;
                         wsFehler = null;
+                        wsStufe = 0;
                         w.sendText(Json.write(Json.obj("seq", 1, "action", "authentication_challenge", "data", Json.obj("token", tk))), true);
+                        // nach einer Unterbrechung: was dazwischen kam, einmal nachholen
+                        if (warLive) {
+                            abgleichAnfordern(true);
+                            chatNeu = true;
+                        }
+                        warLive = true;
                         SwingUtilities.invokeLater(ed.neuMalen);
                     });
         } catch (IllegalArgumentException e) {
             wsVerbindet = false;
-            wsFehler = e.getMessage();
+            wsFehlschlag(e.getMessage());
         }
+    }
+
+    private void wsFehlschlag(String grund) {
+        ws = null;
+        live = false;
+        wsFehler = grund;
+        wsNaechster = System.currentTimeMillis() + Math.min(600, 5L << Math.min(wsStufe, 7)) * 1000L;
+        wsStufe++;
+        wecken();
+        SwingUtilities.invokeLater(ed.neuMalen);
     }
 
     private void wsSchliessen() {
         java.net.http.WebSocket w = ws;
         ws = null;
         live = false;
+        warLive = false;
         if (w != null) w.abort();
-    }
-
-    /** Verbindung weg: in ein paar Sekunden neu verbinden (ueber die Abfrage-Schleife) */
-    private void wsWeg(String grund) {
-        ws = null;
-        live = false;
-        wsFehler = grund;
-        hintergrund(() -> {
-            try {
-                Thread.sleep(3000);
-            } catch (InterruptedException e) {
-                return;
-            }
-            wecken();
-        });
-        SwingUtilities.invokeLater(ed.neuMalen);
     }
 
     private final class Lauscher implements java.net.http.WebSocket.Listener {
@@ -281,39 +415,167 @@ final class Mattermost {
 
         @Override
         public java.util.concurrent.CompletionStage<?> onClose(java.net.http.WebSocket w, int code, String reason) {
-            if (w == ws) wsWeg("geschlossen (" + code + (reason == null || reason.isEmpty() ? "" : ": " + reason) + ")");
+            if (w == ws) wsFehlschlag("geschlossen (" + code + (reason == null || reason.isEmpty() ? "" : ": " + reason) + ")");
             return null;
         }
 
         @Override
         public void onError(java.net.http.WebSocket w, Throwable e) {
-            if (w == ws) wsWeg(e.toString());
+            if (w == ws) wsFehlschlag(e.toString());
         }
     }
 
-    /** Ereignis vom Websocket: Nachrichten, Lesestand, Reaktionen -> sofort neu laden */
+    private static Object jsonText(Object o) {
+        if (o instanceof String s && !s.isEmpty()) {
+            try {
+                return Json.parse(s);
+            } catch (RuntimeException e) {
+                return null;
+            }
+        }
+        return o instanceof Map<?, ?> ? o : null;
+    }
+
+    /** Ereignis vom Websocket: mit seinem Inhalt einarbeiten, ohne neue Anfragen (ausser fuer unbekannte Namen) */
     void ereignis(String text) {
+        Object j;
         try {
-            String ev = Json.str(Json.get(Json.parse(text), "event"));
-            if (ev != null && EREIGNISSE.contains(ev)) wecken();
+            j = Json.parse(text);
         } catch (RuntimeException e) {
-            // kein JSON
-        }
-    }
-
-    /** ein Durchlauf: anmelden falls noetig, Kanaele mit Zaehlern lesen, offene Chats neu laden */
-    void abfragen() {
-        if (server == null || server.isEmpty()) return;
-        if (token == null && !anmelden()) return;
-        Antwort t = anfrage("GET", "/users/me/teams", null);
-        if (t.code() == 401) {
-            token = null;
-            status = "abgemeldet - neuer Versuch";
             return;
         }
+        String ev = Json.str(Json.get(j, "event"));
+        if (ev == null) return;
+        Object data = Json.get(j, "data");
+        String kanal = Json.str(Json.get(j, "broadcast", "channel_id"));
+        switch (ev) {
+            case "posted", "post_edited", "post_deleted" -> {
+                Object p = jsonText(Json.get(data, "post"));
+                if (p == null) return;
+                Post post = post(p);
+                String ch = Json.str(Json.get(p, "channel_id"));
+                String k = ch != null ? ch : kanal;
+                boolean geloescht = ev.equals("post_deleted") || lang(Json.get(p, "delete_at")) > 0;
+                boolean mich = false;
+                Object erw = jsonText(Json.get(data, "mentions"));
+                if (erw == null && Json.get(data, "mentions") instanceof String s && s.startsWith("[")) erw = Json.parse(s);
+                for (Object x : Json.list(erw != null ? erw : Json.get(data, "mentions"))) mich |= String.valueOf(x).equals(ichId);
+                if (post.user() != null && !namen.containsKey(post.user())) hintergrund(() -> {
+                    namenHolen(List.of(post.user()));
+                    SwingUtilities.invokeLater(() -> zeigenNeu(aktiv));
+                });
+                boolean m = mich;
+                SwingUtilities.invokeLater(() -> beitrag(ev, k, post, geloescht, m));
+            }
+            case "reaction_added", "reaction_removed" -> {
+                Object r = jsonText(Json.get(data, "reaction"));
+                if (r == null) return;
+                String post = Json.str(Json.get(r, "post_id")), user = Json.str(Json.get(r, "user_id")), emoji = Json.str(Json.get(r, "emoji_name"));
+                SwingUtilities.invokeLater(() -> reaktion(ev.equals("reaction_added"), post, user, emoji));
+            }
+            case "channel_viewed" -> {
+                String ch = Json.str(Json.get(data, "channel_id"));
+                SwingUtilities.invokeLater(() -> zaehlerNull(ch));
+            }
+            case "multiple_channels_viewed" -> {
+                Object zeiten = Json.get(data, "channel_times");
+                if (zeiten instanceof Map<?, ?> zm) for (Object ch : zm.keySet()) SwingUtilities.invokeLater(() -> zaehlerNull(String.valueOf(ch)));
+            }
+            default -> {
+                if (KANAL_EREIGNISSE.contains(ev)) abgleichAnfordern(false);
+            }
+        }
+    }
+
+    /** Post aus dem JSON von Mattermost */
+    private Post post(Object p) {
+        Set<String> re = new LinkedHashSet<>();
+        for (Object r : Json.list(Json.get(p, "metadata", "reactions"))) {
+            String en = Json.str(Json.get(r, "emoji_name"));
+            if (en != null) re.add(Json.str(Json.get(r, "user_id")) + "|" + en);
+        }
+        return new Post(Json.str(Json.get(p, "id")), Json.str(Json.get(p, "user_id")), Json.str(Json.get(p, "message")), lang(Json.get(p, "create_at")),
+                lang(Json.get(p, "update_at")), Json.str(Json.get(p, "type")), re);
+    }
+
+    /** neue, geaenderte oder geloeschte Nachricht (im Swing-Faden) */
+    private void beitrag(String ev, String kanal, Post post, boolean geloescht, boolean mich) {
+        Chat c = aktiv;
+        boolean imChat = c != null && !c.zu && c.kanal.equals(kanal);
+        if (imChat) {
+            if (geloescht) c.posts.remove(post.id());
+            else if (ev.equals("posted") || c.posts.containsKey(post.id())) {
+                // bekannte Reaktionen behalten (geaenderte Nachrichten kommen ohne sie)
+                Post alt = c.posts.get(post.id());
+                c.posts.put(post.id(), alt != null && post.reaktionen().isEmpty() ? new Post(post.id(), post.user(), post.text(), post.zeit(), post.geaendert(), post.typ(),
+                        alt.reaktionen()) : post);
+            }
+            c.seit = Math.max(c.seit, post.geaendert());
+            zeigenNeu(c);
+        }
+        if (!ev.equals("posted") || geloescht) return;
+        Kanal k = null;
+        for (Kanal x : kanaele) if (x.id().equals(kanal)) k = x;
+        if (k == null) {
+            // unbekannter Kanal (neue Direktnachricht): Kanalliste bald neu
+            abgleichAnfordern(false);
+            return;
+        }
+        boolean meins = post.user() != null && post.user().equals(ichId);
+        if (meins || imChat && sichtbar(c)) {
+            if (imChat && !meins) gelesenBald(kanal);
+            ersetzen(k.mit(k.ungelesen(), k.erwaehnt(), post.zeit()));
+            return;
+        }
+        boolean erw = mich || "D".equals(k.art());
+        ersetzen(k.mit(k.stumm() && !erw ? k.ungelesen() : k.ungelesen() + 1, k.erwaehnt() + (erw ? 1 : 0), post.zeit()));
+        Kanal w = k;
+        if (ed.meldung == null) ed.meldung = "Mattermost: neue Nachricht in " + w.anzeige() + " von @" + namen.getOrDefault(post.user(), "?") + " (Leertaste m u)";
+        ed.neuMalen.run();
+    }
+
+    private void reaktion(boolean dazu, String post, String user, String emoji) {
+        Chat c = aktiv;
+        if (c == null || c.zu || post == null || emoji == null) return;
+        Post p = c.posts.get(post);
+        if (p == null) return;
+        Set<String> re = new LinkedHashSet<>(p.reaktionen());
+        if (dazu) re.add(user + "|" + emoji);
+        else re.remove(user + "|" + emoji);
+        c.posts.put(post, new Post(p.id(), p.user(), p.text(), p.zeit(), p.geaendert(), p.typ(), re));
+        zeigenNeu(c);
+    }
+
+    /** Kanal in der Liste ersetzen und Summen neu zaehlen (im Swing-Faden) */
+    private void ersetzen(Kanal k) {
+        List<Kanal> l = new ArrayList<>();
+        for (Kanal x : kanaele) l.add(x.id().equals(k.id()) ? k : x);
+        kanaeleSetzen(l);
+    }
+
+    private void kanaeleSetzen(List<Kanal> l) {
+        int u = 0, e = 0;
+        for (Kanal k : l) {
+            u += k.ungelesen();
+            e += k.erwaehnt();
+        }
+        kanaele = l;
+        ungelesen = u;
+        erwaehnt = e;
+        ed.neuMalen.run();
+    }
+
+    private void zaehlerNull(String kanal) {
+        for (Kanal k : kanaele) if (k.id().equals(kanal) && (k.ungelesen() > 0 || k.erwaehnt() > 0)) ersetzen(k.mit(0, 0, k.letzte()));
+    }
+
+    // ================================================================ Abgleich der Kanaele
+    /** Kanaele und Zaehler aller Teams (3 Anfragen je Team); HTTP-Code der ersten fehlgeschlagenen, sonst 200 */
+    private int abgleich() {
+        Antwort t = anfrage("GET", "/users/me/teams", null);
         if (t.code() != 200) {
             status = fehlerText(t);
-            return;
+            return t.code();
         }
         Map<String, Kanal> neu = new LinkedHashMap<>();
         Map<String, String> teamNamen = new HashMap<>();
@@ -321,10 +583,14 @@ final class Mattermost {
             String tid = Json.str(Json.get(team, "id"));
             teamNamen.put(tid, Json.str(Json.get(team, "display_name")));
             Antwort k = anfrage("GET", "/users/me/teams/" + tid + "/channels", null);
+            if (k.code() != 200) {
+                status = fehlerText(k);
+                return k.code();
+            }
             Antwort m = anfrage("GET", "/users/me/teams/" + tid + "/channels/members", null);
-            if (k.code() != 200 || m.code() != 200) {
-                status = fehlerText(k.code() != 200 ? k : m);
-                return;
+            if (m.code() != 200) {
+                status = fehlerText(m);
+                return m.code();
             }
             Map<String, Object> mitglied = new HashMap<>();
             for (Object x : Json.list(Json.parse(m.text()))) mitglied.put(Json.str(Json.get(x, "channel_id")), x);
@@ -336,13 +602,13 @@ final class Mattermost {
                 int erw = mg == null ? 0 : (int) lang(Json.get(mg, "mention_count"));
                 int ung = (int) Math.max(0, gesamt - gelesen);
                 // stumm geschaltete Kanaele zaehlen nur Erwaehnungen
-                if ("mention".equals(Json.str(Json.get(mg, "notify_props", "mark_unread")))) ung = erw;
-                String art = Json.str(Json.get(c, "type"));
-                neu.put(id, new Kanal(id, tid, art, Json.str(Json.get(c, "name")), Json.str(Json.get(c, "display_name")), ung, erw,
-                        lang(Json.get(c, "last_post_at"))));
+                boolean stumm = "mention".equals(Json.str(Json.get(mg, "notify_props", "mark_unread")));
+                if (stumm) ung = erw;
+                neu.put(id, new Kanal(id, tid, Json.str(Json.get(c, "type")), Json.str(Json.get(c, "name")), Json.str(Json.get(c, "display_name")), ung, erw,
+                        lang(Json.get(c, "last_post_at")), stumm));
             }
         }
-        // Direktnachrichten: Name des anderen
+        // Direktnachrichten: Name des anderen (aus der Personenliste, sonst einzeln nachfragen)
         List<String> fehlen = new ArrayList<>();
         for (Kanal k : neu.values()) {
             if (!"D".equals(k.art()) || k.name() == null) continue;
@@ -351,36 +617,21 @@ final class Mattermost {
         }
         namenHolen(fehlen);
         List<Kanal> l = new ArrayList<>();
-        int u = 0, e = 0;
         for (Kanal k : neu.values()) {
             String anz = anzeigename(k, teamNamen.size() > 1 ? teamNamen.get(k.team()) : null);
-            k = new Kanal(k.id(), k.team(), k.art(), k.name(), anz, k.ungelesen(), k.erwaehnt(), k.letzte());
-            l.add(k);
-            u += k.ungelesen();
-            e += k.erwaehnt();
+            l.add(new Kanal(k.id(), k.team(), k.art(), k.name(), anz, k.ungelesen(), k.erwaehnt(), k.letzte(), k.stumm()));
         }
-        int vorher = ungelesen;
-        List<Kanal> alt = kanaele;
-        kanaele = l;
-        ungelesen = u;
-        erwaehnt = e;
         status = "ok";
-        if (u > vorher) {
-            Kanal wo = null;
-            for (Kanal k : l) {
-                for (Kanal a : alt) if (a.id().equals(k.id()) && k.ungelesen() > a.ungelesen()) wo = k;
-                if (wo == null && alt.isEmpty() && k.ungelesen() > 0) wo = k;
-            }
-            Kanal w = wo;
-            if (w != null && !alt.isEmpty()) SwingUtilities.invokeLater(() -> {
-                if (ed.meldung == null) ed.meldung = "Mattermost: neue Nachricht in " + w.anzeige() + " (Leertaste m u)";
-            });
-        }
-        chatsLaden();
         SwingUtilities.invokeLater(() -> {
+            // der sichtbare Kanal bleibt gelesen
+            Chat c = aktiv;
+            List<Kanal> z = new ArrayList<>();
+            for (Kanal k : l) z.add(c != null && !c.zu && sichtbar(c) && k.id().equals(c.kanal) && k.ungelesen() + k.erwaehnt() > 0 ? k.mit(0, 0, k.letzte()) : k);
+            if (c != null && !c.zu && sichtbar(c)) for (Kanal k : l) if (k.id().equals(c.kanal) && k.ungelesen() + k.erwaehnt() > 0) gelesenBald(c.kanal);
+            kanaeleSetzen(z);
             if (NEU_LADEN.equals(ed.meldung)) ed.meldung = "Mattermost: " + ungelesen + " ungelesen" + (erwaehnt > 0 ? ", " + erwaehnt + " Erwaehnungen" : "");
-            ed.neuMalen.run();
         });
+        return 200;
     }
 
     private static final String NEU_LADEN = "Mattermost wird neu geladen ...";
@@ -401,6 +652,7 @@ final class Mattermost {
         return ("G".equals(k.art()) ? "" : "~") + n + (team != null && !"G".equals(k.art()) ? " (" + team + ")" : "");
     }
 
+    /** Namen einzelner unbekannter Personen (z. B. neu angelegt oder geloescht); die ganze Liste bleibt unberuehrt */
     private void namenHolen(Collection<String> ids) {
         List<String> l = new ArrayList<>();
         for (String i : ids) if (i != null && !namen.containsKey(i) && !l.contains(i)) l.add(i);
@@ -417,107 +669,108 @@ final class Mattermost {
         return o instanceof Number n ? n.longValue() : 0;
     }
 
-    // ================================================================ Chat
-    /** offene Chat-Tabs neu laden (im Abfrage-Faden) */
-    private void chatsLaden() {
-        for (Doc d : chatTabs()) laden(d);
-    }
-
-    /** offene Chat-Tabs (aus dem Swing-Faden gelesen) */
-    private List<Doc> chatTabs() {
-        List<Doc> l = new ArrayList<>();
-        Runnable r = () -> {
-            for (Doc d : ed.tabs) if (d.chat != null) l.add(d);
-        };
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            try {
-                SwingUtilities.invokeAndWait(r);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (java.lang.reflect.InvocationTargetException e) {
-                // keine Chats
-            }
-        }
-        return l;
-    }
-
-    private void laden(Doc d) {
-        Chat c = d.chat;
-        if (c.mitglieder.isEmpty()) c.mitglieder = nutzer("in_channel=" + c.kanal + "&");
-        Antwort a = anfrage("GET", "/channels/" + c.kanal + "/posts?per_page=" + Math.max(10, ed.kf.zahl("mattermost.history", 100)), null);
+    // ================================================================ Chat (der eine gewaehlte Kanal)
+    /** Nachrichten des Kanals: beim ersten Mal die letzten mattermost.history, danach nur Aenderungen (?since=) */
+    private int chatLaden(Chat c) {
+        boolean voll = !c.geladen;
+        String q = voll ? "?per_page=" + Math.max(10, ed.kf.zahl("mattermost.history", 100)) : "?since=" + c.seit;
+        Antwort a = anfrage("GET", "/channels/" + c.kanal + "/posts" + q, null);
         if (a.code() != 200) {
             status = fehlerText(a);
-            return;
+            return a.code();
         }
         Object j = Json.parse(a.text());
         List<Post> posts = new ArrayList<>();
+        List<String> geloescht = new ArrayList<>();
         List<String> wer = new ArrayList<>();
-        long aenderung = 0;
         for (Object id : Json.list(Json.get(j, "order"))) {
-            Object p = Json.get(j, "posts", (String) id);
+            Object p = Json.get(j, "posts", String.valueOf(id));
             if (p == null) continue;
-            String u = Json.str(Json.get(p, "user_id"));
-            wer.add(u);
-            aenderung = Math.max(aenderung, lang(Json.get(p, "update_at")));
-            Map<String, Integer> re = new LinkedHashMap<>();
-            java.util.Set<String> mein = new java.util.LinkedHashSet<>();
-            for (Object r : Json.list(Json.get(p, "metadata", "reactions"))) {
-                String en = Json.str(Json.get(r, "emoji_name"));
-                if (en == null) continue;
-                re.merge(en, 1, Integer::sum);
-                if (ichId != null && ichId.equals(Json.str(Json.get(r, "user_id")))) mein.add(en);
+            if (lang(Json.get(p, "delete_at")) > 0) {
+                geloescht.add(String.valueOf(id));
+                continue;
             }
-            posts.add(new Post((String) id, u, Json.str(Json.get(p, "message")), lang(Json.get(p, "create_at")), Json.str(Json.get(p, "type")), re, mein));
+            Post post = post(p);
+            posts.add(post);
+            wer.add(post.user());
         }
-        posts.sort((x, y) -> Long.compare(x.zeit(), y.zeit()));
+        // im ?since-Modus stehen geloeschte nur in posts, nicht in order
+        if (Json.get(j, "posts") instanceof Map<?, ?> alle) for (Object p : alle.values()) if (lang(Json.get(p, "delete_at")) > 0) geloescht.add(Json.str(Json.get(p, "id")));
         namenHolen(wer);
-        String stand = (posts.isEmpty() ? "" : posts.get(posts.size() - 1).id()) + "/" + posts.size() + "/" + aenderung;
-        List<String> zeilen = new ArrayList<>();
-        String verlauf = verlauf(c, posts, zeilen);
-        Map<String, java.util.Set<String>> meine = new HashMap<>();
-        for (Post p : posts) meine.put(p.id(), p.meine());
         SwingUtilities.invokeLater(() -> {
-            if (!ed.tabs.contains(d)) return;
-            if (!stand.equals(c.stand)) {
-                c.stand = stand;
-                c.zeilen = zeilen;
-                c.meine = meine;
-                zeigen(d, verlauf);
+            if (c.zu || aktiv != c) return;
+            if (voll) c.posts.clear();
+            for (Post p : posts) {
+                c.posts.put(p.id(), p);
+                c.seit = Math.max(c.seit, p.geaendert());
             }
-            // sichtbarer Chat gilt als gelesen
-            if (ed.d() == d) gelesen(c.kanal);
-            ed.neuMalen.run();
+            for (String g : geloescht) c.posts.remove(g);
+            c.geladen = true;
+            zeigenNeu(c);
+            if (sichtbar(c) && (!posts.isEmpty() || voll)) gelesenBald(c.kanal);
         });
+        return 200;
     }
 
-    private void gelesen(String kanal) {
-        boolean offen = false;
-        for (Kanal k : kanaele) if (k.id().equals(kanal) && (k.ungelesen() > 0 || k.erwaehnt() > 0)) offen = true;
-        if (!offen) return;
-        hintergrund(() -> {
-            anfrage("POST", "/channels/members/me/view", Json.obj("channel_id", kanal));
-            List<Kanal> l = new ArrayList<>();
-            int u = 0, e = 0;
-            for (Kanal k : kanaele) {
-                if (k.id().equals(kanal)) k = new Kanal(k.id(), k.team(), k.art(), k.name(), k.anzeige(), 0, 0, k.letzte());
-                l.add(k);
-                u += k.ungelesen();
-                e += k.erwaehnt();
-            }
-            kanaele = l;
-            ungelesen = u;
-            erwaehnt = e;
-            SwingUtilities.invokeLater(ed.neuMalen);
-        });
+    /** Chat-Tab neu aufbauen (Verlauf aus den Nachrichten, Entwurf und Cursor bleiben) */
+    private void zeigenNeu(Chat c) {
+        if (c == null || c.zu || !ed.tabs.contains(c.doc)) return;
+        List<Post> l = new ArrayList<>(c.posts.values());
+        l.sort((x, y) -> Long.compare(x.zeit(), y.zeit()));
+        // nicht endlos wachsen
+        int max = Math.max(10, ed.kf.zahl("mattermost.history", 100)) * 3;
+        if (l.size() > max) {
+            for (Post p : l.subList(0, l.size() - max)) c.posts.remove(p.id());
+            l = l.subList(l.size() - max, l.size());
+        }
+        List<String> zeilen = new ArrayList<>();
+        String v = c.geladen ? verlauf(c, l, zeilen) : "# " + c.titel + "\n\n(wird geladen ...)\n\n";
+        Map<String, Set<String>> meine = new HashMap<>();
+        for (Post p : l) {
+            Set<String> m = new LinkedHashSet<>();
+            for (String r : p.reaktionen()) if (r.startsWith(ichId + "|")) m.add(r.substring(r.indexOf('|') + 1));
+            meine.put(p.id(), m);
+        }
+        c.zeilen = zeilen;
+        c.meine = meine;
+        zeigen(c.doc, v);
+        ed.neuMalen.run();
+    }
+
+    /** ist der Chat-Tab gerade sichtbar? */
+    private boolean sichtbar(Chat c) {
+        return !ed.tabs.isEmpty() && ed.d() == c.doc;
+    }
+
+    /** Lesestand an den Server melden, gebuendelt: hoechstens einmal je 10 Sekunden */
+    private void gelesenBald(String kanal) {
+        gelesenBald(kanal, false);
+    }
+
+    /** sofort: beim Waehlen eines Kanals (kurz verzoegert), sonst gebuendelt nach 10 Sekunden */
+    private void gelesenBald(String kanal, boolean sofort) {
+        if (!sofort && gelesenUhr != null && gelesenUhr.isRunning() && kanal.equals(gelesenKanal)) return;
+        if (gelesenUhr != null) gelesenUhr.stop();
+        gelesenKanal = kanal;
+        zaehlerNull(kanal);
+        gelesenUhr = new javax.swing.Timer(sofort ? 300 : 10_000, e -> hintergrund(() -> anfrage("POST", "/channels/members/me/view", Json.obj("channel_id", kanal))));
+        gelesenUhr.setRepeats(false);
+        gelesenUhr.start();
+    }
+
+    /** Chat-Tab wurde geschlossen: kein Kanal mehr gewaehlt, keine Nachrichten mehr */
+    void geschlossen(Doc d) {
+        Chat c = d.chat;
+        if (c == null) return;
+        c.zu = true;
+        if (aktiv == c) aktiv = null;
     }
 
     private static final DateTimeFormatter UHR = DateTimeFormatter.ofPattern("HH:mm");
 
-    /** Verlauf als Text: Kopfzeile, Tagestrenner, "HH:mm name: Text" (Folgezeilen eingerueckt) */
+    /** Verlauf als Text: Kopfzeile, Tagestrenner, "HH:mm name: Text" (Folgezeilen eingerueckt), Reaktionen */
     String verlauf(Chat c, List<Post> posts, List<String> zeilen) {
-        StringBuilder b = new StringBuilder("# " + c.titel + "   (Strg+Enter sendet, Leertaste m + reagiert, Leertaste m r laedt neu, :q schliesst)\n");
+        StringBuilder b = new StringBuilder("# " + c.titel + "   (Strg+Enter sendet, Leertaste m + reagiert, Leertaste m m wechselt den Kanal, :q schliesst)\n");
         zeilen.add(null);
         LocalDate tag = null;
         ZoneId zone = ZoneId.systemDefault();
@@ -540,11 +793,18 @@ final class Mattermost {
                 zeilen.add(p.id());
             }
             if (!p.reaktionen().isEmpty()) {
+                Map<String, Integer> anzahl = new LinkedHashMap<>();
+                Set<String> mein = new LinkedHashSet<>();
+                for (String r : p.reaktionen()) {
+                    String em = r.substring(r.indexOf('|') + 1);
+                    anzahl.merge(em, 1, Integer::sum);
+                    if (r.startsWith(ichId + "|")) mein.add(em);
+                }
                 List<String> r = new ArrayList<>();
-                for (Map.Entry<String, Integer> e : p.reaktionen().entrySet()) {
+                for (Map.Entry<String, Integer> e : anzahl.entrySet()) {
                     String zc = Emojis.zeichen(e.getKey());
                     // eigene Reaktion mit * (Leertaste m + mit demselben Emoji nimmt sie zurueck)
-                    r.add((zc != null ? zc : ":" + e.getKey() + ":") + " " + e.getValue() + (p.meine().contains(e.getKey()) ? "*" : ""));
+                    r.add((zc != null ? zc : ":" + e.getKey() + ":") + " " + e.getValue() + (mein.contains(e.getKey()) ? "*" : ""));
                 }
                 b.append(ein).append("[").append(String.join("  ", r)).append("]\n");
                 zeilen.add(p.id());
@@ -563,12 +823,13 @@ final class Mattermost {
         int imEntwurf = s >= 0 && d.cursor > s + TRENN.length() ? d.cursor - (s + TRENN.length() + 1) : -1;
         boolean leer = t.isEmpty();
         int alt = d.cursor;
+        boolean war = d.geaendert;
         d.setText(verlauf + TRENN + "\n" + entwurf);
         int start = verlauf.length() + TRENN.length() + 1;
         if (leer) d.cursor = start + entwurf.length();
         else if (imEntwurf >= 0) d.cursor = Math.min(d.t.length(), start + imEntwurf);
         else d.cursor = Math.min(alt, verlauf.length());
-        d.geaendert = false;
+        d.geaendert = war && !entwurf.isBlank();
     }
 
     /** Entwurf eines Chat-Tabs (Text unter der Trennlinie), null ohne Trennlinie */
@@ -578,39 +839,53 @@ final class Mattermost {
         return s < 0 ? null : t.substring(Math.min(t.length(), s + TRENN.length() + 1));
     }
 
+    /** Kanal waehlen: es gibt hoechstens einen Chat-Tab; ein anderer Kanal ersetzt den bisherigen (sein Entwurf bleibt aufgehoben) */
     void oeffnen(Kanal k) {
-        for (int i = 0; i < ed.tabs.size(); i++) {
-            Doc d = ed.tabs.get(i);
-            if (d.chat != null && d.chat.kanal.equals(k.id())) {
-                ed.aktiv = i;
-                gelesen(k.id());
-                wecken();
-                return;
-            }
+        Doc d = null;
+        for (Doc t : ed.tabs) if (t.chat != null) d = t;
+        if (d != null && d.chat.kanal.equals(k.id()) && !d.chat.zu) {
+            ed.aktiv = ed.tabs.indexOf(d);
+            if (k.ungelesen() + k.erwaehnt() > 0) gelesenBald(k.id(), true);
+            return;
         }
-        Doc d = new Doc();
-        d.chat = new Chat(k.id(), k.anzeige());
+        String entwurf = entwuerfe.getOrDefault(k.id(), "");
+        if (d != null) {
+            String e = entwurf(d);
+            if (e != null && !e.isBlank()) entwuerfe.put(d.chat.kanal, e);
+            else entwuerfe.remove(d.chat.kanal);
+            d.chat.zu = true;
+        } else {
+            d = new Doc();
+            Doc alt = ed.d();
+            if (ed.tabs.size() == 1 && alt.pfad == null && alt.term == null && alt.chat == null && !alt.geaendert && alt.t.length() == 0) ed.tabs.set(0, d);
+            else ed.tabs.add(d);
+        }
+        entwuerfe.remove(k.id());
+        Chat c = new Chat(k.id(), k.anzeige(), d);
+        d.chat = c;
         d.titel = k.anzeige();
-        zeigen(d, "# " + k.anzeige() + "\n\n(wird geladen ...)\n\n");
-        d.chat.stand = "";
-        Doc alt = ed.d();
-        if (ed.tabs.size() == 1 && alt.pfad == null && alt.term == null && alt.chat == null && !alt.geaendert && alt.t.length() == 0) ed.tabs.set(0, d);
-        else ed.tabs.add(d);
+        d.undo.clear();
+        d.redo.clear();
+        d.setText("# " + k.anzeige() + "\n\n(wird geladen ...)\n\n" + TRENN + "\n" + entwurf);
+        d.cursor = d.t.length();
+        d.oben = 0;
+        d.geaendert = false;
         ed.aktiv = ed.tabs.indexOf(d);
         ed.befehl("switchState", "insert");
-        hintergrund(() -> laden(d));
-        gelesen(k.id());
+        aktiv = c;
+        chatNeu = true;
+        wecken();
+        if (k.ungelesen() + k.erwaehnt() > 0) gelesenBald(k.id(), true);
     }
 
     void senden(Doc d) {
         if (d.chat == null) {
-            ed.fehler("kein Chat-Tab (Leertaste m m oeffnet einen Kanal)");
+            ed.fehler("kein Chat-Tab (Leertaste m m waehlt einen Kanal)");
             return;
         }
         String e = entwurf(d);
         if (e == null) {
             ed.fehler("Trennlinie fehlt - Leertaste m r baut den Chat neu auf (der Entwurf geht dabei verloren)");
-            d.chat.stand = "";
             return;
         }
         String text = e.strip();
@@ -624,7 +899,7 @@ final class Mattermost {
             Antwort a = anfrage("POST", "/posts", Json.obj("channel_id", c.kanal, "message", text));
             SwingUtilities.invokeLater(() -> {
                 if (a.code() == 201 || a.code() == 200) {
-                    // Entwurf leeren, Verlauf neu laden
+                    // Entwurf leeren; die Antwort ist die Nachricht selbst (der Websocket meldet sie ebenfalls)
                     String t = d.t.toString();
                     int s = t.indexOf(TRENN);
                     if (s >= 0) {
@@ -632,9 +907,24 @@ final class Mattermost {
                         d.loeschen(s + TRENN.length() + 1, t.length() - (s + TRENN.length() + 1));
                         d.geaendert = false;
                     }
+                    Post p = null;
+                    try {
+                        p = post(Json.parse(a.text()));
+                    } catch (RuntimeException ex) {
+                        // keine Nachricht in der Antwort
+                    }
+                    if (p != null && p.id() != null) {
+                        if (aktiv == c && !c.zu) {
+                            c.posts.put(p.id(), p);
+                            c.seit = Math.max(c.seit, p.geaendert());
+                            zeigenNeu(c);
+                        }
+                    } else if (!live) {
+                        // ohne Websocket und ohne Nachricht in der Antwort: einmal die Aenderungen holen
+                        chatNeu = true;
+                        wecken();
+                    }
                     ed.meldung = "gesendet an " + c.titel;
-                    c.stand = "";
-                    hintergrund(() -> laden(d));
                 } else {
                     ed.fehler("nicht gesendet: " + fehlerText(a));
                 }
@@ -643,88 +933,118 @@ final class Mattermost {
         });
     }
 
-    // ================================================================ Personen
-    /** Benutzer (aktiv, ohne mich): {Benutzername, voller Name}; filter z. B. "in_channel=ID&" */
-    List<String[]> nutzer(String filter) {
+    // ================================================================ Personen (Datei)
+    private Path nutzerDatei() {
+        return ed.konfig.resolve("mattermost-nutzer.tsv");
+    }
+
+    /** Personenliste aus mattermost-nutzer.tsv (wenn sie zum Server passt) */
+    private void nutzerAusDatei() {
+        nutzerListe = List.of();
+        try {
+            if (!Files.exists(nutzerDatei())) return;
+            List<String> z = Files.readAllLines(nutzerDatei(), StandardCharsets.UTF_8);
+            if (z.isEmpty() || !z.get(0).equals("# " + server)) return;
+            List<String[]> l = new ArrayList<>();
+            for (String s : z.subList(1, z.size())) {
+                String[] t = s.split("\t", -1);
+                if (t.length < 3) continue;
+                l.add(new String[] {t[1], t[2], t[0]});
+                namen.put(t[0], t[1]);
+            }
+            nutzerListe = l;
+        } catch (IOException e) {
+            // ohne Datei: wird nach der Anmeldung einmal geladen
+        }
+    }
+
+    /** alle aktiven Personen vom Server holen und in die Datei schreiben (einmal, sonst nur mit Leertaste m p) */
+    private int nutzerLaden() {
         List<String[]> r = new ArrayList<>();
-        for (int seite = 0; seite < 20; seite++) {
-            Antwort a = anfrage("GET", "/users?" + filter + "per_page=200&page=" + seite, null);
-            if (a.code() != 200) break;
+        for (int seite = 0; seite < 50; seite++) {
+            Antwort a = anfrage("GET", "/users?active=true&per_page=200&page=" + seite, null);
+            if (a.code() != 200) {
+                if (seite == 0) return a.code();
+                break;
+            }
             List<Object> l = Json.list(Json.parse(a.text()));
             for (Object u : l) {
                 String id = Json.str(Json.get(u, "id")), n = Json.str(Json.get(u, "username"));
-                if (n == null || lang(Json.get(u, "delete_at")) > 0) continue;
-                if (id != null) namen.put(id, n);
-                String voll = ((Json.str(Json.get(u, "first_name")) == null ? "" : Json.str(Json.get(u, "first_name"))) + " "
-                        + (Json.str(Json.get(u, "last_name")) == null ? "" : Json.str(Json.get(u, "last_name")))).strip();
+                if (id == null || n == null || lang(Json.get(u, "delete_at")) > 0) continue;
+                namen.put(id, n);
+                String vor = Json.str(Json.get(u, "first_name")), nach = Json.str(Json.get(u, "last_name"));
+                String voll = ((vor == null ? "" : vor) + " " + (nach == null ? "" : nach)).strip();
                 if (voll.isEmpty() && Json.str(Json.get(u, "nickname")) != null) voll = Json.str(Json.get(u, "nickname"));
-                if (id != null && id.equals(ichId)) continue;
-                r.add(new String[] {n, voll, id});
+                r.add(new String[] {n, voll.replace('\t', ' '), id});
             }
             if (l.size() < 200) break;
         }
         r.sort((x, y) -> x[0].compareToIgnoreCase(y[0]));
-        return r;
+        nutzerListe = r;
+        StringBuilder b = new StringBuilder("# " + server + "\n");
+        for (String[] u : r) b.append(u[2]).append('\t').append(u[0]).append('\t').append(u[1]).append('\n');
+        try {
+            Files.writeString(nutzerDatei(), b.toString(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            ed.protokoll("Mattermost: Personenliste nicht gespeichert", e);
+        }
+        return 200;
+    }
+
+    /** Personen ohne mich */
+    private List<String[]> andere() {
+        List<String[]> l = new ArrayList<>();
+        for (String[] u : nutzerListe) if (ichId == null || !u[2].equals(ichId)) l.add(u);
+        return l;
     }
 
     static boolean nameZeichen(char c) {
         return Character.isLetterOrDigit(c) || c == '.' || c == '_' || c == '-';
     }
 
-    /** nach @ im Entwurf: Mitglieder des Kanals vorschlagen (Vorschlagsliste wie bei Code); false, wenn kein @-Wort */
+    /** nach @ im Entwurf: Personen aus der Personenliste vorschlagen; false, wenn kein @-Wort */
     boolean erwaehnen(Doc d) {
         if (d.chat == null) return false;
         int anf = d.cursor;
         while (anf > 0 && nameZeichen(d.at(anf - 1))) anf--;
         if (anf == 0 || d.at(anf - 1) != '@') return false;
         List<Map<String, Object>> l = new ArrayList<>();
-        for (String[] m : d.chat.mitglieder) l.add(Json.obj("item", Json.obj("label", m[0], "filterText", m[0] + " " + m[1].toLowerCase(), "detail", m[1], "insertText", m[0] + " ")));
+        for (String[] m : andere()) l.add(Json.obj("item", Json.obj("label", m[0], "filterText", m[0] + " " + m[1].toLowerCase(), "detail", m[1], "insertText", m[0] + " ")));
         l.add(Json.obj("item", Json.obj("label", "here", "filterText", "here", "detail", "alle, die gerade online sind", "insertText", "here ")));
         l.add(Json.obj("item", Json.obj("label", "channel", "filterText", "channel", "detail", "alle im Kanal", "insertText", "channel ")));
         l.add(Json.obj("item", Json.obj("label", "all", "filterText", "all", "detail", "alle im Kanal", "insertText", "all ")));
-        if (d.chat.mitglieder.isEmpty()) {
-            // noch nicht geladen: im Hintergrund holen, Liste kommt beim naechsten @
-            Chat c = d.chat;
-            hintergrund(() -> c.mitglieder = nutzer("in_channel=" + c.kanal + "&"));
-        }
+        if (nutzerListe.isEmpty()) ed.meldung = "Personenliste fehlt noch - Leertaste m p laedt sie";
         ed.vorschlaegeZeigen(l, anf);
         return true;
     }
 
-    private volatile List<String[]> alleNutzer = List.of();
-
-    /** private Nachricht: Person waehlen (tippen filtert), Direktkanal anlegen bzw. finden, als Chat-Tab oeffnen */
+    /** private Nachricht: Person aus der Personenliste waehlen, Direktkanal anlegen bzw. finden und waehlen */
     void direktStarten() {
         if (!bereit()) return;
-        Runnable zeigen = () -> {
-            List<String> e = new ArrayList<>();
-            Map<String, String[]> zu = new HashMap<>();
-            for (String[] u : alleNutzer) {
-                String t = "@" + u[0] + (u[1].isEmpty() ? "" : "  (" + u[1] + ")");
-                e.add(t);
-                zu.put(t, u);
-            }
-            ed.wz.auswahl("Mattermost: private Nachricht an (" + e.size() + " Personen)", e, null, t -> direkt(zu.get(t)));
-            ed.neuMalen.run();
-        };
-        if (!alleNutzer.isEmpty()) {
-            zeigen.run();
-            // im Hintergrund auffrischen
-            hintergrund(() -> alleNutzer = nutzer("active=true&"));
+        List<String[]> l = andere();
+        if (l.isEmpty()) {
+            ed.fehler("Personenliste ist leer - Leertaste m p laedt sie vom Server");
             return;
         }
-        ed.meldung = "Mattermost: Personen werden geladen ...";
-        hintergrund(() -> {
-            alleNutzer = nutzer("active=true&");
-            SwingUtilities.invokeLater(() -> {
-                ed.meldung = null;
-                zeigen.run();
-            });
-        });
+        List<String> e = new ArrayList<>();
+        Map<String, String[]> zu = new HashMap<>();
+        for (String[] u : l) {
+            String t = "@" + u[0] + (u[1].isEmpty() ? "" : "  (" + u[1] + ")");
+            e.add(t);
+            zu.put(t, u);
+        }
+        ed.wz.auswahl("Mattermost: private Nachricht an (" + e.size() + " Personen)", e, null, t -> direkt(zu.get(t)));
     }
 
     void direkt(String[] u) {
         if (u == null || u[2] == null) return;
+        // gibt es den Direktkanal schon, ohne Anfrage
+        for (Kanal k : kanaele) {
+            if ("D".equals(k.art()) && k.name() != null && u[2].equals(andererVon(k.name()))) {
+                oeffnen(k);
+                return;
+            }
+        }
         ed.meldung = "Direktnachricht an @" + u[0] + " ...";
         hintergrund(() -> {
             Antwort a = anfrage("POST", "/channels/direct", List.of(ichId, u[2]));
@@ -734,16 +1054,21 @@ final class Mattermost {
                     return;
                 }
                 Object c = Json.parse(a.text());
-                String id = Json.str(Json.get(c, "id"));
                 namen.put(u[2], u[0]);
-                oeffnen(new Kanal(id, Json.str(Json.get(c, "team_id")), "D", Json.str(Json.get(c, "name")), "@" + u[0], 0, 0, lang(Json.get(c, "last_post_at"))));
+                Kanal k = new Kanal(Json.str(Json.get(c, "id")), Json.str(Json.get(c, "team_id")), "D", Json.str(Json.get(c, "name")), "@" + u[0], 0, 0,
+                        lang(Json.get(c, "last_post_at")), false);
+                List<Kanal> l = new ArrayList<>(kanaele);
+                l.removeIf(x -> x.id().equals(k.id()));
+                l.add(k);
+                kanaeleSetzen(l);
+                oeffnen(k);
                 ed.meldung = "private Nachricht an @" + u[0] + ": unter die Trennlinie schreiben, Strg+Enter sendet";
                 ed.neuMalen.run();
-                wecken();
             });
         });
     }
 
+    // ================================================================ Reaktionen
     /** Post der Cursorzeile im Chat (auch Folge- und Reaktionszeilen), sonst null */
     static String postBei(Doc d) {
         if (d.chat == null) return null;
@@ -754,7 +1079,7 @@ final class Mattermost {
 
     void reagierenStarten(Doc d) {
         if (d.chat == null) {
-            ed.fehler("nur im Chat-Tab (Leertaste m m oeffnet einen Kanal)");
+            ed.fehler("nur im Chat-Tab (Leertaste m m waehlt einen Kanal)");
             return;
         }
         String post = postBei(d);
@@ -768,7 +1093,7 @@ final class Mattermost {
 
     /** Reaktion setzen oder, wenn sie schon von mir ist, zuruecknehmen */
     void reagieren(Doc d, Chat c, String post, String emoji) {
-        boolean weg = c.meine.getOrDefault(post, java.util.Set.of()).contains(emoji);
+        boolean weg = c.meine.getOrDefault(post, Set.of()).contains(emoji);
         String zc = Emojis.zeichen(emoji);
         String anz = zc != null ? zc : ":" + emoji + ":";
         ed.meldung = (weg ? "Reaktion " + anz + " wird entfernt ..." : "Reaktion " + anz + " ...");
@@ -778,8 +1103,7 @@ final class Mattermost {
             SwingUtilities.invokeLater(() -> {
                 if (a.code() == 200 || a.code() == 201) {
                     ed.meldung = weg ? "Reaktion " + anz + " entfernt" : "reagiert mit " + anz;
-                    c.stand = "";
-                    hintergrund(() -> laden(d));
+                    reaktion(!weg, post, ichId, emoji);
                 } else {
                     ed.fehler("Reaktion nicht gesetzt: " + fehlerText(a));
                 }
@@ -798,7 +1122,7 @@ final class Mattermost {
     String anzeige() {
         if (server == null || server.isEmpty()) return null;
         if (status.equals("verbinde")) return "MM ...";
-        if (!status.equals("ok")) return "MM !";
+        if (gesperrt || !status.equals("ok")) return "MM !";
         if (ungelesen == 0 && erwaehnt == 0) return live ? "MM" : "MM~";
         return "MM " + ungelesen + " neu" + (erwaehnt > 0 ? " @" + erwaehnt : "");
     }
@@ -820,7 +1144,7 @@ final class Mattermost {
 
     // ================================================================ Befehle
     void befehle(Map<String, Editor.Cmd> c) {
-        /** @binding Mattermost: Kanal waehlen und als Chat-Tab oeffnen (ungelesene zuerst) */
+        /** @binding Mattermost: Kanal waehlen (ungelesene zuerst); nur dieser eine Kanal bekommt Nachrichten, ein anderer ersetzt ihn */
         c.put("mmChannel", a -> {
             if (!bereit()) return;
             List<Kanal> l = sortiert();
@@ -831,11 +1155,12 @@ final class Mattermost {
                 e.add(s);
                 zu.put(s, k);
             }
-            ed.wz.auswahl("Mattermost: Kanal oeffnen (" + ungelesen + " ungelesen)", e, null, s -> oeffnen(zu.get(s)));
+            Chat ak = aktiv;
+            ed.wz.auswahl("Mattermost: Kanal waehlen (" + ungelesen + " ungelesen" + (ak != null && !ak.zu ? ", jetzt " + ak.titel : "") + ")", e, null, s -> oeffnen(zu.get(s)));
         });
-        /** @binding Mattermost: private Nachricht an eine Person (Person waehlen, Direktkanal als Chat-Tab) */
+        /** @binding Mattermost: private Nachricht an eine Person (aus der Personenliste; Direktkanal wird der gewaehlte Kanal) */
         c.put("mmDirect", a -> direktStarten());
-        /** @binding Mattermost: naechsten Kanal mit ungelesenen Nachrichten oeffnen */
+        /** @binding Mattermost: Kanal mit ungelesenen Nachrichten waehlen */
         c.put("mmUnread", a -> {
             if (!bereit()) return;
             for (Kanal k : sortiert()) {
@@ -850,27 +1175,46 @@ final class Mattermost {
         c.put("mmReact", a -> reagierenStarten(ed.d()));
         /** @binding Mattermost: Entwurf des Chat-Tabs senden (auch Strg+Enter im Chat) */
         c.put("mmSend", a -> senden(ed.d()));
-        /** @binding Mattermost: Kanaele und offene Chats sofort neu laden */
+        /** @binding Mattermost: Kanalliste und den gewaehlten Kanal jetzt neu laden */
         c.put("mmRefresh", a -> {
-            if (ed.d().chat != null) ed.d().chat.stand = "";
             if (!eingerichtet()) {
                 ed.fehler("mattermost.server fehlt in config.txt");
                 return;
             }
+            Chat ak = aktiv;
+            if (ak != null && !ak.zu) {
+                ak.geladen = false;
+                chatNeu = true;
+            }
             ed.meldung = NEU_LADEN;
-            wecken();
+            abgleichAnfordern(true);
         });
-        /** @binding Mattermost: neu anmelden (nach Aenderungen an mattermost.* in config.txt) */
+        /** @binding Mattermost: Personenliste vom Server neu laden und in mattermost-nutzer.tsv speichern */
+        c.put("mmUsersRefresh", a -> {
+            if (!bereit()) return;
+            ed.meldung = "Mattermost: Personenliste wird geladen ...";
+            hintergrund(() -> {
+                int r = nutzerLaden();
+                SwingUtilities.invokeLater(() -> {
+                    if (r == 200) ed.meldung = "Mattermost: " + nutzerListe.size() + " Personen in " + nutzerDatei().getFileName() + " gespeichert";
+                    else ed.fehler("Personenliste nicht geladen: HTTP " + r);
+                    ed.neuMalen.run();
+                });
+            });
+        });
+        /** @binding Mattermost: neu anmelden (nach Aenderungen an mattermost.* in config.txt oder nach einer abgelehnten Anmeldung) */
         c.put("mmConnect", a -> {
             ed.kf.lesen();
             starten();
             ed.meldung = eingerichtet() ? "Mattermost: verbinde mit " + server : "mattermost.server fehlt in config.txt";
         });
-        /** @binding Mattermost: Verbindungsstand (Anmeldung, Websocket) zeigen */
+        /** @binding Mattermost: Verbindungsstand (Anmeldung, Websocket, Anfragen) zeigen */
         c.put("mmStatus", a -> {
-            ed.meldung = !eingerichtet() ? "Mattermost ist nicht eingerichtet" : "Mattermost " + server + ": " + status + (ich.isEmpty() ? "" : " als " + ich)
-                    + ", Live-Updates " + (live ? "an (Websocket)" : "aus" + (wsFehler != null ? " - " + wsFehler : "") + " (alle " + ed.kf.zahl("mattermost.interval", 30) + " s abfragen)")
-                    + ", " + eigeneEmojis.size() + " eigene Emojis";
+            Chat ak = aktiv;
+            ed.meldung = !eingerichtet() ? "Mattermost ist nicht eingerichtet"
+                    : "Mattermost " + server + ": " + status + (ich.isEmpty() ? "" : " als " + ich) + ", Live-Updates "
+                            + (live ? "an (Websocket)" : "aus" + (wsFehler != null ? " - " + wsFehler : "") + " (alle " + abstand() + " s abfragen)") + ", Kanal: "
+                            + (ak != null && !ak.zu ? ak.titel : "keiner") + ", " + nutzerListe.size() + " Personen, " + anfragen.get() + " Anfragen seit dem Start";
         });
     }
 
@@ -879,9 +1223,9 @@ final class Mattermost {
             ed.fehler("Mattermost ist nicht eingerichtet: mattermost.server, mattermost.user, mattermost.password in config.txt");
             return false;
         }
-        if (!status.equals("ok")) {
+        if (gesperrt || !status.equals("ok")) {
             ed.fehler("Mattermost: " + (status.equals("verbinde") ? "verbinde noch ..." : status));
-            wecken();
+            if (!gesperrt) wecken();
             return false;
         }
         return true;

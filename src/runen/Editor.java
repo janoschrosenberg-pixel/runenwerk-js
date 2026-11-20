@@ -1799,6 +1799,8 @@ final class Editor {
         }
         lspSchliessen(d);
         if (d.term != null) d.term.beenden();
+        // Chat-Tab zu: kein Mattermost-Kanal mehr gewaehlt, keine Nachrichten mehr
+        if (d.chat != null) mm.geschlossen(d);
         tabs.remove(aktiv);
         if (tabs.isEmpty()) tabs.add(new Doc());
         aktiv = Math.min(aktiv, tabs.size() - 1);

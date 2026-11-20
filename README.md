@@ -498,7 +498,7 @@ Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 | `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
 | `n` Neu | `n` Datei hier, `o` Datei in Ordner, `j` Java-Typ, `r` React-Komponente, `u` Komponente aus JSX (siehe „Dateien anlegen“) |
 | `j` Jira | `m` meine Tickets, `s` Sprint-Board, `o` Ticket öffnen, `r` neu laden, `b` im Browser (siehe „Jira“) |
-| `m` Mattermost | `m` Kanal öffnen, `d` private Nachricht, `u` nächster ungelesener, `s` senden, `+` reagieren, `e` Emoji einfügen, `r` neu laden, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
+| `m` Mattermost | `m` Kanal öffnen, `d` private Nachricht, `u` nächster ungelesener, `s` senden, `+` reagieren, `e` Emoji einfügen, `r` neu laden, `p` Personenliste neu, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
 
 Frühere Kürzel ohne Kategorie sind umgezogen: `Leertaste f` → `c f`, `r` → `c r`, `i` → `c i`, `h` → `c h`, `e` → `c e`,
 `c` → `c c`, `m` → `c m`, `b` → `g b b`, `t` → `o t`, `y` → `o y`, `q` → `s q`, `o`/`O` → `s o`/`s O`. Stehen die alten
@@ -533,10 +533,25 @@ mattermost.password = geheim
 mattermost.interval = 30
 ```
 
-Beim Start meldet sich der Editor an (REST-API v4) und öffnet den **Websocket** (`/api/v4/websocket`): neue
-Nachrichten, Reaktionen und der Lesestand kommen sofort an. Reißt die Verbindung ab, verbindet er nach ein paar
-Sekunden neu und fragt bis dahin alle `mattermost.interval` Sekunden ab. `mattermost.live = off` schaltet den
-Websocket ab, `mattermost.websocket` setzt eine eigene Adresse (z. B. hinter einem Proxy).
+Beim Start meldet sich der Editor an (REST-API v4), gleicht einmal die Kanäle mit ihren Zählern ab und öffnet den
+**Websocket** (`/api/v4/websocket`). Der Client ist **sparsam mit dem Server**:
+
+- Neue, geänderte und gelöschte Nachrichten, Reaktionen und der Lesestand kommen mit ihrem Inhalt über den Websocket
+  und werden direkt eingearbeitet, **ohne weitere Anfragen**.
+- **Nachrichten gibt es nur für den gewählten Kanal** (es ist immer höchstens einer). Ohne gewählten Kanal werden
+  keine Nachrichten geladen, nur die Zähler oben laufen mit. Für einen anderen Kanal wechselt man aktiv hinein
+  (`Leertaste m m`); er ersetzt den bisherigen im selben Chat-Tab, dessen Entwurf bleibt aufgehoben.
+- Die Kanalliste wird mit Websocket nur alle 10 Minuten abgeglichen (dazu nach einem Neuverbinden und wenn ein Kanal
+  dazukommt, höchstens einmal je 30 Sekunden), ohne Websocket alle `mattermost.interval` Sekunden (mindestens 60).
+  Der gewählte Kanal holt ohne Websocket höchstens alle 30 Sekunden nur die Änderungen seit der letzten Abfrage.
+- Die **Personenliste** wird einmal geladen und in `mattermost-nutzer.tsv` neben `config.txt` gespeichert; danach
+  kommt sie aus der Datei. Neu geladen wird sie nur mit `Leertaste m p`.
+- Bei Fehlern wartet der Client immer länger (5 s, 10 s, 20 s … bis 10 Minuten), auch beim Neuverbinden des
+  Websockets. Eine **abgelehnte Anmeldung wird nicht wiederholt**, bis `Leertaste m c` neu verbindet.
+- `Leertaste m i` zeigt den Stand und die Zahl der Anfragen seit dem Start.
+
+`mattermost.live = off` schaltet den Websocket ab, `mattermost.websocket` setzt eine eigene Adresse (z. B. hinter
+einem Proxy).
 Oben in der Tab-Leiste steht `MM` (alles gelesen, live), `MM~` (alles gelesen, ohne Websocket), farbig hinterlegt
 `MM 3 neu` bzw. `MM 3 neu @1` bei Erwähnungen (rot), `MM !` bei einem Fehler (Leertaste m m zeigt ihn,
 `Leertaste m i` den Stand von Anmeldung und Websocket). Stumm geschaltete Kanäle zählen nur Erwähnungen.
@@ -548,23 +563,24 @@ Nachricht (`[👍 2  🎉 1]`); eigene Emojis des Servers bleiben als `:name:` (
 stehen vorn (`emoji-zuletzt.txt` neben `config.txt`), eigene Emojis des Servers kommen als `:name:` hinzu. Die
 Auswahl geht in jedem Puffer; Emojis werden überall farbig über zwei Spalten gezeichnet.
 
-**Namen erwähnen**: `@` im Entwurf öffnet die Vorschlagsliste mit den Mitgliedern des Kanals (Benutzername und
+**Namen erwähnen**: `@` im Entwurf öffnet die Vorschlagsliste mit den Personen aus der Personenliste (Benutzername und
 voller Name, tippen filtert auch über Vor- und Nachnamen, dazu `@here`, `@channel`, `@all`); ENTER oder TAB setzt
 den Namen ein, ESC schließt die Liste. Strg+Leertaste nach einem angefangenen `@name` öffnet sie wieder.
 
-**Private Nachricht**: `Leertaste m d` listet alle aktiven Personen (tippen filtert), ENTER legt den Direktkanal an
-(bzw. findet ihn) und öffnet ihn als Chat-Tab.
+**Private Nachricht**: `Leertaste m d` listet die Personen aus der Personenliste (tippen filtert), ENTER wählt den
+Direktkanal (gibt es ihn noch nicht, wird er angelegt).
 
 **Reagieren**: Cursor auf eine Nachricht im Chat (auch auf ihre Folge- oder Reaktionszeile), `Leertaste m +` öffnet
 dieselbe Emoji-Auswahl, ENTER reagiert mit dem gewählten Emoji. Eigene Reaktionen tragen ein `*` (`[👍 2*]`);
 dasselbe Emoji noch einmal nimmt die eigene Reaktion zurück.
 
-`Leertaste m m` listet die Kanäle (ungelesene zuerst, Direktnachrichten als `@name`, tippen filtert) und öffnet den
-gewählten als **Chat-Tab**. Der Tab ist ein normaler Puffer mit allen Vim-Befehlen: oben der Verlauf (Uhrzeit, Name,
+`Leertaste m m` listet die Kanäle (ungelesene zuerst, Direktnachrichten als `@name`, tippen filtert) und wählt den
+Kanal im **Chat-Tab**. Der Tab ist ein normaler Puffer mit allen Vim-Befehlen: oben der Verlauf (Uhrzeit, Name,
 Text), unter der Trennlinie der Entwurf. **Strg+Enter** (oder `Leertaste m s`) sendet den Entwurf; neue Nachrichten
-kommen alle paar Sekunden dazu, Entwurf und Cursor bleiben dabei stehen. Ein sichtbarer Chat gilt als gelesen.
-`Leertaste m u` öffnet den nächsten Kanal mit Ungelesenem, `Leertaste m r` lädt sofort neu, `Leertaste m c` meldet
-sich nach Änderungen an `mattermost.*` neu an, `:q` schließt den Chat.
+erscheinen sofort, Entwurf und Cursor bleiben dabei stehen. Ein sichtbarer Chat gilt als gelesen (gemeldet
+höchstens alle 10 Sekunden). `Leertaste m u` wählt den nächsten Kanal mit Ungelesenem, `Leertaste m r` lädt
+Kanalliste und Kanal sofort neu, `Leertaste m c` meldet sich neu an, `:q` schließt den Chat (dann ist kein Kanal
+mehr gewählt).
 
 ## Jira (Leertaste j)
 

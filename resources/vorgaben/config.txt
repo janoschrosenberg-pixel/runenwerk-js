@@ -167,8 +167,10 @@ java.compile = mvn -q compile
 # open = src/App.tsx
 
 # Mattermost (Leertaste m): Server, Benutzer und Passwort (oder ein persoenliches Zugriffstoken); beim Start wird
-# angemeldet, oben in der Tab-Leiste stehen die ungelesenen Nachrichten. interval: Sekunden zwischen den Abfragen
-# (mit offenem Chat-Tab hoechstens 5), history: Nachrichten je Chat-Tab
+# angemeldet, oben in der Tab-Leiste stehen die ungelesenen Nachrichten. Nachrichten gibt es nur fuer den gewaehlten
+# Kanal. interval: Sekunden zwischen den Abgleichen ohne Websocket (mindestens 60; der gewaehlte Kanal holt dann
+# hoechstens alle 30 Sekunden seine Aenderungen), history: Nachrichten beim Waehlen eines Kanals. Die Personenliste
+# steht in mattermost-nutzer.tsv (neu laden: Leertaste m p)
 # mattermost.server = https://chat.example.org
 # mattermost.user = name
 # mattermost.password = geheim
