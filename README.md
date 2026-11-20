@@ -637,6 +637,11 @@ installiert, der Neustart bleibt dir überlassen. `:updateCheck` sucht jederzeit
 übersprungenen Version). `update.check = off` schaltet die Prüfung beim Start ab, `update.restart = off` den
 automatischen Neustart. Heruntergeladen wird nur von GitHub.
 
+Unter **Windows** ist die laufende Jar gesperrt: Der Editor lädt die neue als `runenjs.jar.neu` und startet einen
+kleinen Helfer (aus der Kopie `runenjs.jar.alt`). Der wartet, bis der Editor beendet ist, ersetzt die Jar und startet
+ihn mit derselben Befehlszeile neu; was er tut, steht in `update.log` neben `config.txt`. Mit ungespeicherten
+Änderungen wird erst beim Beenden ersetzt, neu starten musst du dann selbst.
+
 ### Proxy
 
 Verbindungen ins Internet (Update, Downloads wie js-debug) gehen über den Proxy des Systems: macOS-Netzwerk-

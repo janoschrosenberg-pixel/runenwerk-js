@@ -240,6 +240,8 @@ final class Aktualisierung {
                 }
             }
             Files.copy(jar, alt, StandardCopyOption.REPLACE_EXISTING);
+            // Windows sperrt die laufende Jar: ersetzt wird nach dem Beenden (Ersetzer), runenjs.jar.neu bleibt liegen
+            if (windows()) return null;
             try {
                 Files.move(neu, jar, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (IOException e) {
@@ -259,32 +261,79 @@ final class Aktualisierung {
         }
     }
 
+    /** Windows (oder runenwerk.windows = true zum Testen): die laufende Jar ist gesperrt */
+    static boolean windows() {
+        String t = System.getProperty("runenwerk.windows");
+        if (t != null) return Boolean.parseBoolean(t);
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win");
+    }
+
+    /** das Java dieses Prozesses (unter Windows javaw, wenn der Editor so gestartet wurde) */
+    static String java() {
+        return ProcessHandle.current().info().command().orElse(Path.of(System.getProperty("java.home"), "bin", windows() ? "javaw.exe" : "java").toString());
+    }
+
+    /** Befehlszeile fuer den Neustart: Java, dieselben JVM-Optionen, -jar JAR, dieselben Argumente */
+    static List<String> befehlszeile(Path jar) {
+        List<String> b = new ArrayList<>();
+        b.add(java());
+        try {
+            for (String o : java.lang.management.ManagementFactory.getRuntimeMXBean().getInputArguments()) {
+                // Debug-Agenten nicht mitnehmen (der Port waere noch belegt)
+                if (!o.startsWith("-agentlib") && !o.startsWith("-javaagent") && !o.startsWith("-Xrunjdwp")) b.add(o);
+            }
+        } catch (Throwable e) {
+            // ohne java.management: nur -jar
+        }
+        b.add("-jar");
+        b.add(jar.toString());
+        b.addAll(List.of(Main.startArgs));
+        return b;
+    }
+
     /** mit derselben Befehlszeile neu starten; mit ungespeicherten Aenderungen erst beim naechsten Start */
     private void neuStarten(Release r, Path jar) {
+        boolean ungespeichert = false;
+        String welche = null;
         for (Doc d : ed.tabs) {
             if (d.geaendert && d.chat == null && d.pfad != null) {
-                ed.meldung = "Update auf " + r.tag() + " installiert - ungespeicherte Aenderungen (" + d.name() + "): nach dem Speichern neu starten";
-                return;
+                ungespeichert = true;
+                welche = d.name();
+                break;
             }
         }
-        if (!ed.kf.an("update.restart", true) || Boolean.getBoolean("runenwerk.ohneNeustart")) {
+        boolean neu = ed.kf.an("update.restart", true) && !Boolean.getBoolean("runenwerk.ohneNeustart") && !ungespeichert;
+        if (windows()) {
+            // Helfer aus der Kopie starten: wartet auf das Ende, ersetzt die Jar, startet neu
+            Path alt = jar.resolveSibling(jar.getFileName() + ".alt"), neuJar = jar.resolveSibling(jar.getFileName() + ".neu");
+            List<String> h = new ArrayList<>(List.of(java(), "-cp", alt.toString(), "runen.Ersetzer", String.valueOf(ProcessHandle.current().pid()), neuJar.toString(),
+                    jar.toString(), ed.konfig.resolve("update.log").toString()));
+            if (neu) h.addAll(befehlszeile(jar));
+            try {
+                new ProcessBuilder(h).start();
+            } catch (IOException e) {
+                ed.fehler("Update geladen, aber der Helfer startet nicht (" + e.getMessage() + ") - Editor beenden und " + neuJar.getFileName() + " in " + jar.getFileName()
+                        + " umbenennen");
+                return;
+            }
+            if (neu) {
+                ed.quit(true);
+                return;
+            }
+            ed.meldung = "Update auf " + r.tag() + " geladen - es wird beim Beenden installiert"
+                    + (ungespeichert ? " (ungespeicherte Aenderungen in " + welche + ")" : "") + "; danach neu starten";
+            return;
+        }
+        if (ungespeichert) {
+            ed.meldung = "Update auf " + r.tag() + " installiert - ungespeicherte Aenderungen (" + welche + "): nach dem Speichern neu starten";
+            return;
+        }
+        if (!neu) {
             ed.meldung = "Update auf " + r.tag() + " installiert - wirkt beim naechsten Start";
             return;
         }
-        List<String> befehl = new ArrayList<>();
-        ProcessHandle.Info info = ProcessHandle.current().info();
-        String java = info.command().orElse(Path.of(System.getProperty("java.home"), "bin", "java").toString());
-        befehl.add(java);
-        String[] args = info.arguments().orElse(null);
-        if (args != null && args.length > 0) {
-            befehl.addAll(List.of(args));
-        } else {
-            befehl.add("-jar");
-            befehl.add(jar.toString());
-            if (ed.arbeitsordner != null) befehl.add(ed.arbeitsordner.toString());
-        }
         try {
-            new ProcessBuilder(befehl).inheritIO().start();
+            new ProcessBuilder(befehlszeile(jar)).inheritIO().start();
         } catch (IOException e) {
             ed.meldung = "Update auf " + r.tag() + " installiert - Neustart nicht moeglich (" + e.getMessage() + "), bitte selbst neu starten";
             return;

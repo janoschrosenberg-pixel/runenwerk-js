@@ -43,7 +43,11 @@ public final class Main {
     private static Path logPfad;
     private static boolean fehlerGezeigt;
 
+    /** Argumente beim Start (fuer den Neustart nach einem Update) */
+    static String[] startArgs = new String[0];
+
     public static void main(String[] args) {
+        startArgs = args.clone();
         System.setProperty("sun.java2d.uiScale.enabled", "true");
         System.setProperty("apple.awt.application.name", "RUNENWERK JS");
         Path konfig = konfigOrdner();
