@@ -3111,6 +3111,16 @@ final class Editor {
         meldungFarbe = meldung == null ? E_WARN : meldungFarbe;
     }
 
+    /** Shift gehalten, Feststelltaste an (von Main, fuer das Tastaturbild im PROG-Layout) */
+    volatile boolean shiftAn, feststellAn;
+
+    void umschaltung(boolean shift, boolean feststell) {
+        if (shift == shiftAn && feststell == feststellAn) return;
+        shiftAn = shift;
+        feststellAn = feststell;
+        if (tb.basis.equals("prog")) neuMalen.run();
+    }
+
     /** Zeilen der Tastatur: erste Position, Anzahl Tasten, Versatz in Tastenbreiten (ISO-Tastatur) */
     private static final double[][] TASTENREIHEN = {{0, 13, 0}, {13, 13, 1.5}, {26, 11, 1.75}, {37, 11, 1.25}};
 
@@ -3128,7 +3138,13 @@ final class Editor {
         int rahmen = Screen.mix(E_GRUND, E_TEXT, 40), rahmenHell = Screen.mix(E_GRUND, E_TEXT, 90), fuell = Screen.mix(E_GRUND, E_TEXT, 14);
         int zeichen = Screen.mix(E_GRUND, E_HELL, 70), zeichenHell = Screen.mix(E_GRUND, E_HELL, 150), shift = Screen.mix(E_GRUND, E_TEXT, 85),
                 aufschr = Screen.mix(E_GRUND, E_TEXT, 55);
-        scr.text(x, y - lh - 2, "PROG-Layout  (Strg+G schaltet weiter, layout.prog.bild = off blendet aus)", aufschr);
+        String ebene = shiftAn ? "SHIFT" : feststellAn ? "FESTSTELL" : null;
+        int tx2 = scr.text(x, y - lh - 2, "PROG-Layout  (Strg+G schaltet weiter, layout.prog.bild = off blendet aus)", aufschr);
+        if (ebene != null) {
+            int ew = scr.textWidth(" " + ebene + " ");
+            scr.rect(tx2 + 2 * cw, y - lh - 2, ew, lh, E_WARN);
+            scr.text(tx2 + 2 * cw, y - lh - 2, " " + ebene + " ", E_GRUND);
+        }
         String en = Tastatur.EN_N, enS = Tastatur.EN_S;
         for (int r = 0; r < TASTENREIHEN.length; r++) {
             int erst = (int) TASTENREIHEN[r][0], anz = (int) TASTENREIHEN[r][1];
@@ -3138,6 +3154,17 @@ final class Editor {
                 int kx = x + (int) ((TASTENREIHEN[r][2] + k) * kw);
                 char[] b = tb.taste(pos);
                 boolean anders = b[0] != en.charAt(pos) || b[1] != enS.charAt(pos);
+                // Shift: alle Tasten in der oberen Ebene; Feststelltaste: nur die Buchstabentasten
+                boolean hoch = shiftAn || feststellAn && Character.isLetter(en.charAt(pos));
+                if (hoch) {
+                    // die Shift-Ebene gross und hell, die untere klein oben links
+                    scr.rect(kx + 1, ky + 1, kw - 6, kh - 2, Screen.mix(E_GRUND, E_WARN, 60));
+                    scr.frame(kx, ky, kw - 4, kh, E_WARN);
+                    scr.text(kx + cw / 2, ky + 3, String.valueOf(b[0]), shift);
+                    scr.text(kx + kw - 4 - cw - cw / 2, ky + 3, String.valueOf(tb.aufschrift(pos)), aufschr);
+                    scr.text(kx + (kw - 4 - cw) / 2, ky + kh - lh - 3, String.valueOf(b[1]), E_WARN);
+                    continue;
+                }
                 if (anders) scr.rect(kx + 1, ky + 1, kw - 6, kh - 2, fuell);
                 scr.frame(kx, ky, kw - 4, kh, anders ? rahmenHell : rahmen);
                 scr.text(kx + cw / 2, ky + 3, String.valueOf(b[1]), shift);

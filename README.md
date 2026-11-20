@@ -416,7 +416,9 @@ steht farbig neben dem Mode in der Statuszeile (EN cyan, DE gelb, PROG pink). Be
 
   Im prog-Layout zeigt der Hintergrund des Textes die ganze Tastatur mit ihrer Belegung (blass, unten im Bild):
   mittig das Zeichen ohne Shift, oben links das mit Shift, oben rechts die Aufschrift der Taste; die von prog
-  umbelegten Tasten sind heller umrandet. `layout.prog.bild = off` in `config.txt` blendet sie aus.
+  umbelegten Tasten sind heller umrandet. Solange Shift gehalten wird, leuchten alle Tasten mit ihrem Shift-Zeichen
+  groß in der Mitte (das ohne Shift klein oben links), daneben steht `SHIFT`; bei eingeschalteter Feststelltaste gilt
+  das für die Buchstabentasten (`FESTSTELL`). `layout.prog.bild = off` in `config.txt` blendet sie aus.
 
 `Strg`-Befehle bleiben in jedem Layout auf denselben Buchstaben. Bei prog gilt der Buchstabe von en_US.
 

@@ -286,7 +286,13 @@ public final class Main {
         KeyAdapter k = new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
+                umschaltung(e, true);
                 gedrueckt(e);
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                umschaltung(e, false);
             }
 
             @Override
@@ -295,12 +301,41 @@ public final class Main {
             }
         };
         flaeche.addKeyListener(k);
+        // ohne Fokus kommt das Loslassen von Shift nicht an
+        flaeche.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent e) {
+                ed.umschaltung(false, feststell(ed.feststellAn));
+            }
+
+            @Override
+            public void focusGained(java.awt.event.FocusEvent e) {
+                ed.umschaltung(false, feststell(ed.feststellAn));
+            }
+        });
         // Eingabesprache des Systems: daraus rechnet das Editor-Layout die Tasten zurueck
         ed.osLayout = () -> {
             java.awt.im.InputContext ic = flaeche.getInputContext();
             java.util.Locale l = ic == null ? null : ic.getLocale();
             return l == null ? java.util.Locale.getDefault() : l;
         };
+    }
+
+    /** Shift und Feststelltaste fuer das Tastaturbild im PROG-Layout */
+    private void umschaltung(KeyEvent e, boolean runter) {
+        boolean caps = ed.feststellAn;
+        if (e.getKeyCode() == KeyEvent.VK_CAPS_LOCK) caps = feststell(runter ? !caps : caps);
+        boolean shift = e.getKeyCode() == KeyEvent.VK_SHIFT ? runter : e.isShiftDown();
+        ed.umschaltung(shift, caps);
+    }
+
+    /** Zustand der Feststelltaste vom System, sonst die eigene Annahme */
+    private static boolean feststell(boolean annahme) {
+        try {
+            return Toolkit.getDefaultToolkit().getLockingKeyState(KeyEvent.VK_CAPS_LOCK);
+        } catch (UnsupportedOperationException e) {
+            return annahme;
+        }
     }
 
     private static boolean strg(KeyEvent e) {
