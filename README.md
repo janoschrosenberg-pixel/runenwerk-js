@@ -279,7 +279,7 @@ Bearer-Token.
   Vervollständigung und aus Autoren und Reviewern der Pull Requests im Repo – tippen sucht dann weitere.
 - **Leertaste g r r** – alle Pull Requests unten wie git status: `#`, Status, Quelle -> Ziel, Titel, Autor, Freigaben,
   offene Aufgaben. `j`/`k`, `s` Filter (offen, meine, zum Review, alle), `g` neu laden, `a` freigeben, `x` Freigabe
-  zurücknehmen, `m` mergen, `R` ablehnen, `e` Reviewer, `n` neu, `w` im Browser, TAB in den Text (Liste bleibt), ESC schließt.
+  zurücknehmen, `m` mergen, `R` ablehnen, `e` Reviewer, `n` neu, `w` im Browser, `y` Adresse in die Zwischenablage, TAB in den Text (Liste bleibt), ESC schließt.
 - **ENTER** öffnet den Pull Request **nebeneinander**: links die Dateien (Status A/M/D/R, `+`/`-`, Zahl der Kommentare),
   vorne die **Übersicht** mit Beschreibung, Reviewern, Aufgaben und allen allgemeinen Kommentaren samt Antworten. In einer
   Datei steht links „vorher“ (Ziel-Branch), rechts „nachher“ (Quell-Branch), Zeile für Zeile ausgerichtet: entfernte
@@ -307,6 +307,7 @@ Bearer-Token.
   | `n` / `p` | nächste/vorige Änderung (auch über Dateien) |
   | `]k` / `[k` | nächster/voriger Kommentar |
   | `r`, `o`, `q` | neu laden, im Browser, zurück zur Liste |
+  | `Y` | Adresse des Pull Requests in die Zwischenablage (`y` kopiert die gewählten Zeilen) |
 
 ## Terminal
 

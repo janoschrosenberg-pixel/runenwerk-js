@@ -1032,9 +1032,26 @@ final class Scm {
         });
     }
 
+    /** Adresse des Pull Requests im SCM-Manager (oder null) */
+    String adresse(Object pr) {
+        if (pr == null || ziel == null) return null;
+        return basis() + "/repo/" + repoPfad(ziel) + "/pull-request/" + id(pr) + "/";
+    }
+
+    /** Adresse des Pull Requests in die Systemzwischenablage (und Speicherbank 1) */
+    void adresseKopieren(Object pr) {
+        String u = adresse(pr);
+        if (u == null) {
+            ed.fehler("kein Pull Request gewaehlt");
+            return;
+        }
+        Editor.zwischenablage(u);
+        ed.meldung = "in der Zwischenablage: " + u;
+    }
+
     void imBrowser(Object pr) {
         if (pr == null || ziel == null) return;
-        String u = basis() + "/repo/" + repoPfad(ziel) + "/pull-request/" + id(pr) + "/";
+        String u = adresse(pr);
         try {
             java.awt.Desktop.getDesktop().browse(URI.create(u));
             ed.meldung = u;
@@ -1189,6 +1206,8 @@ final class Scm {
         c.put("scmReviewers", a -> reviewerAendern(gewaehlt(), this::laden));
         /** @binding Pull Requests: im Browser oeffnen */
         c.put("scmBrowser", a -> imBrowser(gewaehlt()));
+        /** @binding SCM-Manager: Adresse des gewaehlten Pull Requests in die Zwischenablage */
+        c.put("scmCopyUrl", a -> adresseKopieren(gewaehlt()));
         /** @binding SCM-Manager: Antwort aus dem Eingabefenster (intern) */
         c.put("scmInput", a -> {
             Consumer<String> w = eingabe;
@@ -1199,6 +1218,6 @@ final class Scm {
 
     /** Statuszeile in der Liste: Tasten mit Funktion */
     static final String[][] TASTEN = {{"ENTER", "Ansehen", "Ansehen"}, {"a", "Freigeben", "Freigabe"}, {"x", "Freigabe zurueck", "Zurueck"}, {"m", "Mergen", "Merge"},
-            {"R", "Ablehnen", "Ablehnen"}, {"e", "Reviewer", "Rev."}, {"n", "Neuer PR", "Neu"}, {"s", "Filter", "Filter"}, {"g", "neu laden", "laden"}, {"w", "Browser", "Web"},
+            {"R", "Ablehnen", "Ablehnen"}, {"e", "Reviewer", "Rev."}, {"n", "Neuer PR", "Neu"}, {"s", "Filter", "Filter"}, {"g", "neu laden", "laden"}, {"w", "Browser", "Web"}, {"y", "URL kopieren", "URL"},
             {"TAB", "zum Text", "Text"}, {"ESC", "schliessen", "zu"}};
 }

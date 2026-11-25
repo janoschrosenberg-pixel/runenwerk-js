@@ -488,7 +488,7 @@ final class PrAnsicht {
             {"c", "Kommentar", "Komm."}, {"C", "Antworten", "Antw."}, {"e", "Reviewer", "Rev."}, {"u", "Datei zuruecksetzen", "Revert"}, {"ENTER", "zur Codestelle", "Code"}, {"TAB", "Fenster", "Fenster"}, {"]f/[f", "Datei", "Datei"},
             {"v", "Auswahl", "Ausw."}, {"Strg+C 0-9", "kopieren", "kop."},
             {"n/p", "Aenderung", "Aend."}, {"]k/[k", "Kommentar", "Komm."}, {"q", "Liste", "Liste"}, {"w", "Umbruch", "Umbr."}, {"r", "neu laden", "neu"},
-            {"o", "Browser", "Web"}};
+            {"o", "Browser", "Web"}, {"Y", "URL kopieren", "URL"}};
 
     /** Tasten beim lokalen Vergleich */
     static final String[][] TASTEN_LOKAL = {{"ENTER", "zur Codestelle", "Code"}, {"n/p", "naechste/vorige Aenderung", "Aend."}, {"j/k", "Zeile", "Zeile"},
@@ -590,6 +590,8 @@ final class PrAnsicht {
         c.put("prRefresh", a -> neuLaden());
         /** @binding Pull Request: im Browser oeffnen */
         c.put("prBrowser", a -> nurPr(() -> ed.scm.imBrowser(pr)));
+        /** @binding Pull Request: seine Adresse in die Zwischenablage */
+        c.put("prCopyUrl", a -> nurPr(() -> ed.scm.adresseKopieren(pr)));
     }
 
     void neuLaden() {
