@@ -576,6 +576,109 @@ final class Scm {
         });
     }
 
+    /**
+     * alle SCM-Benutzer {Kennung, Anzeigename, Mail} fuer die Personen-Zuordnung (im Hintergrund aufrufen):
+     * die Benutzerliste (Recht zum Lesen der Benutzer), sonst aus Vorschlaegen (Suchen mit zwei Buchstaben)
+     */
+    List<String[]> benutzerLaden() {
+        Map<String, String[]> r = new LinkedHashMap<>();
+        Antwort a = anfrage("GET", "/users?pageSize=10000&sortBy=displayName", null, null);
+        for (int seite = 0; a.code() == 200 && seite < 100; seite++) {
+            try {
+                Object o = Json.parse(a.text());
+                for (Object u : eingebettet(o)) {
+                    if (Boolean.FALSE.equals(Json.get(u, "active"))) continue;
+                    String id = Json.str(Json.get(u, "name"));
+                    if (id != null) r.put(id, new String[] {id, nz(Json.str(Json.get(u, "displayName"))), nz(Json.str(Json.get(u, "mail")))});
+                }
+                String weiter = link(o, "next", null);
+                if (weiter == null) break;
+                a = anfrage("GET", weiter, null, null);
+            } catch (RuntimeException e) {
+                break;
+            }
+        }
+        if (r.isEmpty()) {
+            for (String v : "aeiouy".split("")) {
+                for (String k : "bcdfghjklmnprstvwz".split("")) {
+                    for (String q : new String[] {v + k, k + v}) {
+                        Antwort s = anfrage("GET", "/autocomplete/users?q=" + q + "&limit=100", null, null);
+                        if (s.code() != 200) continue;
+                        try {
+                            for (Object u : Json.list(Json.parse(s.text()))) {
+                                String id = Json.str(Json.get(u, "id"));
+                                if (id != null) r.putIfAbsent(id, new String[] {id, nz(Json.str(Json.get(u, "displayName"))), nz(Json.str(Json.get(u, "mail")))});
+                            }
+                        } catch (RuntimeException e) {
+                            // naechste Suche
+                        }
+                    }
+                }
+            }
+        }
+        for (String[] u : r.values()) if (u[1].isEmpty()) u[1] = u[0];
+        List<String[]> l = new ArrayList<>(r.values());
+        l.sort((x, y) -> x[1].compareToIgnoreCase(y[1]));
+        return l;
+    }
+
+    /**
+     * Reviewer hinzufuegen und benachrichtigen: Person (aus personen.tsv) waehlen, als Reviewer setzen, die Adresse des
+     * Pull Requests in Speicherbank 1 (Zwischenablage), dann das review-Template per Mattermost an die Person
+     */
+    void reviewerBenachrichtigen(Object pr, Runnable danach) {
+        if (pr == null) {
+            ed.fehler("kein Pull Request gewaehlt");
+            return;
+        }
+        List<String> jetzt = new ArrayList<>();
+        for (Object r : Json.list(Json.get(pr, "reviewer"))) {
+            String id = Json.str(Json.get(r, "id"));
+            if (id != null) jetzt.add(id);
+        }
+        List<String> e = new ArrayList<>();
+        for (Personen.Person p : ed.personen.alle()) {
+            if (p.scm().equals(ich)) continue;
+            e.add(p.id() + "  (" + p.scmName() + ", SCM " + p.scm() + (p.mattermost().isEmpty() ? ", ohne Mattermost" : ", @" + p.mattermost()) + (jetzt.contains(p.scm()) ? ", schon Reviewer" : "") + ")");
+        }
+        if (e.isEmpty()) {
+            ed.fehler("keine Personen - personenAbgleich ordnet die SCM-Benutzer zu");
+            return;
+        }
+        ed.wz.auswahl("Reviewer hinzufuegen und benachrichtigen (#" + id(pr) + ")", e, null, w -> {
+            Personen.Person p = ed.personen.mitId(w.substring(0, w.indexOf("  (")));
+            if (p == null) return;
+            List<String> ids = new ArrayList<>(jetzt);
+            if (!ids.contains(p.scm())) ids.add(p.scm());
+            reviewerSenden(pr, ids, () -> {
+                String url = adresse(pr);
+                if (url != null) {
+                    Editor.zwischenablage(url);
+                    ed.vim.bankSetzen(1, new Vim.Reg(url, 0));
+                }
+                String t = ed.vorlagen.text("review");
+                if (t == null) {
+                    ed.fehler("Reviewer " + p.id() + " gesetzt, aber templates/review.template fehlt");
+                    danach.run();
+                    return;
+                }
+                if (p.mattermost().isEmpty()) {
+                    ed.fehler("Reviewer " + p.id() + " gesetzt, aber ohne Mattermost-Benutzer (personEdit)");
+                    danach.run();
+                    return;
+                }
+                String text = ed.vorlagen.fuellen(t, p, url == null ? null : Map.of(1, url));
+                ed.meldung = "Reviewer " + p.id() + " gesetzt, benachrichtige @" + p.mattermost() + " ...";
+                ed.mm.direktSenden(p.mattermost(), text, f -> {
+                    if (f == null) ed.meldung = "Reviewer " + p.id() + " gesetzt und per Mattermost benachrichtigt: " + text;
+                    else ed.fehler("Reviewer " + p.id() + " gesetzt, Benachrichtigung fehlgeschlagen: " + f);
+                    ed.neuMalen.run();
+                });
+                danach.run();
+            });
+        });
+    }
+
     private static final String FERTIG = "-> fertig, Pull Request erstellen";
 
     private String benutzerEintrag(String id) {
@@ -1206,6 +1309,8 @@ final class Scm {
         c.put("scmReviewers", a -> reviewerAendern(gewaehlt(), this::laden));
         /** @binding Pull Requests: im Browser oeffnen */
         c.put("scmBrowser", a -> imBrowser(gewaehlt()));
+        /** @binding SCM-Manager: Reviewer hinzufuegen und per Mattermost benachrichtigen (review-Template, PR-Adresse in Bank 1) */
+        c.put("scmReviewNotify", a -> reviewerBenachrichtigen(gewaehlt(), this::laden));
         /** @binding SCM-Manager: Adresse des gewaehlten Pull Requests in die Zwischenablage */
         c.put("scmCopyUrl", a -> adresseKopieren(gewaehlt()));
         /** @binding SCM-Manager: Antwort aus dem Eingabefenster (intern) */
@@ -1218,6 +1323,6 @@ final class Scm {
 
     /** Statuszeile in der Liste: Tasten mit Funktion */
     static final String[][] TASTEN = {{"ENTER", "Ansehen", "Ansehen"}, {"a", "Freigeben", "Freigabe"}, {"x", "Freigabe zurueck", "Zurueck"}, {"m", "Mergen", "Merge"},
-            {"R", "Ablehnen", "Ablehnen"}, {"e", "Reviewer", "Rev."}, {"n", "Neuer PR", "Neu"}, {"s", "Filter", "Filter"}, {"g", "neu laden", "laden"}, {"w", "Browser", "Web"}, {"y", "URL kopieren", "URL"},
+            {"R", "Ablehnen", "Ablehnen"}, {"e", "Reviewer", "Rev."}, {"n", "Neuer PR", "Neu"}, {"s", "Filter", "Filter"}, {"g", "neu laden", "laden"}, {"w", "Browser", "Web"}, {"y", "URL kopieren", "URL"}, {"E", "Reviewer + Nachricht", "Rev.+MM"},
             {"TAB", "zum Text", "Text"}, {"ESC", "schliessen", "zu"}};
 }

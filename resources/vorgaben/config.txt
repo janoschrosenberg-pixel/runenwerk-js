@@ -223,3 +223,7 @@ layout.prog.bild = on
 # mail.address = name@firma.de
 mail.interval = 60
 mail.count = 50
+
+# Personen (Leertaste p): personen.tsv neben config.txt ordnet SCM-Benutzer Mail, Mattermost, Anrede, Name und einer
+# eigenen ID zu; personenAbgleich fragt fuer jeden neuen SCM-Benutzer nach. Vorgabe fuer die Anrede:
+personen.anrede = Hallo

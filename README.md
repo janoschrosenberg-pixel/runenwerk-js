@@ -505,6 +505,7 @@ Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 | `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
 | `n` Neu | `n` Datei hier, `o` Datei in Ordner, `j` Java-Typ, `r` React-Komponente, `u` Komponente aus JSX (siehe „Dateien anlegen“) |
 | `j` Jira | `m` meine Tickets, `s` Sprint-Board, `o` Ticket öffnen, `r` neu laden, `b` im Browser, `t` Tagebuch heute, `T` Tagebuch: Tag wählen (siehe „Jira“) |
+| `p` Personen | `a` SCM-Benutzer zuordnen, `e` Person bearbeiten, `o` personen.tsv, `t` Template einfügen, `T` Template bearbeiten (siehe „Personen und Templates“) |
 | `e` E-Mail | `e` Posteingang, `n` neue Mail, `a` antworten, `A` allen antworten, `w` weiterleiten, `d` löschen, `s` senden, `r` neu laden, `c` neu anmelden, `i` Verbindung (siehe „E-Mail“) |
 | `m` Mattermost | `m` Kanal öffnen, `d` private Nachricht, `u` nächster ungelesener, `s` senden, `+` reagieren, `e` Emoji einfügen, `r` neu laden, `p` Personenliste neu, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
 
@@ -620,6 +621,41 @@ Directory das Konto), bis `Leertaste e c` neu anmeldet.
 
 Gesendete Mails landen in „Gesendete Elemente“. Anhänge zeigt der Client nur an (`[Anhang]`), öffnen geht im Outlook.
 `mail.proxy` setzt einen Proxy, falls der Server nur über einen erreichbar ist.
+
+## Personen und Templates (Leertaste p)
+
+**Personen** ordnen jedem SCM-Benutzer (die Quelle) eine Mail-Adresse und einen Mattermost-Benutzer zu, dazu Anrede,
+Name und eine eigene ID. Gespeichert wird in `personen.tsv` neben `config.txt` (Tabulator getrennt, im Editor
+änderbar). `Leertaste p a` lädt die SCM-Benutzer und zeigt für jeden, der noch nicht zugeordnet ist, ein Formular:
+
+| Feld | Vorschlag |
+|---|---|
+| ID | der SCM-Benutzername (für `template review ID`) |
+| Anrede | `personen.anrede` aus `config.txt` (Vorgabe `Hallo`) |
+| Name | der Vorname aus dem Anzeigenamen im SCM-Manager (auch bei „Nachname, Vorname“) |
+| Mail | die Adresse aus dem SCM-Manager |
+| Mattermost | der passende Benutzer aus der Mattermost-Personenliste: gleicher Name, gleicher Mail-Anfang oder gleicher voller Name |
+
+TAB/Shift-TAB oder Pfeile wechseln das Feld, **Strg+Leertaste** geht die passenden Mattermost-Benutzer durch (zum
+getippten Text), Strg+U leert das Feld, ENTER speichert, Strg+X überspringt, ESC bricht ab (ein neuer Abgleich macht
+mit den übrigen weiter). `Leertaste p e` bearbeitet eine Person. Die SCM-Benutzerliste braucht das Recht, Benutzer zu
+lesen; sonst werden die Namen aus Vorschlägen gesammelt.
+
+**Templates** sind Textbausteine in `templates/NAME.template` neben `config.txt`; `review.template` ist vorgegeben:
+
+```
+<anrede> <name>. Kannst du bitte ein Review machen: <bank1>
+```
+
+`:template review anna` (oder `Leertaste p t`, dann Template und Person wählen) fügt es an der Cursorstelle ein.
+Platzhalter: `<anrede>`, `<name>`, `<id>`, `<mail>`, `<mattermost>`, `<scm>` aus `personen.tsv`, `<bank0>` bis
+`<bank9>` aus den Speicherbänken (`<bank1>` = Zwischenablage). `Leertaste p T` öffnet ein Template zum Bearbeiten;
+eigene Templates legt man einfach als Datei dazu.
+
+**Reviewer hinzufügen und benachrichtigen**: in der Pull-Request-Liste und in der Ansicht eines Pull Requests `E`.
+Person wählen (aus `personen.tsv`); sie wird als Reviewer gesetzt (bisherige bleiben), die Adresse des Pull Requests
+kommt in Speicherbank 1 (Zwischenablage), und das `review`-Template geht als Direktnachricht per **Mattermost** an
+ihren Mattermost-Benutzer.
 
 ## Jira (Leertaste j)
 

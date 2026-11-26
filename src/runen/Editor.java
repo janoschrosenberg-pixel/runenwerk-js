@@ -129,6 +129,12 @@ final class Editor {
     final Aktualisierung aktualisierung;
     /** Mailclient fuer Exchange (EWS, Leertaste e) */
     final Mail mail;
+    /** Personen: SCM, Mail, Mattermost, Anrede, Name, ID (personen.tsv) */
+    final Personen personen;
+    /** Templates (templates/*.template) */
+    final Vorlagen vorlagen;
+    /** Formular-Fenster (z. B. Personen) */
+    final Formular formular;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
 
     // Einstellungen (config.txt neben der Jar)
@@ -217,6 +223,9 @@ final class Editor {
         jira = new Jira(this);
         aktualisierung = new Aktualisierung(this);
         mail = new Mail(this);
+        personen = new Personen(this);
+        vorlagen = new Vorlagen(this);
+        formular = new Formular(this);
         oa = new OpenApi(this);
         unterschied = new Unterschied(this);
         scm = new Scm(this);
@@ -243,6 +252,9 @@ final class Editor {
         jira.befehle(cmds);
         aktualisierung.befehle(cmds);
         mail.befehle(cmds);
+        personen.befehle(cmds);
+        vorlagen.befehle(cmds);
+        formular.befehle(cmds);
         oa.befehle(cmds);
         unterschied.befehle(cmds);
         scm.befehle(cmds);
@@ -3061,6 +3073,7 @@ final class Editor {
         if (popupOffen) popupMalen();
         if (wz.auswahlOffen) wz.auswahlMalen();
         if (emoji.offen) emoji.malen();
+        if (formular.offen) formular.malen();
         // ------------------------------------------------ Statuszeile
         int sy = H - unten();
         scr.rect(0, sy - 2, W, 2, HUD ? E_TEXT : E_MATT);
@@ -3259,6 +3272,7 @@ final class Editor {
             case "prdiff" -> prAnsicht.lokal ? "DIFF" : "PULL REQUEST";
             case "picker" -> "AUSWAHL";
             case "emoji" -> "EMOJI";
+            case "formular" -> "FORMULAR";
             default -> modus;
         };
     }

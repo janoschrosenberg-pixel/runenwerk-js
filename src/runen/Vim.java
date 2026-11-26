@@ -146,7 +146,8 @@ final class Vim {
     /** Systemzwischenablage als Register; selbst kopiert: Art (Zeilen, Block) behalten */
     private Reg systemLesen() {
         String t = Editor.ausZwischenablage();
-        if (t == null) return null;
+        // ohne Systemzwischenablage (headless, gesperrt): was zuletzt hineinkopiert wurde
+        if (t == null) return baenke[BANK_SYSTEM];
         t = t.replace("\r\n", "\n");
         if (baenke[BANK_SYSTEM] != null && baenke[BANK_SYSTEM].text().equals(t)) return baenke[BANK_SYSTEM];
         return new Reg(t, t.endsWith("\n") ? ZEILEN : ZEICHEN);

@@ -1009,6 +1009,54 @@ final class Mattermost {
         return l;
     }
 
+    /** passender Mattermost-Benutzer zu einem SCM-Benutzer: gleicher Name, gleicher Mail-Anfang oder gleicher voller Name */
+    String passend(String scm, String anzeige, String mail) {
+        String lokal = mail == null || !mail.contains("@") ? null : mail.substring(0, mail.indexOf('@'));
+        String umgedreht = anzeige != null && anzeige.contains(",") ? (anzeige.substring(anzeige.indexOf(',') + 1).strip() + " " + anzeige.substring(0, anzeige.indexOf(',')).strip()) : anzeige;
+        for (String[] u : nutzerListe) if (u[0].equalsIgnoreCase(scm)) return u[0];
+        if (lokal != null) for (String[] u : nutzerListe) if (u[0].equalsIgnoreCase(lokal)) return u[0];
+        for (String[] u : nutzerListe) if (!u[1].isEmpty() && (u[1].equalsIgnoreCase(anzeige) || u[1].equalsIgnoreCase(umgedreht))) return u[0];
+        return "";
+    }
+
+    /** Mattermost-Benutzer, deren Name oder voller Name den Text enthaelt (fuer das Personen-Formular) */
+    List<String> vorschlaege(String q) {
+        String s = q.strip().replaceFirst("^@", "").toLowerCase();
+        List<String> r = new ArrayList<>();
+        for (String[] u : nutzerListe) if (s.isEmpty() || u[0].toLowerCase().contains(s) || u[1].toLowerCase().contains(s)) r.add(u[0]);
+        return r.size() > 50 ? r.subList(0, 50) : r;
+    }
+
+    /** private Nachricht an einen Benutzer senden (ohne Chat-Tab); fertig(null) = gesendet, sonst der Fehler */
+    void direktSenden(String benutzer, String text, java.util.function.Consumer<String> fertig) {
+        String name = benutzer.strip().replaceFirst("^@", "");
+        if (!eingerichtet() || gesperrt || !"ok".equals(status)) {
+            fertig.accept("Mattermost ist nicht verbunden (" + status + ")");
+            return;
+        }
+        hintergrund(() -> {
+            String id = null;
+            for (String[] u : nutzerListe) if (u[0].equalsIgnoreCase(name)) id = u[2];
+            if (id == null) {
+                Antwort u = anfrage("GET", "/users/username/" + java.net.URLEncoder.encode(name, StandardCharsets.UTF_8), null);
+                if (u.code() == 200) id = Json.str(Json.get(Json.parse(u.text()), "id"));
+            }
+            String fehler = null;
+            if (id == null) {
+                fehler = "Mattermost-Benutzer " + name + " nicht gefunden";
+            } else {
+                Antwort k = anfrage("POST", "/channels/direct", List.of(ichId, id));
+                if (k.code() != 200 && k.code() != 201) fehler = "Direktkanal: " + fehlerText(k);
+                else {
+                    Antwort p = anfrage("POST", "/posts", Json.obj("channel_id", Json.str(Json.get(Json.parse(k.text()), "id")), "message", text));
+                    if (p.code() != 200 && p.code() != 201) fehler = "Nachricht: " + fehlerText(p);
+                }
+            }
+            String f = fehler;
+            SwingUtilities.invokeLater(() -> fertig.accept(f));
+        });
+    }
+
     static boolean nameZeichen(char c) {
         return Character.isLetterOrDigit(c) || c == '.' || c == '_' || c == '-';
     }
