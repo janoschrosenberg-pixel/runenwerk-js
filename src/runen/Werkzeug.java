@@ -2964,6 +2964,7 @@ final class Werkzeug {
         c.put("sqlRun", a -> {
             // im Mattermost-Chat sendet Strg+Enter die Nachricht
             if (ed.d().chat != null) ed.mm.senden(ed.d());
+            else if (ed.d().mail != null && ed.d().mail.art.equals("entwurf")) ed.mail.senden(ed.d());
             else sqlLaufen(false);
         });
         /** @binding SQL: fuehrt die ganze Datei aus */

@@ -212,3 +212,14 @@ layout.prog.bild = on
 # dann den Proxy hier eintragen. Werte: host:port, http://benutzer:passwort@host:port, system, off.
 # Interne Dienste laufen direkt, ausser mit mattermost.proxy, jira.proxy, scm.proxy (gleiche Werte).
 # proxy = proxy.example.org:8080
+
+# E-Mail ueber Microsoft Exchange (EWS, Leertaste e): Server (Rechnername oder ganze EWS-Adresse), Benutzer
+# (DOMAENE\name oder name@firma.de) und Passwort; Anmeldung NTLM oder Basic, mail.token = Bearer-Token (OAuth).
+# Eine abgelehnte Anmeldung wird nicht wiederholt (Kontosperre), Leertaste e c meldet neu an. interval: Sekunden
+# zwischen den Abfragen des Posteingangs, count: Mails in der Liste, address: eigene Adresse (fuer "allen antworten")
+# mail.server = mail.firma.de
+# mail.user = FIRMA\name
+# mail.password = geheim
+# mail.address = name@firma.de
+mail.interval = 60
+mail.count = 50

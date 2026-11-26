@@ -127,6 +127,8 @@ final class Editor {
     final Jira jira;
     /** Selbst-Update ueber die GitHub-Releases */
     final Aktualisierung aktualisierung;
+    /** Mailclient fuer Exchange (EWS, Leertaste e) */
+    final Mail mail;
     Runnable neuMalen = () -> {}, beenden = () -> {}, vollbild = () -> {};
 
     // Einstellungen (config.txt neben der Jar)
@@ -214,6 +216,7 @@ final class Editor {
         emoji = new EmojiWahl(this);
         jira = new Jira(this);
         aktualisierung = new Aktualisierung(this);
+        mail = new Mail(this);
         oa = new OpenApi(this);
         unterschied = new Unterschied(this);
         scm = new Scm(this);
@@ -239,6 +242,7 @@ final class Editor {
         emoji.befehle(cmds);
         jira.befehle(cmds);
         aktualisierung.befehle(cmds);
+        mail.befehle(cmds);
         oa.befehle(cmds);
         unterschied.befehle(cmds);
         scm.befehle(cmds);
@@ -315,6 +319,7 @@ final class Editor {
         print("RUNENWERK JS - Editor fuer TypeScript, React, Java und SQL. help zeigt die Befehle. Konfiguration: " + kf.pfad);
         mm.starten();
         jira.starten();
+        mail.starten();
         aktualisierung.beimStart();
     }
 
@@ -2790,7 +2795,7 @@ final class Editor {
         // Terminal-Tabs und .log: Ausgabe-Farben (Maven, Logs, Stacktraces), eigener Code gegen den Index geprueft
         String sp = d.term != null ? "log" : d.chat != null ? "chat" : d.sprache();
         if (sp != null && d.farbenVersion != d.version && d.t.length() < 4_000_000) {
-            d.farben = sp.equals("log") ? Ausgabe.faerben(d.t, eigeneDatei()) : sp.equals("chat") ? Mattermost.faerben(d.t, mm.ich()) : sp.equals("jira") ? Jira.faerben(d.t) : Highlight.faerben(d.t, sp);
+            d.farben = sp.equals("log") ? Ausgabe.faerben(d.t, eigeneDatei()) : sp.equals("chat") ? Mattermost.faerben(d.t, mm.ich()) : sp.equals("jira") ? Jira.faerben(d.t) : sp.equals("mail") ? Mail.faerben(d.t) : Highlight.faerben(d.t, sp);
             d.farbenVersion = d.version;
         }
         oa.pruefenFalls(d);
@@ -2808,12 +2813,24 @@ final class Editor {
         if (HUD && uhr.length() == 6) uhr = uhr.trim() + ":00 ";
         int uw = HUD ? scr.textWidth("  " + uhr) : 0;
         // Mattermost: ungelesene Nachrichten
-        String mmt = mm.anzeige();
+        String mmt = mm.anzeige(), mlt = mail.anzeige();
         int mmw = mmt == null ? 0 : scr.textWidth(" " + mmt + " ") + 2 * cw;
-        int rx = W - scr.textWidth(rechts) - 8 - uw - mmw;
+        int mlw = mlt == null ? 0 : scr.textWidth(" " + mlt + " ") + 2 * cw;
+        int rx = W - scr.textWidth(rechts) - 8 - uw - mmw - mlw;
+        // Mail: ungelesene im Posteingang (links neben Mattermost)
+        if (mlt != null) {
+            boolean neu = mail.ungelesen > 0;
+            int lx = rx + scr.textWidth(rechts), lf = mlt.equals("Mail !") ? E_FEHLER : neu ? E_WARN : E_MATT;
+            if (neu) {
+                scr.rect(lx, 2, scr.textWidth(" " + mlt + " "), bh - 4, lf);
+                scr.text(lx, ty, " " + mlt + " ", E_GRUND);
+            } else {
+                scr.text(lx, ty, " " + mlt + " ", lf);
+            }
+        }
         if (mmt != null) {
             boolean neu = mm.ungelesen + mm.erwaehnt > 0;
-            int mx = rx + scr.textWidth(rechts), mf = mmt.equals("MM !") ? E_FEHLER : neu ? (mm.erwaehnt > 0 ? E_FEHLER : E_WARN) : E_MATT;
+            int mx = rx + scr.textWidth(rechts) + mlw, mf = mmt.equals("MM !") ? E_FEHLER : neu ? (mm.erwaehnt > 0 ? E_FEHLER : E_WARN) : E_MATT;
             if (neu) {
                 scr.rect(mx, 2, scr.textWidth(" " + mmt + " "), bh - 4, mf);
                 scr.text(mx, ty, " " + mmt + " ", E_GRUND);

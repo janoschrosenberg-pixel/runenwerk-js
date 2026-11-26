@@ -505,6 +505,7 @@ Normalmodus sehen will: `statuszeile.kategorien = on` in `config.txt`.
 | `o` Öffnen | `t` Terminal, `y` OpenAPI-Ansicht |
 | `n` Neu | `n` Datei hier, `o` Datei in Ordner, `j` Java-Typ, `r` React-Komponente, `u` Komponente aus JSX (siehe „Dateien anlegen“) |
 | `j` Jira | `m` meine Tickets, `s` Sprint-Board, `o` Ticket öffnen, `r` neu laden, `b` im Browser, `t` Tagebuch heute, `T` Tagebuch: Tag wählen (siehe „Jira“) |
+| `e` E-Mail | `e` Posteingang, `n` neue Mail, `a` antworten, `A` allen antworten, `w` weiterleiten, `d` löschen, `s` senden, `r` neu laden, `c` neu anmelden, `i` Verbindung (siehe „E-Mail“) |
 | `m` Mattermost | `m` Kanal öffnen, `d` private Nachricht, `u` nächster ungelesener, `s` senden, `+` reagieren, `e` Emoji einfügen, `r` neu laden, `p` Personenliste neu, `c` neu anmelden, `i` Verbindung (siehe „Mattermost“) |
 
 Frühere Kürzel ohne Kategorie sind umgezogen: `Leertaste f` → `c f`, `r` → `c r`, `i` → `c i`, `h` → `c h`, `e` → `c e`,
@@ -588,6 +589,37 @@ erscheinen sofort, Entwurf und Cursor bleiben dabei stehen. Ein sichtbarer Chat 
 höchstens alle 10 Sekunden). `Leertaste m u` wählt den nächsten Kanal mit Ungelesenem, `Leertaste m r` lädt
 Kanalliste und Kanal sofort neu, `Leertaste m c` meldet sich neu an, `:q` schließt den Chat (dann ist kein Kanal
 mehr gewählt).
+
+## E-Mail (Leertaste e)
+
+Kleiner Mailclient für Microsoft Exchange über **EWS** (Exchange Web Services, SOAP über HTTPS; jeder Exchange, den
+Outlook über RPC/HTTP oder MAPI/HTTP erreicht, bietet auch EWS). In `config.txt`:
+
+```
+mail.server = mail.firma.de          # oder die ganze Adresse https://mail.firma.de/EWS/Exchange.asmx
+mail.user = FIRMA\name               # oder name@firma.de
+mail.password = geheim
+mail.address = name@firma.de         # eigene Adresse, damit "allen antworten" sie weglässt
+# mail.token = ...                   # statt Benutzer/Passwort ein OAuth-Token (Bearer), z. B. für Exchange Online
+```
+
+Angemeldet wird mit NTLM oder Basic (was der Server anbietet). Beim Start meldet sich der Editor an und zählt dann alle
+`mail.interval` Sekunden (Vorgabe 60) die ungelesenen Mails im Posteingang (eine kleine Anfrage). Oben in der
+Tab-Leiste steht `Mail` bzw. hinterlegt `Mail 3 neu`, bei einem Fehler `Mail !`; kommt eine neue Mail, zeigt die
+Statuszeile Absender und Betreff. Eine **abgelehnte Anmeldung wird nicht wiederholt** (sonst sperrt das Active
+Directory das Konto), bis `Leertaste e c` neu anmeldet.
+
+| Taste | |
+|---|---|
+| Leertaste e e | Posteingang: die neuesten `mail.count` Mails (Vorgabe 50), `*` = ungelesen; ENTER öffnet eine Mail (sie gilt dann als gelesen) |
+| Leertaste e n | neue Mail: `An:`, `Cc:`, `Betreff:`, darunter nach der Trennlinie der Text; **Strg+Enter** (oder `Leertaste e s`) sendet, Adressen mit Komma trennen |
+| Leertaste e a / A | auf die geöffnete Mail antworten bzw. allen antworten (Betreff `AW:`, Original zitiert) |
+| Leertaste e w | weiterleiten (Betreff `WG:`) |
+| Leertaste e d | Mail unter dem Cursor bzw. die geöffnete in „Gelöschte Elemente“ (mit Rückfrage) |
+| Leertaste e r / c / i | neu laden, neu anmelden, Verbindungsstand |
+
+Gesendete Mails landen in „Gesendete Elemente“. Anhänge zeigt der Client nur an (`[Anhang]`), öffnen geht im Outlook.
+`mail.proxy` setzt einen Proxy, falls der Server nur über einen erreichbar ist.
 
 ## Jira (Leertaste j)
 
