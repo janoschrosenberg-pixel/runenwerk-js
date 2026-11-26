@@ -599,21 +599,60 @@ final class Scm {
             }
         }
         if (r.isEmpty()) {
-            for (String v : "aeiouy".split("")) {
-                for (String k : "bcdfghjklmnprstvwz".split("")) {
-                    for (String q : new String[] {v + k, k + v}) {
-                        Antwort s = anfrage("GET", "/autocomplete/users?q=" + q + "&limit=100", null, null);
-                        if (s.code() != 200) continue;
+            // ohne das Recht, Benutzer zu lesen: wie die Reviewer-Suche ueber die Vorschlaege (viele Suchen mit zwei
+            // Buchstaben); manche Server lehnen limit ab (HTTP 400), dann ohne
+            Map<String, String[]> sync = java.util.Collections.synchronizedMap(r);
+            boolean[] ohneLimit = {false};
+            Antwort probe = anfrage("GET", "/autocomplete/users?q=an&limit=100", null, null);
+            if (probe.code() == 400) ohneLimit[0] = true;
+            List<String> suchen = new ArrayList<>();
+            for (String v : "aeiouy".split("")) for (String k : "bcdfghjklmnprstvwz".split("")) {
+                suchen.add(v + k);
+                suchen.add(k + v);
+            }
+            // liefert eine Suche die volle Trefferzahl (ohne limit meist 5), fehlen vielleicht welche: mit einem
+            // Buchstaben mehr weitersuchen (hoechstens bis vier Buchstaben, hoechstens 3000 Suchen)
+            int voll = ohneLimit[0] ? 5 : 100, gesamt = 0;
+            for (int tiefe = 2; !suchen.isEmpty() && tiefe <= 4 && gesamt < 3000; tiefe++) {
+                List<String> weiter = java.util.Collections.synchronizedList(new ArrayList<>());
+                List<Thread> th = new ArrayList<>();
+                for (String q : suchen) {
+                    Thread t = new Thread(() -> {
+                        Antwort s = anfrage("GET", "/autocomplete/users?q=" + q + (ohneLimit[0] ? "" : "&limit=100"), null, null);
+                        if (s.code() == 400 && !ohneLimit[0]) s = anfrage("GET", "/autocomplete/users?q=" + q, null, null);
+                        if (s.code() != 200) return;
                         try {
-                            for (Object u : Json.list(Json.parse(s.text()))) {
+                            List<Object> l = Json.list(Json.parse(s.text()));
+                            for (Object u : l) {
                                 String id = Json.str(Json.get(u, "id"));
-                                if (id != null) r.putIfAbsent(id, new String[] {id, nz(Json.str(Json.get(u, "displayName"))), nz(Json.str(Json.get(u, "mail")))});
+                                if (id != null) sync.putIfAbsent(id, new String[] {id, nz(Json.str(Json.get(u, "displayName"))), nz(Json.str(Json.get(u, "mail")))});
                             }
+                            if (l.size() >= voll) for (char c = 'a'; c <= 'z'; c++) weiter.add(q + c);
                         } catch (RuntimeException e) {
                             // naechste Suche
                         }
+                    }, "scm-benutzer");
+                    t.setDaemon(true);
+                    th.add(t);
+                }
+                gesamt += th.size();
+                // in Gruppen, damit der Server nicht Hunderte Anfragen auf einmal bekommt
+                for (int i = 0; i < th.size(); i += 12) {
+                    for (int j = i; j < Math.min(th.size(), i + 12); j++) th.get(j).start();
+                    for (int j = i; j < Math.min(th.size(), i + 12); j++) {
+                        try {
+                            th.get(j).join(30_000);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
                 }
+                suchen = new ArrayList<>(weiter);
+                if (gesamt + suchen.size() > 3000) suchen = suchen.subList(0, Math.max(0, 3000 - gesamt));
+            }
+            // dazu, wer schon bekannt ist (Autoren und Reviewer der geladenen Pull Requests)
+            synchronized (benutzer) {
+                for (Map.Entry<String, String> e : benutzer.entrySet()) r.putIfAbsent(e.getKey(), new String[] {e.getKey(), nz(e.getValue()), ""});
             }
         }
         for (String[] u : r.values()) if (u[1].isEmpty()) u[1] = u[0];

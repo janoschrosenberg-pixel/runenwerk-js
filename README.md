@@ -638,8 +638,9 @@ Name und eine eigene ID. Gespeichert wird in `personen.tsv` neben `config.txt` (
 
 TAB/Shift-TAB oder Pfeile wechseln das Feld, **Strg+Leertaste** geht die passenden Mattermost-Benutzer durch (zum
 getippten Text), Strg+U leert das Feld, ENTER speichert, Strg+X überspringt, ESC bricht ab (ein neuer Abgleich macht
-mit den übrigen weiter). `Leertaste p e` bearbeitet eine Person. Die SCM-Benutzerliste braucht das Recht, Benutzer zu
-lesen; sonst werden die Namen aus Vorschlägen gesammelt.
+mit den übrigen weiter). `Leertaste p e` bearbeitet eine Person. Mit dem Recht, Benutzer zu lesen, kommt die
+SCM-Benutzerliste in einem Stück; ohne dieses Recht sammelt der Editor die Benutzer wie die Reviewer-Suche über die
+Vorschläge (Suchen mit zwei Buchstaben, bei voller Trefferzahl mit einem Buchstaben mehr), das dauert etwas länger.
 
 **Templates** sind Textbausteine in `templates/NAME.template` neben `config.txt`; `review.template` ist vorgegeben:
 
